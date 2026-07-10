@@ -1,0 +1,12 @@
+services:
+  gpmidi-ui:
+    build: .
+    image: gpmidi-ui:latest
+    container_name: gpmidi-ui
+    restart: always            # автозапуск после ребута хоста / рестарта демона
+    ports:
+      - "8082:8080"            # как у прежнего контейнера
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+    volumes:
+      - ./data:/app/data       # сессии/загрузки переживают пересборку образа

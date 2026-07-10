@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+venv/
+
+# Local app/session data
+/data/
+/renders/
+
+# Generated converter outputs
+*_midi/
+*.mid
+*.midi
+*.zip
+
+# Local uploads / fixtures not meant for source control
+*.gp
+*.gp3
+*.gp4
+*.gp5
+*.gpx
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

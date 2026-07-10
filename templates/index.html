@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>конвертер midi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="mark">M</div>
+        <div>
+          <div class="name">конвертер midi</div>
+          <div class="sub">Guitar Pro → Logic / Shreddage</div>
+        </div>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="panel upload-panel">
+          <div class="panel-head compact-head">
+            <div>
+              <h2>Новая загрузка</h2>
+              <p class="muted">Перетащи `.gp` / `.gp5` и сразу получи MIDI-дорожки.</p>
+            </div>
+            <form action="{{ url_for('new_session') }}" method="post">
+              <button type="submit" class="btn ghost">Новая сессия</button>
+            </form>
+          </div>
+
+          <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" id="uploadForm" class="upload-form">
+            <input type="file" name="file" id="fileInput" accept=".gp,.gp3,.gp4,.gp5,.gpx" hidden>
+            <label class="dropzone" for="fileInput" id="dropzone">
+              <span class="drop-icon">♪</span>
+              <strong>Перетащи файл мышкой</strong>
+              <span>или нажми для выбора</span>
+              <small>До {{ max_size_mb }} МБ</small>
+            </label>
+            <div class="form-actions">
+              <button type="button" class="btn" id="pickBtn">Выбрать файл</button>
+              <button type="submit" class="btn primary">Разобрать</button>
+            </div>
+            <div class="filename muted" id="filename">Файл не выбран</div>
+          </form>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <div class="panel sessions-panel">
+          <div class="panel-head compact-head">
+            <div>
+              <h2>Сессии</h2>
+              <p class="muted">Последние загруженные файлы в этом браузере</p>
+            </div>
+            <span class="count-pill">{{ jobs|length }}</span>
+          </div>
+
+          {% if jobs %}
+            <div class="session-list">
+              {% for job in jobs %}
+                <a class="session-item {% if current_job and current_job.id == job.id %}active{% endif %}" href="{{ url_for('job_details', job_id=job.id) }}">
+                  <div class="session-main">
+                    <div class="session-name">{{ job.original_name }}</div>
+                    <div class="session-meta">{{ job.created_at }}</div>
+                  </div>
+                  <span class="mini-tag">{{ job.song.tracks }} трек.</span>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="muted empty-note">Пока пусто. Начни с загрузки первого файла.</p>
+          {% endif %}
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumbs">
+          <span>GP</span>
+          <span class="sep">/</span>
+          <span>конвертация</span>
+          {% if current_job %}
+            <span class="sep">/</span>
+            <span class="here">{{ current_job.original_name }}</span>
+          {% endif %}
+        </div>
+      </header>
+
+      <div class="page">
+        {% if current_job %}
+          <section class="page-head">
+            <div>
+              <h1>{{ current_job.original_name }}</h1>
+              <p class="subtitle">Разобрано {{ current_job.created_at }}. Клик по строке открывает piano-roll, таблицу артикуляций и мини-плеер с перемоткой.</p>
+            </div>
+            <div class="head-actions">
+              <a class="btn primary" href="{{ current_job.zip_url }}">Скачать ZIP</a>
+              <form action="{{ url_for('delete_job', job_id=current_job.id) }}" method="post">
+                <button class="btn danger" type="submit">Удалить сессию</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="stats-grid">
+            <article class="stat-card">
+              <span class="label">Название</span>
+              <div class="value truncate-strong">{{ current_job.song.title }}</div>
+            </article>
+            <article class="stat-card">
+              <span class="label">Темп</span>
+              <div class="value tabular">{{ current_job.song.tempo }} BPM</div>
+            </article>
+            <article class="stat-card">
+              <span class="label">Треков</span>
+              <div class="value tabular">{{ current_job.song.tracks }}</div>
+            </article>
+            <article class="stat-card">
+              <span class="label">Тактов</span>
+              <div class="value tabular">{{ current_job.song.measures }}</div>
+            </article>
+            <article class="stat-card wide">
+              <span class="label">Размеры</span>
+              <div class="value small-value">{{ current_job.song.time_signatures|join(', ') }}</div>
+            </article>
+            <article class="stat-card wide">
+              <span class="label">Артист / альбом</span>
+              <div class="value small-value">{{ current_job.song.artist }} / {{ current_job.song.album }}</div>
+            </article>
+          </section>
+
+          {% if current_job.warnings %}
+            <section class="panel notice-panel">
+              <div class="panel-head compact-head">
+                <div>
+                  <h2>Без маппинга</h2>
+                  <p class="muted">Эти треки не распознаны как гитара/бас и сохранены as-is.</p>
+                </div>
+              </div>
+              <div class="warning-list">
+                {% for warning in current_job.warnings %}
+                  <span class="badge warn plain">{{ warning }}</span>
+                {% endfor %}
+              </div>
+            </section>
+          {% endif %}
+
+          <section class="panel table-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Отдельные дорожки</h2>
+                <p class="muted">Кликни на строку: откроется preview, артикуляции и мини-плеер с инструментальным пресетом.</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl tracks-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Трек</th>
+                    <th>Тип</th>
+                    <th>Нот</th>
+                    <th>KS</th>
+                    <th>CC1</th>
+                    <th>Артикуляции</th>
+                    <th>Инструмент</th>
+                    <th>Файл</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for track in current_job.tracks %}
+                    <tr
+                      class="track-summary-row"
+                      data-preview-row="preview-{{ track.index }}"
+                      data-preview-url="{{ track.preview_url }}"
+                    >
+                      <td class="mono num">{{ track.index }}</td>
+                      <td>
+                        <div class="track-name">{{ track.track_name }}</div>
+                        <div class="track-tags">
+                          {% for item in track.fix_categories %}
+                            <span class="chip">{{ item }}</span>
+                          {% endfor %}
+                        </div>
+                      </td>
+                      <td>
+                        <span class="badge {% if track.track_type == 'GUITAR' %}accent{% elif track.track_type == 'BASS' %}ok{% else %}warn{% endif %}">{{ track.track_type_label }}</span>
+                      </td>
+                      <td class="num">{{ track.stats.notes }}</td>
+                      <td class="num">{{ track.stats.ks }}</td>
+                      <td class="num">{{ track.stats.cc1 }}</td>
+                      <td>
+                        <div class="art-summary">
+                          {% if track.preview_articulations %}
+                            {% for art, count in track.preview_articulations.items() %}
+                              <span class="badge plain art-pill art-{{ art }}">{{ art }} · {{ count }}</span>
+                            {% endfor %}
+                          {% else %}
+                            <span class="muted">—</span>
+                          {% endif %}
+                        </div>
+                      </td>
+                      <td>
+                        <span class="badge plain instrument-pill">{{ track.preview_instrument }}</span>
+                        <div class="mini-stat">{{ '%.1f'|format((track.preview_duration_ms or 0) / 1000) }} c</div>
+                      </td>
+                      <td class="mono file-col">{{ track.download_name }}</td>
+                      <td class="actions-col">
+                        <a class="btn btn-sm primary" href="{{ track.download_url }}">Скачать</a>
+                      </td>
+                    </tr>
+                    <tr class="preview-row is-hidden" id="preview-{{ track.index }}">
+                      <td colspan="10">
+                        <div class="preview-loading">Загружаю preview...</div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        {% else %}
+          <section class="empty-state panel">
+            <h1>конвертер midi</h1>
+            <p class="subtitle">Нажми «Новая сессия» или просто загрузи `.gp/.gp5` файл слева. После этого появятся дорожки, preview MIDI и мини-плеер.</p>
+          </section>
+        {% endif %}
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
+  <script>
+    const input = document.getElementById('fileInput');
+    const dropzone = document.getElementById('dropzone');
+    const pickBtn = document.getElementById('pickBtn');
+    const filename = document.getElementById('filename');
+    const form = document.getElementById('uploadForm');
+    const previewCache = new Map();
+    let activePlayer = null;
+
+    function showName(file) {
+      filename.textContent = file ? `Выбран файл: ${file.name}` : 'Файл не выбран';
+    }
+
+    if (pickBtn) pickBtn.addEventListener('click', () => input.click());
+    if (input) input.addEventListener('change', () => showName(input.files[0]));
+
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropzone.addEventListener(evt, e => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+      dropzone.addEventListener(evt, e => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+      });
+    });
+
+    dropzone.addEventListener('drop', e => {
+      const files = e.dataTransfer.files;
+      if (files.length) {
+        input.files = files;
+        showName(files[0]);
+      }
+    });
+
+    form.addEventListener('submit', () => {
+      if (input.files.length) filename.textContent = 'Обрабатываю файл...';
+    });
+
+    function formatMs(ms) {
+      const total = Math.max(0, Math.floor(ms / 1000));
+      const minutes = Math.floor(total / 60);
+      const seconds = String(total % 60).padStart(2, '0');
+      return `${minutes}:${seconds}`;
+    }
+
+    const PRESET_MAP = {
+      acoustic: { instrument: 'acoustic_guitar_steel', gain: 0.85, attack: 0.005, release: 0.18 },
+      rhythm: { instrument: 'overdriven_guitar', gain: 0.92, attack: 0.003, release: 0.16 },
+      solo: { instrument: 'distortion_guitar', gain: 0.96, attack: 0.002, release: 0.22 },
+      bass: { instrument: 'electric_bass_finger', gain: 0.95, attack: 0.006, release: 0.22 },
+      strings: { instrument: 'string_ensemble_1', gain: 0.82, attack: 0.03, release: 0.35 },
+      voice: { instrument: 'choir_aahs', gain: 0.8, attack: 0.02, release: 0.28 },
+      keys: { instrument: 'acoustic_grand_piano', gain: 0.88, attack: 0.004, release: 0.18 },
+      drums: { instrument: 'synth_drum', gain: 0.82, attack: 0.001, release: 0.08 },
+      default: { instrument: 'electric_piano_1', gain: 0.84, attack: 0.005, release: 0.18 },
+    };
+    const SOUNDFONT_BASE = 'https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/MusyngKite/';
+    const soundfontCache = new Map();
+    let sharedAudioCtx = null;
+
+    function getAudioContext() {
+      if (!sharedAudioCtx) {
+        sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      return sharedAudioCtx;
+    }
+
+    async function loadInstrument(player, presetName = player.instrumentPreset) {
+      if (!window.Soundfont) throw new Error('soundfont-player not loaded');
+      const preset = PRESET_MAP[presetName];
+      const instrumentName = preset ? preset.instrument : (presetName || PRESET_MAP.default.instrument);
+      const cacheKey = instrumentName;
+      if (!soundfontCache.has(cacheKey)) {
+        soundfontCache.set(cacheKey, window.Soundfont.instrument(player.audioCtx, instrumentName, {
+          format: 'mp3',
+          soundfont: 'MusyngKite',
+          nameToUrl: (name, soundfont, format) => `${SOUNDFONT_BASE}${name}-${format}.js`,
+        }).catch(error => {
+          soundfontCache.delete(cacheKey);
+          throw error;
+        }));
+      }
+      return soundfontCache.get(cacheKey);
+    }
+
+    function notePreset(player, note) {
+      const base = PRESET_MAP[player.instrumentPreset] || PRESET_MAP.default;
+      const preset = { ...base, durationScale: 1 };
+      if (player.instrumentPreset === 'drums') {
+        if (note.pitch <= 36) preset.instrument = 'taiko_drum';
+        else if ([38, 40].includes(note.pitch)) preset.instrument = 'orchestra_hit';
+        else if ([41, 43, 45, 47, 48, 50].includes(note.pitch)) preset.instrument = 'melodic_tom';
+        else if ([42, 44, 46, 49, 51, 52, 55, 57, 59].includes(note.pitch)) preset.instrument = 'reverse_cymbal';
+        else preset.instrument = 'synth_drum';
+      }
+      if (note.articulation_key === 'mute') {
+        preset.gain *= 0.65;
+        preset.release = Math.min(preset.release, 0.1);
+        preset.durationScale = 0.55;
+      }
+      if (note.articulation_key === 'harmonics') {
+        preset.instrument = player.instrumentPreset === 'bass' ? 'electric_bass_finger' : 'electric_guitar_clean';
+        preset.gain *= 0.8;
+      }
+      if (note.articulation_key === 'tremolo') {
+        preset.durationScale = 0.75;
+      }
+      if (note.modifiers?.includes('vibrato')) {
+        preset.gain *= 1.03;
+      }
+      if (note.modifiers?.includes('legato')) {
+        preset.attack = Math.max(0.001, preset.attack * 0.5);
+      }
+      if (note.modifiers?.includes('pinch')) {
+        preset.instrument = player.instrumentPreset === 'bass' ? 'slap_bass_1' : 'overdriven_guitar';
+        preset.gain *= 1.06;
+      }
+      return preset;
+    }
+
+    function buildBendSteps(note) {
+      if (!note.modifiers?.includes('bend/slide')) return [note.pitch];
+      const target = Number.isFinite(note.bend_target_pitch) ? note.bend_target_pitch : (note.pitch + (Number(note.bend_semitones) || 2));
+      const bendAmount = Math.abs(target - note.pitch);
+      const durationMs = Math.max(1, Number(note.duration_ms) || 0);
+      const steps = Math.max(8, Math.min(24, Math.round((durationMs / 28) + (bendAmount * 2))));
+      return Array.from({ length: steps }, (_, idx) => {
+        const ratio = steps === 1 ? 1 : idx / (steps - 1);
+        return note.pitch + ((target - note.pitch) * ratio);
+      });
+    }
+
+    function collectRequiredInstruments(player) {
+      const names = new Set();
+      const basePreset = PRESET_MAP[player.instrumentPreset] || PRESET_MAP.default;
+      names.add(basePreset.instrument);
+      player.notes.slice(0, 160).forEach(note => {
+        const preset = notePreset(player, note);
+        if (preset.instrument) names.add(preset.instrument);
+      });
+      return Array.from(names);
+    }
+
+    function clampMs(player, value) {
+      return Math.max(0, Math.min(player.durationMs, Number(value) || 0));
+    }
+
+    function updatePlayhead(player) {
+      if (!player.playhead) return;
+      const ratio = player.durationMs ? (player.currentMs / player.durationMs) : 0;
+      player.playhead.style.left = `${Math.max(0, Math.min(100, ratio * 100))}%`;
+    }
+
+    function syncPlayerUi(player) {
+      player.seek.value = clampMs(player, player.currentMs);
+      player.timeLabel.textContent = `${formatMs(player.currentMs)} / ${formatMs(player.durationMs)}`;
+      updatePlayhead(player);
+    }
+
+    function stopPlayer(player, preservePosition = true) {
+      if (!player) return;
+      if (player.isPlaying && preservePosition) {
+        player.currentMs = Math.min(
+          player.durationMs,
+          player.playbackOffsetMs + (performance.now() - player.startedAtPerfMs)
+        );
+      }
+      player.isPlaying = false;
+      player.timeouts.forEach(id => clearTimeout(id));
+      player.timeouts = [];
+      player.oscillators.forEach(item => {
+        try { item.stop?.(); } catch (e) {}
+        try { item.disconnect?.(); } catch (e) {}
+        try { item.osc.stop(); } catch (e) {}
+        try { item.osc.disconnect(); } catch (e) {}
+        try { item.gain.disconnect(); } catch (e) {}
+        try { item.filter.disconnect(); } catch (e) {}
+      });
+      player.oscillators = [];
+      if (player.rafId) cancelAnimationFrame(player.rafId);
+      player.rafId = null;
+      player.playBtn.textContent = 'Play';
+      syncPlayerUi(player);
+    }
+
+    function scheduleNote(player, note) {
+      const preset = notePreset(player, note);
+      const delay = Math.max(0, note.start_ms - player.playbackOffsetMs);
+      const timeoutId = setTimeout(async () => {
+        if (!player.isPlaying) return;
+        const instrument = await loadInstrument(player, preset.instrument);
+        if (!player.isPlaying) return;
+        const noteDurationSec = Math.max(0.02, (Number(note.duration_ms) || 0) / 1000);
+        const isShortNote = noteDurationSec <= 0.16;
+        const effectiveScale = isShortNote ? Math.min(preset.durationScale, 0.92) : preset.durationScale;
+        const durationSec = Math.max(0.02, noteDurationSec * effectiveScale);
+        const targetGain = Math.max(0.05, Math.min(1.2, preset.gain * (0.55 + (note.velocity / 127))));
+        const bendSteps = buildBendSteps(note);
+        const segmentSec = durationSec / bendSteps.length;
+        const shortRelease = Math.min(preset.release, Math.max(0.012, noteDurationSec * 0.18));
+        bendSteps.forEach((pitch, idx) => {
+          const when = player.audioCtx.currentTime + (segmentSec * idx);
+          const isLast = idx === bendSteps.length - 1;
+          const voice = instrument.play(pitch, when, {
+            gain: idx === 0 ? targetGain : targetGain * 0.92,
+            attack: idx === 0 ? preset.attack : 0.001,
+            release: isLast ? (isShortNote ? shortRelease : preset.release) : 0.01,
+            duration: Math.max(0.02, segmentSec + (isLast ? (isShortNote ? shortRelease : Math.min(preset.release, noteDurationSec * 0.35 + 0.02)) : 0)),
+          });
+          player.oscillators.push(voice);
+        });
+      }, delay);
+      player.timeouts.push(timeoutId);
+    }
+
+    async function startPlayer(player) {
+      if (activePlayer && activePlayer !== player) stopPlayer(activePlayer, true);
+      activePlayer = player;
+      if (!player.audioCtx) player.audioCtx = getAudioContext();
+      if (player.audioCtx.state === 'suspended') await player.audioCtx.resume();
+
+      player.playBtn.disabled = true;
+      player.playBtn.textContent = 'Loading…';
+      try {
+        await Promise.all(collectRequiredInstruments(player).map(name => loadInstrument(player, name)));
+      } catch (error) {
+        player.playBtn.disabled = false;
+        player.playBtn.textContent = 'Play';
+        console.error('soundfont load failed', error);
+        throw error;
+      }
+      player.playBtn.disabled = false;
+
+      stopPlayer(player, true);
+      player.currentMs = clampMs(player, player.currentMs);
+      player.playbackOffsetMs = player.currentMs;
+      player.startedAtCtxTime = player.audioCtx.currentTime;
+      player.startedAtPerfMs = performance.now();
+      player.isPlaying = true;
+      player.playBtn.textContent = 'Pause';
+      syncPlayerUi(player);
+
+      player.notes.filter(note => note.end_ms > player.playbackOffsetMs).forEach(note => scheduleNote(player, note));
+
+      const tick = () => {
+        if (!player.isPlaying) return;
+        player.currentMs = Math.min(
+          player.durationMs,
+          player.playbackOffsetMs + (performance.now() - player.startedAtPerfMs)
+        );
+        syncPlayerUi(player);
+        if (player.currentMs >= player.durationMs) {
+          player.currentMs = 0;
+          player.playbackOffsetMs = 0;
+          stopPlayer(player, true);
+          syncPlayerUi(player);
+          return;
+        }
+        player.rafId = requestAnimationFrame(tick);
+      };
+      player.rafId = requestAnimationFrame(tick);
+    }
+
+    async function seekTo(player, nextMs, shouldResume = false) {
+      const resume = shouldResume ?? player.isPlaying;
+      stopPlayer(player, true);
+      player.currentMs = clampMs(player, nextMs);
+      player.playbackOffsetMs = player.currentMs;
+      syncPlayerUi(player);
+      if (resume) await startPlayer(player);
+    }
+
+    function buildArticulationSummary(counts) {
+      const entries = Object.entries(counts || {});
+      if (!entries.length) return '<span class="muted">Нет артикуляционных событий</span>';
+      return entries
+        .sort((a, b) => b[1] - a[1])
+        .map(([art, count]) => `<span class="badge plain art-pill art-${art}">${art} · ${count}</span>`)
+        .join('');
+    }
+
+    function buildPreviewMarkup(data) {
+      const total = Math.max(1, data.duration_ms || 1);
+      const minPitch = data.pitch_min;
+      const maxPitch = data.pitch_max;
+      const pitchSpan = Math.max(1, maxPitch - minPitch + 1);
+      const instrumentLabel = data.instrument_preset || 'default';
+      const presetOptions = Object.keys(PRESET_MAP).map(name => `
+        <option value="${name}" ${name === instrumentLabel ? 'selected' : ''}>${name}</option>
+      `).join('');
+
+      const bars = data.notes.map(note => {
+        const left = (note.start_ms / total) * 100;
+        const width = Math.max(0.6, (note.duration_ms / total) * 100);
+        const top = ((maxPitch - note.pitch) / pitchSpan) * 100;
+        const mods = (note.modifiers || []).map(mod => `mod-${mod.replace(/[^a-z0-9]+/gi, '-')}`).join(' ');
+        return `<div class="roll-note art-${note.articulation_key} ${mods}" style="left:${left}%;width:${width}%;top:${top}%;" title="${note.note_name} · ${note.articulation}"></div>`;
+      }).join('');
+
+      const noteRows = data.notes.map(note => `
+        <tr>
+          <td class="mono num">${note.note_name}</td>
+          <td class="num">${note.velocity}</td>
+          <td class="num">${(note.start_ms / 1000).toFixed(2)}s</td>
+          <td class="num">${(note.duration_ms / 1000).toFixed(2)}s</td>
+          <td><span class="badge plain art-pill art-${note.articulation_key}">${note.articulation}</span></td>
+          <td>
+            <div class="modifier-list">
+              ${(note.modifiers || []).length
+                ? note.modifiers.map(mod => `<span class="badge plain modifier-pill mod-${mod.replace(/[^a-z0-9]+/gi, '-')}">${mod}</span>`).join('')
+                : '<span class="muted">—</span>'}
+            </div>
+          </td>
+        </tr>
+      `).join('');
+
+      return `
+        <div class="preview-shell" data-player-root>
+          <div class="player-bar sticky-player-bar">
+            <div class="player-controls">
+              <button type="button" class="btn btn-sm primary" data-play-btn>Play</button>
+              <button type="button" class="btn btn-sm" data-restart-btn>С начала</button>
+            </div>
+            <input type="range" min="0" max="${Math.max(1, data.duration_ms)}" value="0" step="10" data-seek>
+            <div class="time-label mono" data-time-label>0:00 / ${formatMs(data.duration_ms)}</div>
+          </div>
+          <div class="preview-summary">
+            <span class="badge accent plain">${data.note_count} нот</span>
+            <label class="preset-select-wrap">
+              <span class="muted">Preset</span>
+              <select data-preset-select>
+                ${presetOptions}
+              </select>
+            </label>
+            <span class="badge plain">диапазон ${data.pitch_min}–${data.pitch_max}</span>
+            <span class="badge plain">длина ${formatMs(data.duration_ms)}</span>
+          </div>
+          <div class="art-summary preview-art-summary">${buildArticulationSummary(data.articulation_counts)}</div>
+          <div class="roll-frame" data-roll-frame>
+            <div class="roll-grid"></div>
+            <div class="roll-playhead" data-playhead></div>
+            <div class="roll-notes">${bars}</div>
+          </div>
+          <div class="preview-note-table-wrap">
+            <table class="tbl preview-note-table">
+              <thead>
+                <tr>
+                  <th>Нота</th>
+                  <th>Vel</th>
+                  <th>Старт</th>
+                  <th>Длит.</th>
+                  <th>Артикуляция</th>
+                  <th>Modifiers</th>
+                </tr>
+              </thead>
+              <tbody>${noteRows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function wirePlayer(root, data) {
+      const playBtn = root.querySelector('[data-play-btn]');
+      const restartBtn = root.querySelector('[data-restart-btn]');
+      const seek = root.querySelector('[data-seek]');
+      const timeLabel = root.querySelector('[data-time-label]');
+      const presetSelect = root.querySelector('[data-preset-select]');
+      const playhead = root.querySelector('[data-playhead]');
+      const rollFrame = root.querySelector('[data-roll-frame]');
+      const state = {
+        notes: data.notes.map((note, idx, arr) => {
+          const next = arr[idx + 1];
+          let previewTargetPitch = note.pitch + 2;
+          if (next && Math.abs((next.start_ms ?? 0) - (note.end_ms ?? 0)) <= 260) {
+            previewTargetPitch = next.pitch;
+          }
+          return { ...note, previewTargetPitch };
+        }),
+        instrumentPreset: data.instrument_preset || 'default',
+        durationMs: Math.max(1, data.duration_ms || 1),
+        currentMs: 0,
+        playbackOffsetMs: 0,
+        startedAtCtxTime: 0,
+        startedAtPerfMs: 0,
+        audioCtx: null,
+        isPlaying: false,
+        timeouts: [],
+        oscillators: [],
+        rafId: null,
+        playBtn,
+        seek,
+        timeLabel,
+        presetSelect,
+        playhead,
+        rollFrame,
+        resumeAfterSeek: false,
+      };
+
+      syncPlayerUi(state);
+
+      playBtn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (state.isPlaying) {
+          stopPlayer(state, true);
+        } else {
+          try {
+            await startPlayer(state);
+          } catch (error) {
+            console.error('preview playback failed', error);
+          }
+        }
+      });
+
+      restartBtn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        await seekTo(state, 0, true);
+      });
+
+      seek.addEventListener('click', event => event.stopPropagation());
+      seek.addEventListener('pointerdown', event => {
+        event.stopPropagation();
+        state.resumeAfterSeek = state.isPlaying;
+        if (state.isPlaying) stopPlayer(state, true);
+      });
+
+      seek.addEventListener('input', event => {
+        event.stopPropagation();
+        state.currentMs = clampMs(state, seek.value);
+        state.playbackOffsetMs = state.currentMs;
+        syncPlayerUi(state);
+      });
+
+      seek.addEventListener('change', async event => {
+        event.stopPropagation();
+        await seekTo(state, seek.value, state.resumeAfterSeek);
+        state.resumeAfterSeek = false;
+      });
+
+      presetSelect.addEventListener('click', event => event.stopPropagation());
+      presetSelect.addEventListener('change', async event => {
+        event.stopPropagation();
+        state.instrumentPreset = presetSelect.value || 'default';
+        try {
+          if (!state.audioCtx) state.audioCtx = getAudioContext();
+          await loadInstrument(state, state.instrumentPreset);
+        } catch (error) {
+          console.error('soundfont load failed', error);
+        }
+      });
+
+      rollFrame.addEventListener('click', async event => {
+        event.stopPropagation();
+        const rect = rollFrame.getBoundingClientRect();
+        const ratio = rect.width ? ((event.clientX - rect.left) / rect.width) : 0;
+        await seekTo(state, state.durationMs * Math.max(0, Math.min(1, ratio)), state.isPlaying);
+      });
+    }
+
+    async function ensurePreview(url, row) {
+      if (!previewCache.has(url)) {
+        const response = await fetch(url, { credentials: 'same-origin' });
+        if (!response.ok) throw new Error(`preview ${response.status}`);
+        previewCache.set(url, await response.json());
+      }
+      const data = previewCache.get(url);
+      const cell = row.querySelector('td');
+      if (!row.dataset.loaded) {
+        cell.innerHTML = buildPreviewMarkup(data);
+        wirePlayer(cell.querySelector('[data-player-root]'), data);
+        row.dataset.loaded = '1';
+      }
+    }
+
+    async function togglePreview(summaryRow) {
+      const targetId = summaryRow.dataset.previewRow;
+      const url = summaryRow.dataset.previewUrl;
+      const row = document.getElementById(targetId);
+      const isHidden = row.classList.contains('is-hidden');
+
+      document.querySelectorAll('.preview-row').forEach(other => {
+        if (other !== row) other.classList.add('is-hidden');
+      });
+      document.querySelectorAll('.track-summary-row').forEach(other => {
+        if (other !== summaryRow) other.classList.remove('is-open');
+      });
+
+      if (!isHidden) {
+        row.classList.add('is-hidden');
+        summaryRow.classList.remove('is-open');
+        return;
+      }
+
+      row.classList.remove('is-hidden');
+      summaryRow.classList.add('is-open');
+      try {
+        await ensurePreview(url, row);
+      } catch (error) {
+        row.querySelector('td').innerHTML = `<div class="preview-error">Не удалось загрузить preview: ${error.message}</div>`;
+      }
+    }
+
+    document.querySelectorAll('.track-summary-row').forEach(row => {
+      row.addEventListener('click', async (event) => {
+        if (event.target.closest('a, button, input, label')) return;
+        await togglePreview(row);
+      });
+    });
+  </script>
+</body>
+</html>

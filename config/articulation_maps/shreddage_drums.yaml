@@ -1,0 +1,79 @@
+# Shreddage Drums — карта нот (drum kit).
+#
+# Источник: https://www.impactsoundworks.com/manuals/Shreddage%20Drums%20Manual.pdf
+#   (раздел "Getting Started", графика "Shreddage Drums Default Mapping").
+# Подтверждено ДВОЙНОЙ проверкой: текст мануала letter-for-letter совпадает
+# со скриншотом Grid View реального кита пользователя, КРОМЕ C#1 (см. ниже).
+#
+# Раскладка ОЧЕНЬ близка к GM, но НЕ идентична в верхней октаве:
+#   50 = Crash 1 Choke (в GM — High Tom!), 54/56/58 = China 2/3, Crash 2 Choke.
+#
+# "Обычный" и "No Bleed" пресеты пользователя дают ИДЕНТИЧНУЮ раскладку —
+# конфиг общий, различается только звук/память.
+
+instrument: "Shreddage Drums"
+library_version: "1.x"
+config_version: 1
+pitch_bend_range: null   # для барабанов не используется
+
+# Раскладка самого кита (выход, Shreddage Drums note -> звук).
+# Абсолютная привязка: B0 = MIDI 35 (совпадает со скриншотом Grid View).
+kit_layout:
+  35: "Acoustic Bass Drum / AA Kck 24in M"
+  36: "Bass Drum / AA Kck 24in M"
+  37: "Side Stick (мануал) / В РЕАЛЬНОМ КИТЕ: дубль кика AA Kck 24in M"
+  38: "Acoustic Snare / Sn14x5M (normal hit)"
+  39: "Rim Shot / Sn14x5M Rm"
+  40: "Acoustic Snare alt layer / Sn14x5M (2й слой)"
+  41: "Low Floor Tom / Tom1 14in"
+  42: "Closed Hi-Hat / HH 14in"
+  43: "High Floor Tom / Tom1 12in"
+  44: "Pedal Hi-Hat / HH 14in Pedal"
+  45: "Low Tom / Tom1 10in"
+  46: "Open Hi-Hat / HH 14in Open"
+  47: "Low-Mid Tom / Tom1 8in"
+  48: "Hi-Mid Tom / Tom1 8in (дубль, отдельного тома нет)"
+  49: "Crash Cymbal 1 / Crsh 17in"
+  50: "Crash 1 Choke / Crsh 17in Chk   (НЕ GM High Tom!)"
+  51: "Ride Cymbal 1 / Rde 20in Edge"
+  52: "Chinese Cymbal / China 22in"
+  53: "Ride Bell / Rde 20in (normal/bell)"
+  54: "China 2 / China 20in"
+  55: "Splash Cymbal / ZJ Splash"
+  56: "China 3 / China 18in"
+  57: "Crash Cymbal 2 / Crsh 18in"
+  58: "Crash 2 Choke / Crsh 18in Chk"
+
+# Перевод GM-ноты из GP-percussion-трека -> нота Shreddage Drums.
+# identity-ноты можно не перечислять: всё, что есть в kit_layout и не
+# упомянуто в remap, маппится 1:1.
+remap:
+  50: 48   # GM High Tom -> Hi-Mid Tom (50 в Shreddage = Crash 1 Choke!)
+  59: 51   # GM Ride Cymbal 2 -> Ride 1 Edge (в ките один райд)
+  87: 41   # GM Surdo (mute) -> Low Floor Tom (ближайший по звуку; см. warnings)
+
+# Явные предупреждения на конкретные входные GM-ноты.
+warnings:
+  37: >-
+    Side Stick: в текущем ките пользователя на C#1 загружен ДУБЛЬ КИКА, а не
+    Side Stick. Нота экспортируется как 37 (техн. верно по мануалу), но будет
+    ЗВУЧАТЬ КАК КИК, пока Side Stick не загружен в Kontakt на этот keyswitch.
+  39: >-
+    GM Hand Clap (39) в Shreddage Drums — это Rim Shot: хлопок будет звучать
+    как римшот. Отдельного clap-сэмпла в ките нет.
+  87: >-
+    GM Surdo -> Low Floor Tom (приближение: суردо в ките отсутствует).
+
+# Флэмы томов: подтверждено мануалом ("two octaves above the actual toms")
+# и скриншотом (F3/G3/A3/B3 = Flam). Формула, не хардкод.
+flams:
+  offset: 24            # flam_note = base_tom_note + 24
+  toms: [41, 43, 45, 47, 48]
+
+# Политика для GM-нот вне kit_layout/remap: warn (экспортировать как есть
+# с предупреждением) | drop (не экспортировать).
+unmapped_policy: warn
+
+# Снейр/том/тарелочные артикуляции мануала, НЕ покрытые нотами GM-входа
+# (замапить вручную при необходимости): snare left/right hit, cross stick,
+# roll; tom left/right hit; ride bell отдельной GM-нотой 53 покрыт.
