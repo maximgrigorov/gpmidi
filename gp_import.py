@@ -129,6 +129,7 @@ class GPNoteEffect:
     staccato: bool = False
     bend: GPBend | None = None
     vibrato: bool = False
+    vibratoType: str | None = None      # "Slight" | "Wide" (сайдкар из GPIF)
     slides: list[Any] = field(default_factory=list)
     hammer: bool = False
     tapping: bool = False               # GPIF Property "Tapped" (sidecar-извлечение)
@@ -384,7 +385,7 @@ def _extract_gpif_percussion_articulations_root(root: ET.Element) -> dict[int, l
 
 
 def _extract_gpif_note_extras_root(root: ET.Element) -> dict[tuple[int, int, int, int], dict]:
-    """Извлечь note-свойства, которые ApolloTab не парсит (сейчас: Tapped).
+    """Извлечь note-свойства, которые ApolloTab не парсит: Tapped, Vibrato (Slight/Wide).
 
     Адрес ноты: (track_idx, measure_idx, beat_pos, note_pos), где track_idx —
     индекс КОЛОНКИ Bars (после разворачивания мульти-стафф треков совпадает
@@ -393,11 +394,19 @@ def _extract_gpif_note_extras_root(root: ET.Element) -> dict[tuple[int, int, int
     note_pos — индекс ноты в бите в порядке GPIF <Notes>.
     """
     tapped_ids = set()
+    vibrato_by_id: dict[str, str] = {}
     for note in root.findall("Notes/Note"):
         for prop in note.findall("Properties/Property"):
             if prop.get("name") in ("Tapped", "LeftHandTapped") and prop.find("Enable") is not None:
                 tapped_ids.add(note.get("id"))
-    if not tapped_ids:
+        # <Vibrato>Slight|Wide</Vibrato> — ДОЧЕРНИЙ тег ноты, не Property.
+        # ApolloTab отдаёт vibrato булевым, то есть Slight и Wide схлопываются
+        # в "да/нет", и обе играются одинаково глубоко. В партитуре пользователя
+        # все 53 ноты помечены Slight, а игрались на глубине 80/127.
+        vib = note.find("Vibrato")
+        if vib is not None and (vib.text or "").strip():
+            vibrato_by_id[note.get("id")] = vib.text.strip()
+    if not tapped_ids and not vibrato_by_id:
         return {}
 
     notes_of_beat = {
@@ -423,6 +432,9 @@ def _extract_gpif_note_extras_root(root: ET.Element) -> dict[tuple[int, int, int
                     for npos, nid in enumerate(notes_of_beat.get(bid, [])):
                         if nid in tapped_ids:
                             extras.setdefault((ti, mi, beat_pos, npos), {})["tapping"] = True
+                        if nid in vibrato_by_id:
+                            extras.setdefault((ti, mi, beat_pos, npos), {})["vibrato_type"] = \
+                                vibrato_by_id[nid]
                     beat_pos += 1
     return extras
 
@@ -740,6 +752,7 @@ def adapt_apollotab_note(
         staccato=bool(getattr(note, "is_staccato", False)),
         bend=adapt_bend(getattr(note, "bend", None)),
         vibrato=bool(getattr(note, "vibrato", None)),
+        vibratoType=extras.get("vibrato_type"),
         slides=adapt_slides(note),
         hammer=bool(getattr(note, "is_hammer_pull_origin", False)),
         tapping=bool(extras.get("tapping", False)),

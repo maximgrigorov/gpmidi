@@ -157,13 +157,25 @@ SLIDE_BEND_ST = 2.0             # глубина слайда в полутон�
 # колебание отдано инструменту.
 VIBRATO_MODE = "envelope"       # "envelope" | "sine" (откат к прежнему поведению)
 VIBRATO_FREQ_HZ = 5.5           # только для режима "sine"
-VIBRATO_AMP = 80                # целевая глубина CC1 (0..80)
 VIBRATO_DELAY_MS = 80           # вибрато стартует через 80 мс после атаки
 VIBRATO_RAMP_MS = 120           # нарастание глубины (envelope)
 VIBRATO_RELEASE_MS = 80         # спад глубины к концу ноты (envelope)
 VIBRATO_STEP_MS = 10            # шаг кривой
 VIBRATO_CC = 1                  # Mod Wheel
-VIBRATO_MIN_NOTE_MS = 300       # CC1 только на нотах >= 300 мс
+
+# Глубина по ТИПУ вибрато из партитуры. GP различает Slight и Wide, но
+# ApolloTab отдаёт vibrato булевым — тип достаётся сайдкаром из GPIF
+# (<Vibrato>Slight|Wide</Vibrato>, см. _extract_gpif_note_extras_root).
+# Раньше всё игралось на 80: у пользователя ВСЕ 53 ноты помечены Slight, то есть
+# написано "слегка", а звучало на две трети глубины — на слух дрожание.
+VIBRATO_AMP_BY_TYPE = {"Slight": 32, "Wide": 80}
+VIBRATO_AMP = 48                # фолбэк: тип неизвестен (GP3/4/5 без сайдкара)
+
+# Порог длины ноты. Огибающая занимает DELAY+RAMP+RELEASE = 280 мс, поэтому на
+# ноте короче этого вибрато вырождается в "вжик" и физически не успевает
+# прозвучать (в партии 40 из 56 вибрато-нот были короче 350 мс при пороге 300).
+# Ниже порога вибрато не шлём вовсе — чистый звук лучше огрызка.
+VIBRATO_MIN_NOTE_MS = 450
 
 # --- Легато (hammer-on / pull-off) ---
 # GP ставит флаг hammer на ноту-ИСТОЧНИК (с которой начинается переход).
@@ -386,8 +398,8 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
-def _vibrato_amount_at(ms, note_ms):
-    """Глубина вибрато (0..VIBRATO_AMP) в момент ms от атаки ноты — огибающая.
+def _vibrato_amount_at(ms, note_ms, amp):
+    """Глубина вибрато (0..amp) в момент ms от атаки ноты — огибающая.
 
     delay -> линейное нарастание за VIBRATO_RAMP_MS -> удержание -> спад к концу.
     Это ЗНАЧЕНИЕ РУЧКИ, а не позиция колебания: качает высоту сам инструмент.
@@ -397,18 +409,24 @@ def _vibrato_amount_at(ms, note_ms):
     rel_start = max(VIBRATO_DELAY_MS, note_ms - VIBRATO_RELEASE_MS)
     if ms >= rel_start:
         frac = (note_ms - ms) / max(1.0, note_ms - rel_start)
-        return VIBRATO_AMP * max(0.0, min(1.0, frac))
+        return amp * max(0.0, min(1.0, frac))
     ramp = ms - VIBRATO_DELAY_MS
     if ramp < VIBRATO_RAMP_MS:
-        return VIBRATO_AMP * (ramp / VIBRATO_RAMP_MS)
-    return float(VIBRATO_AMP)
+        return amp * (ramp / VIBRATO_RAMP_MS)
+    return float(amp)
 
 
-def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None):
+def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None, vibrato_type=None):
     """CC1 = глубина вибрато инструмента. См. VIBRATO_MODE.
+
+    dur_ticks — ПОЛНАЯ звучащая длительность ноты, включая лиги. Вызывается
+    ПОСЛЕ основного цикла: во время цикла длина лигованной ноты ещё неизвестна,
+    и кривая рисовалась по первому сегменту, а сброс CC1 в 0 приходился на
+    середину звучащей ноты (нота 6.6 с — вибрато умирало на 1.3 с).
 
     Возвращает количество добавленных CC1-событий.
     """
+    amp = VIBRATO_AMP_BY_TYPE.get(vibrato_type or "", VIBRATO_AMP)
     note_ms = ticks_to_ms(dur_ticks, bpm)
     # CC1 только на нотах >= 300 мс
     if note_ms < VIBRATO_MIN_NOTE_MS:
@@ -421,9 +439,9 @@ def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None):
     while ms <= note_ms:
         if VIBRATO_MODE == "sine":
             t = (ms - VIBRATO_DELAY_MS) / 1000.0
-            val = (VIBRATO_AMP / 2.0) * (1.0 + math.sin(2.0 * math.pi * VIBRATO_FREQ_HZ * t))
+            val = (amp / 2.0) * (1.0 + math.sin(2.0 * math.pi * VIBRATO_FREQ_HZ * t))
         else:
-            val = _vibrato_amount_at(ms, note_ms)
+            val = _vibrato_amount_at(ms, note_ms, amp)
         cc = clamp_cc(val)
         if cc != last_val:
             tick = min(start_tick + ms_to_ticks(ms, bpm), start_tick + dur_ticks - 1)
@@ -707,6 +725,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     emit_keyswitch(ev, 0, sustain_ks, base_bpm)
     stats["ks"] += 1
     current_ks = sustain_ks
+    pending_vibrato = []            # (start_tick, off_rec, bpm, vibrato_type)
     last_palm_tick = 0
     last_end_tick = 0
     last_off_by_voice = {}
@@ -843,13 +862,23 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 pb_dirty = True
 
             if eff.vibrato:
-                emit_vibrato(ev, start_tick, dur, cur_bpm, stats)
+                # НЕ рисуем сразу: лиги продлят ноту позже по циклу, и off_rec
+                # ("tick") — единственное место, где к концу цикла окажется
+                # настоящая длина. Откладываем до конца (см. pending_vibrato).
+                pending_vibrato.append((start_tick, off_rec, cur_bpm,
+                                        getattr(eff, "vibratoType", None)))
 
             if eff.slides:
                 next_pitch = _next_note_pitch(voice.beats, bi, note.string, string_pitch)
                 emit_slide(ev, start_tick, dur, eff.slides, pitch, next_pitch, cur_bpm,
                            pb_range)
                 pb_dirty = True
+
+    # Вибрато рисуем ЗДЕСЬ, когда все лиги отработали и off_rec["tick"] у каждой
+    # ноты содержит её настоящий конец.
+    for v_start, v_off, v_bpm, v_type in pending_vibrato:
+        emit_vibrato(ev, v_start, v_off["tick"] - v_start, v_bpm, stats,
+                     vibrato_type=v_type)
 
     # сброс артикуляции в sustain в конце трека
     if current_ks != sustain_ks:
