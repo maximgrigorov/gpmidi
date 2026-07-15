@@ -693,7 +693,20 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         stats["humanize"] = profile_label(hprof)
         logger.info("трек %r: оживление %s", track.name, profile_label(hprof))
 
-    current_ks = sustain_ks         # активная артикуляция канала (старт = sustain)
+    # Стартовую артикуляцию УСТАНАВЛИВАЕМ явно, а не предполагаем.
+    #
+    # Keyswitch эмитится только когда артикуляция МЕНЯЕТСЯ, а начальное состояние
+    # раньше просто постулировалось (current_ks = sustain_ks). Kontakt между
+    # проигрываниями ничего не сбрасывает: он остаётся на той артикуляции, что
+    # была выбрана последней. Поэтому трек, у которого начало играется обычным
+    # sustain, наследовал чужое состояние: у пользователя Solo Guitar имеет ноты
+    # с 8-го такта, а первый keyswitch стоял только в 58-м — и всё первое соло
+    # звучало гармониками, оставшимися от предыдущего проигрывания.
+    # Сброс в sustain в конце трека (ниже) от этого не спасает: он условный и не
+    # срабатывает, если остановить воспроизведение посередине.
+    emit_keyswitch(ev, 0, sustain_ks, base_bpm)
+    stats["ks"] += 1
+    current_ks = sustain_ks
     last_palm_tick = 0
     last_end_tick = 0
     last_off_by_voice = {}

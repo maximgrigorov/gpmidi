@@ -194,6 +194,20 @@ def smoke_check(path, track_type=None, cfg=None):
                         f"{bad} keyswitch-ей не раньше своей ноты — артикуляция "
                         f"сработает не на ту ноту"))
 
+    # --- keyswitch: установлено ли НАЧАЛЬНОЕ состояние ---
+    # Kontakt не сбрасывает артикуляцию между проигрываниями. Если первый
+    # keyswitch приходит сильно позже первой ноты, начало трека звучит тем, что
+    # осталось включённым от прошлого раза (ловилось живьём: Solo Guitar с
+    # нотами от 8-го такта и первым KS в 58-м играл первое соло гармониками).
+    if ks_notes and notes:
+        first_note = notes[0]["tick"]
+        first_ks = min((t for t, _ in ks_hits), default=None)
+        if first_ks is None or first_ks > first_note:
+            out.append(("ERROR", "KS_NO_INIT",
+                        "начальная артикуляция не установлена: первая нота на тике "
+                        f"{first_note}, а keyswitch-а до неё нет. Инструмент сыграет "
+                        f"тем, что осталось включённым от прошлого проигрывания"))
+
     # --- velocity-зоны (только там, где они есть: Hydra sustain) ---
     zones = _vel_zones(cfg)
     if zones:
