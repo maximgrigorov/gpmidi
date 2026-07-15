@@ -1,5 +1,10 @@
 # AGENTS.md
 
+> **Прочти [LESSONS.md](LESSONS.md) перед тем, как трогать тайминг, динамику,
+> артикуляции, бенды или вибрато.** Там собрано то, что выяснено ИЗМЕРЕНИЕМ и
+> стоило времени. Почти каждая правдоподобная гипотеза в этой области
+> оказывается неверной — в том числе гипотезы, записанные в этом файле.
+
 ## Project overview
 - This directory contains a Guitar Pro to MIDI conversion project centered on `gp_to_shreddage.py`.
 - The script converts `.gp5` / `.gp` files into separate Type 0 MIDI files per track.
@@ -22,6 +27,124 @@
   detected by percussion flag via `resolve_track_type`), OTHER (Category A
   universal effects only: staccato gate, accent velocity, hairpin -> CC11).
 - Do not silently alter articulation mapping, keyswitch behavior, bend/vibrato/slide handling, timing normalization, or track-type detection without explicit user approval.
+
+## Humanization (drums) — opt-in, approved 2026-07-15
+- `--humanize` synthesizes drum velocity + micro-timing; `--ghost-notes` also
+  ADDS snare ghost notes. Both are OFF by default: without flags the export is
+  byte-for-byte identical to before (verified against a baseline run).
+- Profiles are versioned configs, same philosophy as articulation maps:
+  `config/humanize_profiles/*.yaml`, loaded via `humanize.py`. New genre or
+  instrument = new YAML, not code changes. The profile used is logged per track.
+- **Why this exists (measured, do not re-litigate from intuition):**
+  - Guitar Pro stores only 8 dynamic levels (PPP..FFF). For percussion ApolloTab
+    reports `beat.dynamics = None` and `note.velocity = 95` for *every* note —
+    the drum track arrives as a flat line. The 20 MF beats present in the GPIF
+    never survive. So velocity is SYNTHESIZED, not transferred: there is
+    nothing to preserve.
+  - Notation cannot express micro-timing at all, so it is synthesized too
+    (typical live-drummer figures, 10-30 ms).
+  - Commercial "live groove" MIDI packs are not a usable source: measured on
+    "95 BPM - Nordic Knights", true jitter is std 2.46 ms with 47% of notes
+    exactly on the grid. Their advertised "11-88% off-grid" is 16% triplet
+    sextuplets (a subdivision, not feel) plus sub-3ms dither. Do not add such a
+    dataset to the repo — it is paid content and contributes nothing anyway.
+  - `pct_off_grid16` is a misleading metric: it counts triplets as liveness and
+    happily reports 54% on a fully quantized file. Use `jitter_ms` (deviation
+    from the combined 16th+triplet grid, in milliseconds) instead.
+- **Ordering inside `humanize_drums` is load-bearing**: ghost notes are inserted
+  BEFORE the velocity/timing passes. If added after, they sit exactly on the grid
+  (100+ mechanical notes in an otherwise humanized track) and the fill-detection
+  count is computed from already-shifted ticks, so bars near a barline are
+  misclassified. Both were real bugs; keep the order.
+- Ghost notes are drums-only by design. On a distorted guitar a quiet extra note
+  is mud, not life — the guitar equivalent is pick accent and palm-mute depth,
+  which is a different mechanism. Do not generalize `ghost_notes` to other tracks.
+- Tick-based values in profiles must be expressed as fractions of a 16th
+  (`min_gap_frac16`, `max_shift_frac16`): the converter runs at tpb=960 and the
+  standalone script at 480, so absolute ticks silently mean different things.
+- Profiles are per instrument and NOT interchangeable — `drums_metal`,
+  `guitar_metal`, `bass_metal`. Copying one onto another instrument is a bug:
+  - GUITAR: velocity is an ARTICULATION SWITCH, not loudness. On Hydra's sustain
+    120-126 = Rake, 127 = Pinch. The cap comes from `articulation_maps`
+    (`sustain.vel_max`), never from the humanize profile. The drum numbers
+    (accent +6, std 6) on F=95 peak at exactly 119 against a 119 cap — one unit
+    of headroom, safe by luck, not by design.
+  - GUITAR timing cannot be a post-pass: the keyswitch is emitted `KS_LEAD_MS=15`
+    before the note, so a note shifted back would land before its own KS. The
+    shift is computed in `build_instrument_midi` BEFORE KS/PB emission, and ties
+    plus `LEGATO_OVERLAP_MS` overlap derive from the same shifted `start_tick` —
+    hence per-BEAT, not per-note.
+  - Strum direction is by 16th-index parity, not metrical class. Parity gives
+    all-downstrokes on 8ths (metal downpicking) and true down-up alternation on
+    16ths; the metrical-class version produced three upstrokes in a row.
+  - BASS (Darkwall) has NO velocity zones at all (no Rake/Pinch articulations),
+    and strum is disabled: the part has 564 single notes and exactly one chord.
+
+## Vibrato and bend (changed 2026-07-15 with explicit user approval)
+- `VIBRATO_MODE = "envelope"`. CC1 on Shreddage is the **Vibrato Amount knob**
+  (depth), not the waveform — the instrument oscillates the pitch itself. The old
+  `"sine"` mode sent a 5.5 Hz sine on CC1 and thus spun the depth knob 5.5×/sec
+  (206 reversals on Solo Guitar, up to 15 within a single note). Flip the constant
+  back to `"sine"` to revert.
+- `pitch_bend_range: 7` in `shreddage_hydra_3.5.yaml`. **This MUST equal the
+  PITCH BEND RANGE knob in the Kontakt preset** — Kontakt need not honour the RPN
+  that `emit_pitch_bend_range_rpn` sends. The score contains bends of 2/4/6
+  semitones; at the old range of 2 anything deeper pinned at 8191 (14 events),
+  rendering as rise + PLATEAU + jump — the "staircase" the user hand-fixed in
+  Logic. Darkwall's range is still the unverified default of 2.
+- Still broken, not yet approved to fix: `SLIDE_BEND_ST = 2.0` bends a fixed
+  2 semitones toward the next note instead of gliding to its pitch, and the whole
+  `fx_keyswitches` block (incl. `legato_slide_to_next`, the proper tool for
+  slides up to 12 semitones) is dead config, referenced nowhere in the code.
+
+## Smoke verification
+- `verify_midi.py` runs automatically after each track (`--no-verify` disables).
+  It checks invariants on the produced artifact, not musicality. Every check is a
+  fossilised real bug — see the module docstring. ERROR fails the summary; WARN
+  and INFO are advisory.
+- A check that never fires is worthless: validate changes against the
+  pre-fix artifacts, which still contain BEND_CEILING and CC1_PROPELLER.
+  Two earlier versions of the CC1 check silently passed the very file they were
+  written for, because the reversal count was divided by the wrong denominator.
+  Count reversals WITHIN a single note.
+- `PB_LEAK` must not fire on pre-bends: a pre-bend legitimately attacks with
+  PB != 0, its curve starting on the note's own tick. Only a stale value (last PB
+  point more than a 16th behind) counts as a leak.
+
+## Combined export
+- Alongside the per-track files, both the CLI and the web app emit one Type 1
+  `<base>_ALL.mid` with every track — drag one file into Logic instead of
+  thirteen. It is assembled by `build_combined_midi` from **the same MidiTrack
+  objects** that go into the per-track files, so the two cannot diverge.
+- Channel stays 0 on all tracks, matching the per-track files the user has
+  already validated. Logic splits a Type 1 file by TRACK, not by channel, and the
+  targets are Kontakt instruments — GM channel 10 is irrelevant to them.
+- The web app filters empty tracks out of the combined file
+  (`is_empty_export_track`); the CLI does not, mirroring its per-file behaviour.
+
+## Web UI options
+- `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
+  optional, all off by default. The ghost checkbox is gated on humanize in JS —
+  ghosts only exist inside humanization.
+- The job page shows a badge for the mode used, and the manifest stores
+  `humanize` / `ghost_notes` per job, so an old session states what produced it.
+
+## Still open (do not "fix" silently — ask first)
+- **Initial keyswitch is assumed, not set.** `current_ks = sustain_ks` presumes
+  the instrument boots on sustain, and a KS is only emitted when the articulation
+  CHANGES. Kontakt keeps whatever articulation was last selected, so a track whose
+  first section is plain sustain inherits it: the user's Solo Guitar has notes from
+  bar 8 but its first keyswitch is at bar 58, and Hydra sat on Harmonics for the
+  whole first solo. Fix is to emit an explicit sustain KS at track start. NOT DONE
+  — touches keyswitch behaviour, approval pending.
+- `SLIDE_BEND_ST = 2.0` bends a fixed 2 semitones toward the next note instead of
+  gliding to its pitch; `fx_keyswitches.legato_slide_to_next` (the proper tool,
+  up to 12 semitones) is dead config referenced nowhere.
+- Darkwall `pitch_bend_range: 2` is still the unverified manual default.
+- `<Note>` carries `RelativeVelocity` (191 notes) and `Accent` (18) as child
+  elements, not Properties. Unverified whether ApolloTab surfaces them — if not,
+  hand-written per-note dynamics are being dropped on the floor.
+- `test_regression.py` needs `pytest`, which is not in `requirements.txt`.
 - UI / container / packaging work is allowed as long as conversion semantics remain unchanged.
 
 ## Working rules for future agents

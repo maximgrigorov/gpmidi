@@ -602,3 +602,30 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
   .stat-card.wide { grid-column: span 1; }
   .player-bar { grid-template-columns: 1fr; }
 }
+
+
+/* --- Опции оживления в форме загрузки --- */
+.options {
+  border: 1px solid var(--border, #dcdcdc);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 14px 0 4px;
+}
+.options legend { font-weight: 600; padding: 0 6px; font-size: 0.9rem; }
+.opt { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; cursor: pointer; }
+.opt input[type="checkbox"] { margin-top: 3px; flex: none; }
+.opt strong { display: block; font-size: 0.92rem; }
+.opt small { display: block; color: #666; font-size: 0.78rem; line-height: 1.35; }
+.opt.sub { margin-left: 22px; }
+.opt.sub input:disabled + span { opacity: 0.45; }
+.opt.seed { align-items: center; gap: 8px; }
+.opt.seed input { width: 72px; padding: 4px 6px; }
+.opt.seed small { margin-left: 4px; }
+
+.mode-badges { margin: 6px 0 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 0.74rem; background: #eee; color: #555;
+}
+.badge.on { background: #e3f4e6; color: #1c6b30; }
+.badge.warn { background: #fdf0dc; color: #8a5a10; }

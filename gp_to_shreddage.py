@@ -10,10 +10,24 @@ gp_to_shreddage.py
     pip install pyguitarpro mido
 
 Запуск:
-    python gp_to_shreddage.py song.gp5
+    python gp_to_shreddage.py song.gp5 [--humanize] [--ghost-notes] [--seed=N]
+                                       [--no-verify]
 
 Результат: рядом с исходным файлом создаётся папка "<имя_файла>_midi/"
-с одним MIDI-файлом (Type 0) на каждый трек. Имя файла = название трека.
+с одним MIDI-файлом (Type 0) на каждый трек (имя файла = название трека)
+ПЛЮС сборный "<имя_файла>_ALL.mid" (Type 1) со всеми дорожками разом.
+
+    --humanize     синтезировать velocity и микро-тайминг по профилю на
+                   инструмент (config/humanize_profiles/*.yaml). GP отдаёт 8
+                   градаций динамики, а для перкуссии одну, — переносить нечего,
+                   поэтому синтез. Без флага выхлоп прежний, байт-в-байт.
+    --ghost-notes  добавить гост-ноты по рабочему. ЕДИНСТВЕННАЯ опция, которая
+                   МЕНЯЕТ ПАРТИЮ, а не только подачу. Только барабаны.
+    --no-verify    не гонять смок-проверку выхлопа (verify_midi.py)
+
+ВАЖНО: оживление обязано применяться ПОСЛЕ Guitar Pro и ДО сэмплера. Нотация не
+умеет ни микро-тайминг, ни velocity тоньше 8 градаций, поэтому импорт результата
+обратно в GP схлопнет его. См. LESSONS.md.
 
 ОПРЕДЕЛЕНИЕ ТИПА ТРЕКА по track.name (case-insensitive):
     GUITAR -> маппинг Shreddage 3.5 Hydra   (ключевые слова GUITAR_KEYWORDS)
@@ -24,8 +38,10 @@ gp_to_shreddage.py
 Обе библиотеки используют TACT-систему кейсвитчей в Kontakt-нотации (C-1 = MIDI 12).
 """
 
+import logging
 import math
 import os
+import random
 import sys
 
 try:
@@ -49,6 +65,17 @@ from articulation_config import (
     keyswitch_note,
     log_config_used,
 )
+from verify_midi import smoke_check
+from humanize import (
+    pitched_beat_shift,
+    pitched_strum_offsets,
+    pitched_velocity,
+    humanize_drums,
+    profile_for_track_type,
+    profile_label,
+)
+
+logger = logging.getLogger("gpmidi.convert")
 
 
 # --------------------------------------------------------------------------- #
@@ -121,12 +148,22 @@ SLIDE_LEAD_MS = 50              # за сколько до конца ноты �
 SLIDE_BEND_ST = 2.0             # глубина слайда в полутонах
 
 # --- Вибрато (для обоих инструментов) ---
-VIBRATO_FREQ_HZ = 5.5           # 5.5 Гц
-VIBRATO_AMP = 80                # амплитуда CC1 (0..80)
+# CC1 у Shreddage — это ручка VIBRATO AMOUNT, то есть ГЛУБИНА собственного
+# вибрато инструмента, а НЕ форма волны: качает высоту сама Hydra.
+# Режим "sine" (историческое поведение) слал в CC1 синусоиду 5.5 Гц и тем самым
+# крутил ручку глубины 5.5 раз в секунду — 206 разворотов на партию Solo Guitar,
+# ручка визуально вращалась как пропеллер, а наша качалка билась с внутренней.
+# Режим "envelope": плавная огибающая (нарастание -> удержание -> спад),
+# колебание отдано инструменту.
+VIBRATO_MODE = "envelope"       # "envelope" | "sine" (откат к прежнему поведению)
+VIBRATO_FREQ_HZ = 5.5           # только для режима "sine"
+VIBRATO_AMP = 80                # целевая глубина CC1 (0..80)
 VIBRATO_DELAY_MS = 80           # вибрато стартует через 80 мс после атаки
-VIBRATO_STEP_MS = 10            # шаг синусоиды
+VIBRATO_RAMP_MS = 120           # нарастание глубины (envelope)
+VIBRATO_RELEASE_MS = 80         # спад глубины к концу ноты (envelope)
+VIBRATO_STEP_MS = 10            # шаг кривой
 VIBRATO_CC = 1                  # Mod Wheel
-VIBRATO_MIN_NOTE_MS = 300       # CC1-волна только на нотах >= 300 мс
+VIBRATO_MIN_NOTE_MS = 300       # CC1 только на нотах >= 300 мс
 
 # --- Легато (hammer-on / pull-off) ---
 # GP ставит флаг hammer на ноту-ИСТОЧНИК (с которой начинается переход).
@@ -349,13 +386,31 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
+def _vibrato_amount_at(ms, note_ms):
+    """Глубина вибрато (0..VIBRATO_AMP) в момент ms от атаки ноты — огибающая.
+
+    delay -> линейное нарастание за VIBRATO_RAMP_MS -> удержание -> спад к концу.
+    Это ЗНАЧЕНИЕ РУЧКИ, а не позиция колебания: качает высоту сам инструмент.
+    """
+    if ms < VIBRATO_DELAY_MS:
+        return 0.0
+    rel_start = max(VIBRATO_DELAY_MS, note_ms - VIBRATO_RELEASE_MS)
+    if ms >= rel_start:
+        frac = (note_ms - ms) / max(1.0, note_ms - rel_start)
+        return VIBRATO_AMP * max(0.0, min(1.0, frac))
+    ramp = ms - VIBRATO_DELAY_MS
+    if ramp < VIBRATO_RAMP_MS:
+        return VIBRATO_AMP * (ramp / VIBRATO_RAMP_MS)
+    return float(VIBRATO_AMP)
+
+
 def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None):
-    """CC1 синусоида 5.5 Гц, амплитуда 0..80, старт через 80 мс. Сброс в 0 после.
+    """CC1 = глубина вибрато инструмента. См. VIBRATO_MODE.
 
     Возвращает количество добавленных CC1-событий.
     """
     note_ms = ticks_to_ms(dur_ticks, bpm)
-    # CC1-волна только на нотах >= 300 мс
+    # CC1 только на нотах >= 300 мс
     if note_ms < VIBRATO_MIN_NOTE_MS:
         return 0
     if note_ms <= VIBRATO_DELAY_MS:
@@ -364,8 +419,11 @@ def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None):
     last_val = None
     ms = VIBRATO_DELAY_MS
     while ms <= note_ms:
-        t = (ms - VIBRATO_DELAY_MS) / 1000.0
-        val = (VIBRATO_AMP / 2.0) * (1.0 + math.sin(2.0 * math.pi * VIBRATO_FREQ_HZ * t))
+        if VIBRATO_MODE == "sine":
+            t = (ms - VIBRATO_DELAY_MS) / 1000.0
+            val = (VIBRATO_AMP / 2.0) * (1.0 + math.sin(2.0 * math.pi * VIBRATO_FREQ_HZ * t))
+        else:
+            val = _vibrato_amount_at(ms, note_ms)
         cc = clamp_cc(val)
         if cc != last_val:
             tick = min(start_tick + ms_to_ticks(ms, bpm), start_tick + dur_ticks - 1)
@@ -599,7 +657,8 @@ def add_track_meta(ev, song, track):
 # --------------------------------------------------------------------------- #
 #  Сборка MIDI: GUITAR / BASS (с кейсвитчами, CC1, PB)
 # --------------------------------------------------------------------------- #
-def build_instrument_midi(song, track, track_type, cfg=None):
+def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
+                          humanize_seed=7):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
@@ -625,6 +684,14 @@ def build_instrument_midi(song, track, track_type, cfg=None):
 
     string_pitch = {s.number: s.value for s in track.strings}
     pb_dirty = False                # PB оставлен ненулевым предыдущей нотой
+
+    # Оживление: профиль на тип трека, у гитары свой (velocity здесь —
+    # переключатель артикуляции, поэтому барабанный сюда не годится).
+    hprof = profile_for_track_type(track_type) if humanize else None
+    hrng = random.Random(humanize_seed) if humanize else None
+    if hprof is not None:
+        stats["humanize"] = profile_label(hprof)
+        logger.info("трек %r: оживление %s", track.name, profile_label(hprof))
 
     current_ks = sustain_ks         # активная артикуляция канала (старт = sustain)
     last_palm_tick = 0
@@ -661,6 +728,23 @@ def build_instrument_midi(song, track, track_type, cfg=None):
         if not beat.notes:
             continue
 
+        # --- оживление: сдвиг ВСЕГО бита ---
+        # Считается ЗДЕСЬ, до эмиссии keyswitch/PB и до расчёта лиг и легато,
+        # чтобы всё нижележащее унаследовало уже сдвинутый тик. Пост-проходом
+        # это делать нельзя: KS приходит за KS_LEAD_MS=15 до ноты, и уехавшая
+        # назад нота оказалась бы раньше собственного keyswitch-а.
+        if hprof is not None:
+            start_tick = pitched_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT,
+                                           hprof, hrng)
+
+        # --- strum: разброс нот аккорда по струнам (только вперёд от start_tick) ---
+        strum, strum_down = {}, True
+        if hprof is not None:
+            strum, strum_down = pitched_strum_offsets(
+                [clamp_note(string_pitch.get(n.string, 0) + n.value)
+                 for n in beat.notes if n.type != NoteType.tie],
+                start_tick, cur_bpm, TICKS_PER_BEAT, hprof, hrng)
+
         # --- keyswitch для бита: переключаем артикуляцию при изменении ---
         ks_note = beat_keyswitch(beat, track_type, cfg)
         if ks_note != current_ks:
@@ -686,7 +770,7 @@ def build_instrument_midi(song, track, track_type, cfg=None):
                     rec["tick"] = start_tick + dur
                 continue
 
-            _, is_pinch = note_articulation(note, track_type, cfg, beat)
+            art_name, is_pinch = note_articulation(note, track_type, cfg, beat)
 
             # --- velocity ---
             velocity = accent_boosted_velocity(note, clamp_vel(note.velocity))
@@ -694,7 +778,18 @@ def build_instrument_midi(song, track, track_type, cfg=None):
                 velocity = int(cfg["keyswitches"]["pinch_harmonics"]["velocity"])
             elif ks_note == sustain_ks:
                 # не задеть vel-зоны на ноте sustain (Rake 120-126 / Pinch 127)
+                if hprof is not None:
+                    velocity = pitched_velocity(velocity, start_tick, TICKS_PER_BEAT,
+                                               art_name, hprof, hrng,
+                                               vel_cap=sustain_vel_max,
+                                               down=strum_down)
                 velocity = min(velocity, sustain_vel_max)
+            elif hprof is not None:
+                # прочие артикуляции (palm_mute и т.п.): своей vel-зоны нет,
+                # но выше 127 всё равно нельзя
+                velocity = pitched_velocity(velocity, start_tick, TICKS_PER_BEAT,
+                                           art_name, hprof, hrng, vel_cap=127,
+                                           down=strum_down)
 
             # --- легато (B15): эта нота — ЦЕЛЬ ожидающего hammer/pull? ---
             # Источник (нота с флагом hammer) продлевается внахлёст в цель,
@@ -713,7 +808,10 @@ def build_instrument_midi(song, track, track_type, cfg=None):
                 pb_dirty = False
 
             # --- note on / off ---
-            ev.add(start_tick, ORDER_ON,
+            # strum сдвигает только АТАКУ ноты внутри аккорда; конец ноты не
+            # трогаем, иначе разъедутся лиги и легато, завязанные на off_rec
+            on_tick = start_tick + strum.get(pitch, 0)
+            ev.add(on_tick, ORDER_ON,
                    Message("note_on", channel=CHANNEL, note=pitch, velocity=velocity))
             note_end = start_tick + dur
             off_rec = ev.add(note_end, ORDER_OFF,
@@ -901,13 +999,21 @@ def build_other_midi(song, track):
 # --------------------------------------------------------------------------- #
 #  Сборка MIDI: DRUMS (Shreddage Drums)
 # --------------------------------------------------------------------------- #
-def build_drum_midi(song, track, cfg=None):
+def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
+                    ghost_notes=None):
     """MIDI для барабанного трека под Shreddage Drums.
 
     GM-нота из GP-percussion-трека переводится в ноту Shreddage Drums по
     конфигу shreddage_drums.yaml (remap: High Tom 50->48, Ride2 59->51,
     Surdo 87->41; Side Stick 37 — с предупреждением). Без KS / CC / PB.
-    Категория A: акценты -> velocity."""
+    Категория A: акценты -> velocity.
+
+    humanize=True дополнительно оживляет партию по профилю
+    config/humanize_profiles/drums_metal.yaml: velocity синтезируется
+    (на входе ApolloTab отдаёт для перкуссии плоские 95 на все ноты) и
+    добавляется микро-тайминг. По умолчанию ВЫКЛЮЧЕНО — без флага выхлоп
+    остаётся прежним.
+    """
     cfg = cfg or config_for_track_type(TRACK_DRUMS)
     stats = {"notes": 0, "ks": 0, "cc1": 0,
              "config": config_label(cfg), "warnings": []}
@@ -918,6 +1024,7 @@ def build_drum_midi(song, track, cfg=None):
     base_bpm = add_track_meta(ev, song, track)
     last_ts = None
     last_bpm = base_bpm
+    pending = []
 
     string_pitch = {s.number: s.value for s in track.strings}
 
@@ -949,15 +1056,52 @@ def build_drum_midi(song, track, cfg=None):
             if out_note is None:
                 continue
             velocity = accent_boosted_velocity(note, clamp_vel(note.velocity))
-            ev.add(start_tick, ORDER_ON,
-                   Message("note_on", channel=CHANNEL, note=clamp_note(out_note),
-                           velocity=velocity))
-            ev.add(start_tick + max(1, min(dur, TICKS_PER_BEAT // 4)), ORDER_OFF,
-                   Message("note_off", channel=CHANNEL, note=clamp_note(out_note),
-                           velocity=0))
+            pending.append({"tick": start_tick, "note": clamp_note(out_note),
+                            "vel": velocity,
+                            "dur": max(1, min(dur, TICKS_PER_BEAT // 4))})
             stats["notes"] += 1
 
+    if humanize:
+        prof = profile_for_track_type(TRACK_DRUMS)
+        if prof:
+            rng = random.Random(humanize_seed)
+            hstats = humanize_drums(pending, last_bpm, TICKS_PER_BEAT, prof, rng,
+                                    ghost_override=ghost_notes)
+            stats["humanize"] = hstats
+            stats["notes"] += hstats.get("ghosts", 0)
+            logger.info("трек %r: оживление %s, тайминг x%.2f по темпу %.1f, "
+                        "гост-нот +%d", track.name, hstats["profile"],
+                        hstats["tempo_k"], last_bpm, hstats.get("ghosts", 0))
+
+    for p in pending:
+        ev.add(p["tick"], ORDER_ON,
+               Message("note_on", channel=CHANNEL, note=p["note"], velocity=p["vel"]))
+        ev.add(p["tick"] + p["dur"], ORDER_OFF,
+               Message("note_off", channel=CHANNEL, note=p["note"], velocity=0))
+
     return ev.to_miditrack(), stats
+
+
+def build_combined_midi(midi_tracks, ticks_per_beat=TICKS_PER_BEAT):
+    """Один Type 1 MIDI со ВСЕМИ дорожками разом (в дополнение к пофайловым).
+
+    Смысл: перетащить в Logic один файл вместо тринадцати и получить сразу всю
+    аранжировку по дорожкам. Содержимое дорожек — те же самые объекты, что идут
+    в пофайловый экспорт, поэтому расхождения между "скачал всё" и "скачал по
+    одной" быть не может по построению.
+
+    Канал у всех дорожек остаётся 0, как и в пофайловом экспорте: Logic при
+    импорте раскладывает Type 1 ПО ДОРОЖКАМ, а не по каналам, а инструменты тут
+    Kontakt-овые — GM-канал 10 для барабанов им не нужен. Менять каналы значило
+    бы разойтись с уже проверенными пользователем одиночными файлами.
+
+    track_name у каждой дорожки проставлен в add_track_meta, поэтому в Logic они
+    приезжают подписанными.
+    """
+    mf = MidiFile(type=1, ticks_per_beat=ticks_per_beat)
+    for tr in midi_tracks:
+        mf.tracks.append(tr)
+    return mf
 
 
 def _next_note_pitch(beats, bi, string, string_pitch):
@@ -973,9 +1117,23 @@ def _next_note_pitch(beats, bi, string, string_pitch):
 #  main
 # --------------------------------------------------------------------------- #
 def main(argv):
-    args = argv[1:]
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    flags = {a for a in argv[1:] if a.startswith("--")}
+    humanize = "--humanize" in flags
+    ghost_notes = True if "--ghost-notes" in flags else None
+    no_verify = "--no-verify" in flags
+    seed = 7
+    for f in flags:
+        if f.startswith("--seed="):
+            seed = int(f.split("=", 1)[1])
+
     if len(args) != 1:
-        sys.exit("Использование: python gp_to_shreddage.py song.gp5")
+        sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
+                 "[--humanize] [--ghost-notes] [--seed=N]\n"
+                 "  --humanize    оживить барабаны (velocity + микро-тайминг);\n"
+                 "                без флага выхлоп прежний\n"
+                 "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
+                 "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = args[0]
     if not os.path.isfile(src):
@@ -994,16 +1152,22 @@ def main(argv):
     used = {}
     summary = []
     warnings = []
+    smoke_errors = []
+    all_tracks = []
 
     for idx, track in enumerate(song.tracks, start=1):
         track_type = resolve_track_type(track)
 
         if track_type == TRACK_DRUMS:
-            midi_track, stats = build_drum_midi(song, track)
+            midi_track, stats = build_drum_midi(song, track, humanize=humanize,
+                                                humanize_seed=seed,
+                                                ghost_notes=ghost_notes)
         elif track_type == TRACK_OTHER:
             midi_track, stats = build_other_midi(song, track)
         else:
-            midi_track, stats = build_instrument_midi(song, track, track_type)
+            midi_track, stats = build_instrument_midi(song, track, track_type,
+                                                      humanize=humanize,
+                                                      humanize_seed=seed)
 
         name = safe_filename(track.name) or ("Track_%d" % idx)
         fname = name
@@ -1017,12 +1181,26 @@ def main(argv):
         mf.tracks.append(midi_track)
         out_path = os.path.join(out_dir, fname + ".mid")
         mf.save(out_path)
+        all_tracks.append(midi_track)
 
         summary.append((track.name or "(без имени)", track_type, stats, os.path.basename(out_path)))
         if track_type == TRACK_OTHER:
             warnings.append(track.name or "(без имени)")
         for w in stats.get("warnings", []):
             print('WARNING [%s]: %s' % (track.name or "(без имени)", w))
+
+        # смок-проверка готового артефакта: инварианты, а не музыка
+        if not no_verify:
+            found = smoke_check(out_path, track_type)
+            if found:
+                print('SMOKE [%s]:' % (track.name or "(без имени)"))
+                for sev, code, msg in found:
+                    if sev == "INFO" and not humanize:
+                        continue      # неоживлённый экспорт квантован by design
+                    mark = {"ERROR": "!!", "WARN": " !", "INFO": "  "}[sev]
+                    print('  %s [%s] %s' % (mark, code, msg))
+                    if sev == "ERROR":
+                        smoke_errors.append((track.name, code))
 
     # --- вывод в консоль ---
     print("\n%-30s %-7s %6s %6s %6s" % ("ТРЕК", "ТИП", "НОТ", "KS", "CC1"))
@@ -1037,6 +1215,20 @@ def main(argv):
             print('WARNING: трек "%s" не распознан (нет ключевых слов) -> тип OTHER, '
                   "ноты скопированы as is. Добавьте слово в GUITAR_KEYWORDS/BASS_KEYWORDS "
                   "вручную, если нужен маппинг Shreddage." % tname)
+
+    if smoke_errors:
+        print("\nСМОК-ПРОВЕРКА: ОШИБКИ (%d)" % len(smoke_errors))
+        for tname, code in smoke_errors:
+            print('  %s: %s' % (tname, code))
+    elif not no_verify:
+        print("\nСмок-проверка: чисто")
+
+    # сборный Type 1 со всеми дорожками — рядом с пофайловыми
+    combined_path = None
+    if all_tracks:
+        combined_path = os.path.join(out_dir, "%s_ALL.mid" % safe_filename(base))
+        build_combined_midi(all_tracks).save(combined_path)
+        print("\nСборный файл (все дорожки): %s" % os.path.basename(combined_path))
 
     print("\nГотово. Файлы: %s" % out_dir)
 

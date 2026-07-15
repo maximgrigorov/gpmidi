@@ -27,6 +27,7 @@ from mido import MidiFile
 
 from gp_import import parse_song
 from gp_to_shreddage import (
+    build_combined_midi,
     PITCH_BEND_RANGE_ST,
     TICKS_PER_BEAT,
     build_drum_midi,
@@ -422,19 +423,25 @@ def is_empty_export_track(stats: dict[str, Any], preview_data: dict[str, Any]) -
 
 
 
-def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str) -> list[dict[str, Any]]:
+def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
+                        humanize: bool = False, ghost_notes: bool = False,
+                        seed: int = 7) -> tuple[list[dict[str, Any]], list[Any]]:
     used: dict[str, int] = {}
     tracks: list[dict[str, Any]] = []
+    midi_tracks: list[Any] = []
     preview_dir = build_preview_dir(job_dir)
 
     for idx, track in enumerate(song.tracks, start=1):
         track_type = resolve_track_type(track)
         if track_type == "DRUMS":
-            midi_track, stats = build_drum_midi(song, track)
+            midi_track, stats = build_drum_midi(
+                song, track, humanize=humanize, humanize_seed=seed,
+                ghost_notes=True if ghost_notes else None)
         elif track_type == "OTHER":
             midi_track, stats = build_other_midi(song, track)
         else:
-            midi_track, stats = build_instrument_midi(song, track, track_type)
+            midi_track, stats = build_instrument_midi(
+                song, track, track_type, humanize=humanize, humanize_seed=seed)
 
         name = safe_filename(track.name) or f"Track_{idx}"
         file_name = name
@@ -452,6 +459,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str) -> list
         midi.tracks.append(midi_track)
         out_path = out_dir / f"{file_name}.mid"
         midi.save(out_path)
+        midi_tracks.append(midi_track)
 
         preview_name = save_preview(preview_dir, file_name, preview_data)
 
@@ -489,7 +497,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str) -> list
             }
         )
 
-    return tracks
+    return tracks, midi_tracks
 
 
 
@@ -525,7 +533,8 @@ def make_zip(job_dir: Path) -> Path:
 
 
 
-def create_job(uploaded_file) -> str:
+def create_job(uploaded_file, humanize: bool = False,
+               ghost_notes: bool = False, seed: int = 7) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -541,7 +550,18 @@ def create_job(uploaded_file) -> str:
 
     song = parse_song(source_path)
     song_summary = summarize_song(song)
-    tracks = build_track_summary(song, output_dir, job_dir, job_id)
+    tracks, midi_tracks = build_track_summary(
+        song, output_dir, job_dir, job_id,
+        humanize=humanize, ghost_notes=ghost_notes, seed=seed)
+
+    # Сборный Type 1 со всеми дорожками — из ТЕХ ЖЕ объектов, что и пофайловый
+    # экспорт, поэтому разойтись они не могут. Кладём в output/ последним, чтобы
+    # он попал и в zip.
+    combined_name = None
+    if midi_tracks:
+        combined_name = f"{safe_filename(Path(original_name).stem) or 'song'}_ALL.mid"
+        build_combined_midi(midi_tracks).save(output_dir / combined_name)
+
     zip_path = make_zip(job_dir)
 
     job = {
@@ -554,6 +574,11 @@ def create_job(uploaded_file) -> str:
         "warnings": [t["track_name"] for t in tracks if t["track_type"] == "OTHER"],
         "zip_name": zip_path.name,
         "zip_url": url_for("download_zip", job_id=job_id),
+        "combined_name": combined_name,
+        "combined_url": (url_for("download_track", job_id=job_id, filename=combined_name)
+                         if combined_name else None),
+        "humanize": humanize,
+        "ghost_notes": ghost_notes,
     }
 
     manifest = load_manifest()
@@ -597,13 +622,26 @@ def upload():
         flash("Поддерживаются только Guitar Pro файлы: .gp, .gp3, .gp4, .gp5, .gpx", "error")
         return redirect(url_for("index"))
 
+    # Оживление — ОПЦИЯ, по умолчанию выключена: без галочки выхлоп прежний.
+    humanize = request.form.get("humanize") == "on"
+    ghost_notes = request.form.get("ghost_notes") == "on"
     try:
-        job_id = create_job(file)
+        seed = int(request.form.get("seed") or 7)
+    except ValueError:
+        seed = 7
+
+    try:
+        job_id = create_job(file, humanize=humanize, ghost_notes=ghost_notes, seed=seed)
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
         return redirect(url_for("index"))
 
-    flash("Файл загружен и разобран. MIDI-дорожки готовы к скачиванию.", "success")
+    msg = "Файл загружен и разобран. MIDI-дорожки готовы к скачиванию."
+    if humanize:
+        msg += " Оживление применено."
+        if ghost_notes:
+            msg += " Гост-ноты добавлены (партия изменена)."
+    flash(msg, "success")
     return redirect(url_for("job_details", job_id=job_id))
 
 

@@ -40,6 +40,31 @@
               <span>или нажми для выбора</span>
               <small>До {{ max_size_mb }} МБ</small>
             </label>
+            <fieldset class="options">
+              <legend>Оживление</legend>
+              <label class="opt">
+                <input type="checkbox" name="humanize" id="humanizeChk">
+                <span>
+                  <strong>Оживить партии</strong>
+                  <small>Guitar Pro отдаёт 8 градаций динамики, а для барабанов вообще одну.
+                  Синтезирует velocity и микро-тайминг по профилю на инструмент.
+                  Без галочки выхлоп прежний, байт-в-байт.</small>
+                </span>
+              </label>
+              <label class="opt sub">
+                <input type="checkbox" name="ghost_notes" id="ghostChk" disabled>
+                <span>
+                  <strong>Гост-ноты по рабочему</strong>
+                  <small>Тихие удары вокруг бэкбита. Единственная опция, которая
+                  <em>меняет партию</em>, а не только подачу. Только барабаны.</small>
+                </span>
+              </label>
+              <label class="opt seed">
+                <span>Seed</span>
+                <input type="number" name="seed" value="7" min="0" max="9999">
+                <small>Один и тот же seed даёт один и тот же результат.</small>
+              </label>
+            </fieldset>
             <div class="form-actions">
               <button type="button" class="btn" id="pickBtn">Выбрать файл</button>
               <button type="submit" class="btn primary">Разобрать</button>
@@ -104,10 +129,28 @@
           <section class="page-head">
             <div>
               <h1>{{ current_job.original_name }}</h1>
-              <p class="subtitle">Разобрано {{ current_job.created_at }}. Клик по строке открывает piano-roll, таблицу артикуляций и мини-плеер с перемоткой.</p>
+              <p class="subtitle">
+                Разобрано {{ current_job.created_at }}. Клик по строке открывает piano-roll, таблицу артикуляций и мини-плеер с перемоткой.
+              </p>
+              <p class="mode-badges">
+                {% if current_job.humanize %}
+                  <span class="badge on">оживление вкл</span>
+                  {% if current_job.ghost_notes %}
+                    <span class="badge warn">гост-ноты (партия изменена)</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge">оживление выкл — выхлоп как раньше</span>
+                {% endif %}
+              </p>
             </div>
             <div class="head-actions">
-              <a class="btn primary" href="{{ current_job.zip_url }}">Скачать ZIP</a>
+              {% if current_job.combined_url %}
+                <a class="btn primary" href="{{ current_job.combined_url }}"
+                   title="Один Type 1 MIDI со всеми дорожками — перетащить в Logic целиком">
+                  Скачать всё одним MIDI
+                </a>
+              {% endif %}
+              <a class="btn" href="{{ current_job.zip_url }}">ZIP по дорожкам</a>
               <form action="{{ url_for('delete_job', job_id=current_job.id) }}" method="post">
                 <button class="btn danger" type="submit">Удалить сессию</button>
               </form>
@@ -248,6 +291,17 @@
     const dropzone = document.getElementById('dropzone');
     const pickBtn = document.getElementById('pickBtn');
     const filename = document.getElementById('filename');
+    const humanizeChk = document.getElementById('humanizeChk');
+    const ghostChk = document.getElementById('ghostChk');
+    if (humanizeChk && ghostChk) {
+      // Госты имеют смысл только внутри оживления, поэтому чекбокс висит
+      // заблокированным, пока не включено оживление.
+      humanizeChk.addEventListener('change', () => {
+        ghostChk.disabled = !humanizeChk.checked;
+        if (!humanizeChk.checked) ghostChk.checked = false;
+      });
+    }
+
     const form = document.getElementById('uploadForm');
     const previewCache = new Map();
     let activePlayer = null;

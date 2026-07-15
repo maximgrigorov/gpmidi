@@ -2,8 +2,25 @@
 #
 # Источник: https://www.impactsoundworks.com/manuals/Shreddage%20Drums%20Manual.pdf
 #   (раздел "Getting Started", графика "Shreddage Drums Default Mapping").
-# Подтверждено ДВОЙНОЙ проверкой: текст мануала letter-for-letter совпадает
-# со скриншотом Grid View реального кита пользователя, КРОМЕ C#1 (см. ниже).
+#
+# ПЕРЕПРОВЕРЕНО 2026-07-15 по вкладке MAPPING в Kontakt (пресет "Shreddage
+# Default") — раскладка сошлась ПОЛНОСТЬЮ, включая нетривиальную верхнюю октаву:
+#   48=Tom1 8in, 49=Crsh 17in, 50=Crsh 17in Chk (НЕ GM High Tom!), 51=Rde 20in Ed,
+#   52=China 22in, 53=Rde 20in, 54=China 20in, 55=ZJ Splash, 56=China 18in,
+#   57=Crsh 18in, 58=Crsh 18in Chk, 59=пусто (--Click to Set--).
+# Флэмы сошлись по формуле base+24: 41->F3, 43->G3, 45->A3, 47->B3.
+# Единственная правка — отозвано ложное предупреждение про C#1 (см. warnings).
+#
+# ВАЖНО про природу этого файла: раскладка в Shreddage Drums НЕ фиксирована.
+# Мануал: "create the custom kit of your dreams with whatever mapping you want,
+# from General MIDI to 84-key insanity". То есть kit_layout ниже — это описание
+# КОНКРЕТНОГО пресета пользователя, а не свойство библиотеки. Сменит пресет —
+# файл надо сверять заново по вкладке MAPPING, а не по мануалу.
+#
+# Перкуссии в библиотеке нет ВООБЩЕ (мануал, Content Overview: кики 20/22/24",
+# снейры 14x5/14x6 клён, 14x6/14x8 сталь, 14x4 латунь, томы 8-18", чайны 16/18/22",
+# крэши 17/18", сплэш 12", ОДИН хэт 14", райд 20"). Ни шейкера, ни тамбурина,
+# ни коубелла, ни клэпа — отсюда приближения в remap для 82 и 87.
 #
 # Раскладка ОЧЕНЬ близка к GM, но НЕ идентична в верхней октаве:
 #   50 = Crash 1 Choke (в GM — High Tom!), 54/56/58 = China 2/3, Crash 2 Choke.
@@ -21,7 +38,7 @@ pitch_bend_range: null   # для барабанов не используетс
 kit_layout:
   35: "Acoustic Bass Drum / AA Kck 24in M"
   36: "Bass Drum / AA Kck 24in M"
-  37: "Side Stick (мануал) / В РЕАЛЬНОМ КИТЕ: дубль кика AA Kck 24in M"
+  37: "Side Stick / *Sn14x5M Crs (cross stick)"
   38: "Acoustic Snare / Sn14x5M (normal hit)"
   39: "Rim Shot / Sn14x5M Rm"
   40: "Acoustic Snare alt layer / Sn14x5M (2й слой)"
@@ -51,18 +68,30 @@ remap:
   50: 48   # GM High Tom -> Hi-Mid Tom (50 в Shreddage = Crash 1 Choke!)
   59: 51   # GM Ride Cymbal 2 -> Ride 1 Edge (в ките один райд)
   87: 41   # GM Surdo (mute) -> Low Floor Tom (ближайший по звуку; см. warnings)
+  82: 44   # GM Shaker -> Pedal Hi-Hat (см. warnings: перкуссии в ките нет вовсе)
 
 # Явные предупреждения на конкретные входные GM-ноты.
 warnings:
-  37: >-
-    Side Stick: в текущем ките пользователя на C#1 загружен ДУБЛЬ КИКА, а не
-    Side Stick. Нота экспортируется как 37 (техн. верно по мануалу), но будет
-    ЗВУЧАТЬ КАК КИК, пока Side Stick не загружен в Kontakt на этот keyswitch.
+  # ОТОЗВАНО 2026-07-15. Здесь висело предупреждение, что на C#1 у пользователя
+  # загружен ДУБЛЬ КИКА вместо Side Stick. Это неверно: скриншот вкладки MAPPING
+  # показывает C#1 = *Sn14x5M Crs, то есть cross stick на месте и, судя по всему,
+  # был всегда. Дубль кика в ките действительно есть, но на B0 (35) и C1 (36) —
+  # AA Kck 24in M на обеих, что штатно (в GM 35 = Acoustic Bass Drum,
+  # 36 = Bass Drum, оба кики). Похоже, два кика подряд приняли за дубликат на 37.
+  # Мораль: kit_layout сверять по вкладке MAPPING, а не по памяти.
   39: >-
     GM Hand Clap (39) в Shreddage Drums — это Rim Shot: хлопок будет звучать
     как римшот. Отдельного clap-сэмпла в ките нет.
   87: >-
-    GM Surdo -> Low Floor Tom (приближение: суردо в ките отсутствует).
+    GM Surdo -> Low Floor Tom (приближение: сурдо в ките отсутствует).
+  82: >-
+    GM Shaker -> Pedal Hi-Hat. ПРИБЛИЖЕНИЕ: перкуссии в Shreddage Drums нет
+    вовсе (мануал, Content Overview: только кики, снейры, томы, чайны, крэши,
+    сплэш, ОДИН хэт 14" и райд). Pedal Hi-Hat выбран как самая сухая, короткая
+    и тихая артикуляция кита — ближайшая к "чх" шейкера. На 42 (Closed Hi-Hat)
+    маппить НЕЛЬЗЯ: в партии (такты 25-32) шейкер стоит РОВНО на тех же тиках,
+    что и закрытый хэт, — получились бы две одинаковые ноты на одном тике.
+    Заодно физически связно: хэт рукой + пед ногой одновременно играются.
 
 # Флэмы томов: подтверждено мануалом ("two octaves above the actual toms")
 # и скриншотом (F3/G3/A3/B3 = Flam). Формула, не хардкод.
