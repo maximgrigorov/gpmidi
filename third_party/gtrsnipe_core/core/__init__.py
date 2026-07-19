@@ -1,0 +1,1 @@
+"""Vendored gtrsnipe core modules."""

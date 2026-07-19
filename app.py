@@ -34,10 +34,21 @@ from gp_to_shreddage import (
     build_instrument_midi,
     build_other_midi,
     detect_track_type,
+    iter_voice_beats_with_canonical_ticks,
     resolve_track_type,
     safe_filename,
 )
 from articulation_config import config_for_track_type
+from playable_tabs import (
+    TUNABLE_PARAMS,
+    TrackGeneration,
+    build_score_events,
+    generate_track,
+    map_with_gtrsnipe,
+    refinger_gp,
+    validate_params,
+)
+from tab_print import print_pdf
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_ROOT = APP_ROOT / "data"
@@ -46,6 +57,8 @@ ALLOWED_EXTENSIONS = {".gp", ".gp3", ".gp4", ".gp5", ".gpx"}
 MAX_CONTENT_LENGTH = 128 * 1024 * 1024
 SESSION_HISTORY_LIMIT = 8
 DEFAULT_TEMPO_US = 500000
+CUPS_SERVER = os.environ.get("CUPS_SERVER", "192.168.10.31")
+CUPS_PRINTER = os.environ.get("CUPS_PRINTER", "")
 MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 app = Flask(__name__)
@@ -481,6 +494,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
             {
                 "index": idx,
                 "track_name": track.name or f"Track {idx}",
+                "basename": file_name,
                 "track_type": track_type,
                 "track_type_label": TRACK_LABELS.get(track_type, track_type),
                 "fix_categories": FIX_DESCRIPTIONS[track_type],
@@ -527,14 +541,15 @@ def summarize_song(song) -> dict[str, Any]:
 def make_zip(job_dir: Path) -> Path:
     zip_path = job_dir / "tracks.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for midi_file in sorted((job_dir / "output").glob("*.mid")):
-            zf.write(midi_file, arcname=midi_file.name)
+        for artifact in sorted(path for path in (job_dir / "output").iterdir() if path.is_file()):
+            zf.write(artifact, arcname=artifact.name)
     return zip_path
 
 
 
 def create_job(uploaded_file, humanize: bool = False,
-               ghost_notes: bool = False, seed: int = 7) -> str:
+               ghost_notes: bool = False, seed: int = 7,
+               playable_tabs: bool = False) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -562,6 +577,27 @@ def create_job(uploaded_file, humanize: bool = False,
         combined_name = f"{safe_filename(Path(original_name).stem) or 'song'}_ALL.mid"
         build_combined_midi(midi_tracks).save(output_dir / combined_name)
 
+    playable_warnings: list[str] = []
+    refingered_name = None
+    if playable_tabs:
+        track_summaries = {item["track_name"]: item for item in tracks}
+        generations: dict[str, TrackGeneration] = {}
+        for source_track in song.tracks:
+            if resolve_track_type(source_track) not in {"GUITAR", "BASS"}:
+                continue
+            result = generate_track(song, source_track, output_dir, preset="auto")
+            generations[source_track.name] = result
+            summary = track_summaries.get(source_track.name)
+            if summary is not None:
+                summary["playable"] = result.manifest_dict()
+        if generations and source_path.suffix.lower() in {".gp", ".gp5"}:
+            candidate = output_dir / f"{safe_filename(Path(original_name).stem) or 'song'}_refingered{source_path.suffix.lower()}"
+            try:
+                refinger_gp(source_path, generations, candidate, original_song=song)
+                refingered_name = candidate.name
+            except Exception as exc:
+                playable_warnings.append(f"re-fingering отменён: {str(exc)[:240]}")
+
     zip_path = make_zip(job_dir)
 
     job = {
@@ -572,6 +608,11 @@ def create_job(uploaded_file, humanize: bool = False,
         "song": song_summary,
         "tracks": tracks,
         "warnings": [t["track_name"] for t in tracks if t["track_type"] == "OTHER"],
+        "playable_warnings": playable_warnings,
+        "playable_tabs": playable_tabs,
+        "refingered_name": refingered_name,
+        "refingered_url": (url_for("download_track", job_id=job_id, filename=refingered_name)
+                           if refingered_name else None),
         "zip_name": zip_path.name,
         "zip_url": url_for("download_zip", job_id=job_id),
         "combined_name": combined_name,
@@ -595,7 +636,11 @@ def index():
     manifest = load_manifest()
     current_job = get_current_job(manifest)
     jobs = manifest.get("jobs", [])
-    return render_template("index.html", current_job=current_job, jobs=jobs, max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024))
+    return render_template(
+        "index.html", current_job=current_job, jobs=jobs,
+        max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
+        printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
+    )
 
 
 @app.post("/new-session")
@@ -625,13 +670,17 @@ def upload():
     # Оживление — ОПЦИЯ, по умолчанию выключена: без галочки выхлоп прежний.
     humanize = request.form.get("humanize") == "on"
     ghost_notes = request.form.get("ghost_notes") == "on"
+    playable_tabs = request.form.get("playable_tabs") == "on"
     try:
         seed = int(request.form.get("seed") or 7)
     except ValueError:
         seed = 7
 
     try:
-        job_id = create_job(file, humanize=humanize, ghost_notes=ghost_notes, seed=seed)
+        job_id = create_job(
+            file, humanize=humanize, ghost_notes=ghost_notes, seed=seed,
+            playable_tabs=playable_tabs,
+        )
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
         return redirect(url_for("index"))
@@ -658,13 +707,34 @@ def job_details(job_id: str):
         abort(404)
     manifest["current_job_id"] = job_id
     save_manifest(manifest)
-    return render_template("index.html", current_job=current_job, jobs=jobs, max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024))
+    return render_template(
+        "index.html", current_job=current_job, jobs=jobs,
+        max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
+        printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
+    )
+
+
+def _job_by_id(manifest: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    return next((job for job in manifest.get("jobs", []) if job.get("id") == job_id), None)
+
+
+def _artifact_names(job: dict[str, Any]) -> set[str]:
+    names = {value for value in (job.get("combined_name"), job.get("refingered_name")) if value}
+    for track in job.get("tracks", []):
+        if track.get("download_name"):
+            names.add(track["download_name"])
+        names.update((track.get("playable") or {}).get("files", []))
+    return names
 
 
 @app.get("/download/<job_id>/<path:filename>")
 def download_track(job_id: str, filename: str):
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None or filename not in _artifact_names(job) or Path(filename).name != filename:
+        abort(404)
     path = uploads_root() / job_id / "output" / filename
-    if not path.exists() or path.suffix.lower() != ".mid":
+    if not path.is_file():
         abort(404)
     return send_file(path, as_attachment=True, download_name=path.name)
 
@@ -683,6 +753,105 @@ def download_zip(job_id: str):
     if not path.exists():
         abort(404)
     return send_file(path, as_attachment=True, download_name=f"{job_id}_tracks.zip")
+
+
+def _mapping_generation(track, playable: dict[str, Any]) -> TrackGeneration:
+    params = dict(playable["params"])
+    events = build_score_events(track)
+    mapped, _text = map_with_gtrsnipe(events, resolve_track_type(track), track.name, params)
+    note_count = sum(len(beat.notes) for *_prefix, beat, _mt, _bt, _dur in iter_voice_beats_with_canonical_ticks(track))
+    positions: list[tuple[int, int] | None] = [None] * note_count
+    for item in mapped:
+        for source_index in item.source_indices:
+            positions[source_index] = (item.string, item.fret)
+    return TrackGeneration(
+        track.name, resolve_track_type(track), safe_filename(track.name), params["preset"], params,
+        list(playable.get("files", [])), dict(playable.get("status", {})), mapped, positions,
+        version=int(playable.get("version", 1)),
+    )
+
+
+@app.post("/jobs/<job_id>/playable/regen")
+def regen_playable(job_id: str):
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None:
+        abort(404)
+    if not job.get("playable_tabs"):
+        abort(400, description="playable tabs выключены для этого джоба")
+    basename = request.form.get("track", "")
+    summary = next((item for item in job.get("tracks", []) if item.get("basename") == basename and item.get("playable")), None)
+    if summary is None:
+        abort(400, description="трек отсутствует в манифесте playable tabs")
+    incoming = {key: value for key, value in request.form.items() if key != "track"}
+    if "prefer_open" in request.form:
+        incoming["prefer_open"] = request.form.getlist("prefer_open")[-1]
+    unknown = set(incoming) - set(TUNABLE_PARAMS)
+    if unknown:
+        abort(400, description=f"неизвестные параметры: {', '.join(sorted(unknown))}")
+    old_playable = summary["playable"]
+    merged = {key: value for key, value in old_playable.get("params", {}).items() if key in TUNABLE_PARAMS}
+    merged.update(incoming)
+    try:
+        checked = validate_params(merged)
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    job_dir = uploads_root() / job_id
+    source_path = job_dir / "input" / job["stored_name"]
+    song = parse_song(source_path)
+    source_tracks = {track.name: track for track in song.tracks}
+    source_track = source_tracks.get(summary["track_name"])
+    if source_track is None:
+        abort(400, description="исходный трек не найден")
+    preset = checked.pop("preset", old_playable.get("preset", "auto"))
+    version = int(old_playable.get("version", 1)) + 1
+    try:
+        result = generate_track(
+            song, source_track, job_dir / "output", preset=preset,
+            overrides=checked, version=version, generate_score=False,
+        )
+        summary["playable"] = result.manifest_dict()
+        generations: dict[str, TrackGeneration] = {source_track.name: result}
+        for other in job.get("tracks", []):
+            if other is summary or not other.get("playable"):
+                continue
+            track = source_tracks.get(other["track_name"])
+            if track is not None:
+                generations[track.name] = _mapping_generation(track, other["playable"])
+        if job.get("refingered_name"):
+            refinger_gp(
+                source_path, generations, job_dir / "output" / job["refingered_name"],
+                original_song=song,
+            )
+        make_zip(job_dir)
+    except Exception as exc:
+        abort(500, description=f"перегенерация не удалась: {exc}")
+    save_manifest(manifest)
+    flash(f"Таб {summary['track_name']} перегенерирован: v{version}.", "success")
+    return redirect(url_for("job_details", job_id=job_id))
+
+
+@app.post("/jobs/<job_id>/print")
+def print_artifact(job_id: str):
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None:
+        abort(404)
+    artifact = request.form.get("artifact", "")
+    if artifact not in _artifact_names(job) or Path(artifact).name != artifact or not artifact.lower().endswith(".pdf"):
+        abort(400, description="PDF отсутствует в манифесте джоба")
+    if not CUPS_PRINTER:
+        abort(400, description="серверная печать выключена")
+    result = print_pdf(
+        uploads_root() / job_id / "output" / artifact,
+        server=CUPS_SERVER, printer=CUPS_PRINTER,
+    )
+    if result.ok:
+        flash(f"PDF отправлен на печать: {result.request_id or 'задание принято'}", "success")
+    else:
+        flash(f"Печать не удалась: {result.error}", "error")
+    return redirect(url_for("job_details", job_id=job_id))
 
 
 @app.post("/jobs/<job_id>/delete")

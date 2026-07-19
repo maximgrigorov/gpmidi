@@ -629,3 +629,15 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
 }
 .badge.on { background: #e3f4e6; color: #1c6b30; }
 .badge.warn { background: #fdf0dc; color: #8a5a10; }
+
+.playable-option { margin: 10px 0; padding: 10px; border: 1px dashed var(--border); border-radius: 10px; }
+.playable-settings { margin-top: 8px; font-size: .78rem; }
+.playable-settings summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.regen-form { display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 7px; margin-top: 8px; padding: 9px; background: var(--accent-soft); border-radius: 8px; }
+.regen-form label { display: grid; gap: 3px; color: var(--muted); }
+.regen-form input, .regen-form select { min-width: 0; padding: 5px; border: 1px solid var(--border); border-radius: 6px; background: white; }
+.regen-form .inline-check { display: flex; align-items: center; gap: 5px; }
+.tool-status { margin-top: 6px; color: var(--muted); overflow-wrap: anywhere; }
+.artifact-action { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.artifact-action form { margin: 0; }
+.actions-col { min-width: 180px; }

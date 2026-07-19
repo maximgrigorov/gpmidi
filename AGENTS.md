@@ -186,3 +186,10 @@
 - User can download individual MIDI tracks.
 - App runs in a container on a published port.
 - The converter script remains musically unchanged.
+
+## Playable tabs (opt-in)
+- `playable_tabs.py` builds clean score-MIDI directly from parsed GUITAR/BASS tracks, then runs both vendored gtrsnipe and installed tuttut. It must never consume the normal Shreddage MIDI because that contains KS/PB/CC/humanization.
+- Upload and CLI paths also create ASCII/PDF tabs and a post-verified `_refingered.gp`/`.gp5`; original pitches and rhythm are hard invariants. Regeneration parameters are validated only through `TUNABLE_PARAMS`.
+- gtrsnipe core is vendored under `third_party/gtrsnipe_core/` from the commit recorded in `VENDORED_FROM.txt`; its PolyForm Noncommercial license and Required Notices must stay in the repository.
+- Server printing is enabled only when `CUPS_PRINTER` is non-empty. `CUPS_SERVER` defaults to the remote CUPS host; every print artifact must be whitelisted by the job manifest before invoking `lp`.
+- GP8 string numbering was measured on the real sample: gtrsnipe/ApolloTab use 0=highest, while GPIF uses 0=lowest. Do not change the conversion formula without repeating the empirical and post-parse verification.

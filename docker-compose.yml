@@ -8,5 +8,8 @@ services:
       - "8082:8080"            # как у прежнего контейнера
     environment:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+      # Remote CUPS server / verified queue for HP LaserJet Professional P1102.
+      - CUPS_SERVER=${CUPS_SERVER:-192.168.10.31}
+      - CUPS_PRINTER=${CUPS_PRINTER:-HP-LaserJet-Professional-P1102}
     volumes:
       - ./data:/app/data       # сессии/загрузки переживают пересборку образа

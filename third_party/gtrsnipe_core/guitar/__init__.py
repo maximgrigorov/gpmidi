@@ -1,0 +1,1 @@
+"""Vendored gtrsnipe guitar mapper."""

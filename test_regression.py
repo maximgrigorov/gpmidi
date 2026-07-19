@@ -578,11 +578,11 @@ def test_darkwall_keyswitch_octave(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-#  Тест 12 — Барабаны: GM -> Shreddage Drums (remap + Side Stick warning)
+#  Тест 12 — Барабаны: GM -> Shreddage Drums (remap без ложного Side Stick warning)
 # --------------------------------------------------------------------------- #
 def test_drums_mapping_pnd_side_stick():
-    """pnd/Drumkit: Side Stick (GM 37) экспортируется как 37 с предупреждением
-    (в ките пользователя на C#1 дубль кика). Кол-во нот = источнику."""
+    """pnd/Drumkit: Side Stick (GM 37) экспортируется как 37 без ложного
+    предупреждения: маппинг пользователя подтверждает C#1 = cross-stick."""
     _require(PND_NOAUDIO)
     song = parse_cached(str(PND_NOAUDIO))
     track = next(t for t in song.tracks if t.name == "Drumkit")
@@ -592,7 +592,7 @@ def test_drums_mapping_pnd_side_stick():
     pitches = Counter(msg.note for msg in mt
                       if msg.type == "note_on" and msg.velocity > 0)
     assert pitches[37] > 0, "Side Stick (37) пропал из экспорта"
-    assert any("Side Stick" in w for w in stats["warnings"]), "нет предупреждения о Side Stick"
+    assert not any("Side Stick" in w for w in stats["warnings"]), "вернулось ложное предупреждение о Side Stick"
     assert stats["notes"] == source_nontie_note_count(track)
 
 
@@ -625,13 +625,13 @@ def test_drums_flam_formula():
 
 
 # --------------------------------------------------------------------------- #
-#  Тест 13 — Pitch Bend Range = 2 st (дефолт мануалов), RPN + полный бенд
+#  Тест 13 — Hydra Pitch Bend Range = 7 st, Darkwall = 2 st
 # --------------------------------------------------------------------------- #
-def test_pitch_bend_range_two_semitones():
-    """Конфиги Hydra/Darkwall задают range 2; экспорт пишет RPN 0,0 = 2 и
-    полный бенд GP (whole tone) достигает края диапазона PW (8191)."""
+def test_pitch_bend_range_matches_instrument_configs():
+    """Hydra использует измеренный range 7 для бендов до 6 st без потолка;
+    Darkwall сохраняет пока не проверенный дефолт 2 st."""
     from articulation_config import config_for_track_type
-    assert float(config_for_track_type("GUITAR")["pitch_bend_range"]) == 2.0
+    assert float(config_for_track_type("GUITAR")["pitch_bend_range"]) == 7.0
     assert float(config_for_track_type("BASS")["pitch_bend_range"]) == 2.0
 
     _require(PND_NOAUDIO)
@@ -646,11 +646,12 @@ def test_pitch_bend_range_two_semitones():
     i = rpn_idx[0]
     data6 = next(m for m in msgs[i:i + 6]
                  if m.type == "control_change" and m.control == 6)
-    assert data6.value == 2, f"RPN Pitch Bend Range = {data6.value}, ожидалось 2"
+    assert data6.value == 7, f"RPN Pitch Bend Range = {data6.value}, ожидалось 7"
 
-    # полный бенд (whole tone, 4 единицы * 0.5 st = 2 st) = край диапазона
+    # Партитура содержит бенды до 6 st: при range=7 они не должны упираться
+    # в 8191 и превращаться в полку/скачок.
     max_pw = max((m.pitch for m in msgs if m.type == "pitchwheel"), default=0)
-    assert max_pw == 8191, "полный бенд не достигает края диапазона при range=2"
+    assert 0 < max_pw < 8191, "Hydra bend снова упирается в потолок"
 
 
 # --------------------------------------------------------------------------- #
