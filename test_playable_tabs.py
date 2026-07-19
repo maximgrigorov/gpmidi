@@ -240,10 +240,10 @@ def test_print_pdf_builds_lp_command_and_returns_failures(tmp_path: Path, monkey
     pdf.write_bytes(b"%PDF-test")
     run = Mock(return_value=SimpleNamespace(returncode=0, stdout="request id is HP-42 (1 file(s))\n", stderr=""))
     monkeypatch.setattr(tab_print.subprocess, "run", run)
-    result = tab_print.print_pdf(pdf, server="192.168.10.31", printer="HP-LaserJet-Professional-P1102")
+    result = tab_print.print_pdf(pdf, server="192.168.20.64", printer="HP_P1102")
     assert result.ok and result.request_id == "HP-42"
     assert run.call_args.args[0] == [
-        "lp", "-h", "192.168.10.31", "-d", "HP-LaserJet-Professional-P1102",
+        "lp", "-h", "192.168.20.64", "-d", "HP_P1102",
         "-o", "media=A4", "-o", "sides=one-sided", str(pdf),
     ]
 

@@ -57,7 +57,7 @@ ALLOWED_EXTENSIONS = {".gp", ".gp3", ".gp4", ".gp5", ".gpx"}
 MAX_CONTENT_LENGTH = 128 * 1024 * 1024
 SESSION_HISTORY_LIMIT = 8
 DEFAULT_TEMPO_US = 500000
-CUPS_SERVER = os.environ.get("CUPS_SERVER", "192.168.10.31")
+CUPS_SERVER = os.environ.get("CUPS_SERVER", "192.168.20.64")
 CUPS_PRINTER = os.environ.get("CUPS_PRINTER", "")
 MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
