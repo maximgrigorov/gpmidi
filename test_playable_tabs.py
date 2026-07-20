@@ -86,6 +86,25 @@ def test_tuttut_headless_smoke(tmp_path: Path):
     assert output.read_text(encoding="utf-8").startswith("E ")
 
 
+def test_tuttut_wraps_full_song_without_losing_notes_or_clipping_pdf(tmp_path: Path):
+    import re
+
+    from playable_tabs import ScoreNote, run_tuttut, write_score_midi
+    from tab_print import ascii_to_pdf
+
+    song, track = _song_with_tie()
+    events = [ScoreNote(i * 240, 240, 64 + i % 8, 95) for i in range(120)]
+    score = write_score_midi(events, tmp_path / "score.mid", song, track_name=track.name)
+    output = run_tuttut(score, tmp_path / "tuttut.txt", "GUITAR")
+    text = output.read_text(encoding="utf-8")
+
+    assert len(text.split("\n\n")) > 1
+    assert max(map(len, text.splitlines())) <= 100
+    assert sum(len(re.findall(r"(?<!\d)\d+(?!\d)", line[3:])) for line in text.splitlines()) == len(events)
+    pdf = ascii_to_pdf(output, track.name, preset="solo", version=1)
+    assert pdf.warning is None
+
+
 @pytest.mark.parametrize(("track_type", "pitches", "strings", "max_fret"), [
     ("GUITAR", range(64, 72), 6, 22),
     ("BASS", range(40, 48), 4, 20),

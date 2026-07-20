@@ -318,15 +318,56 @@ def map_with_gtrsnipe(
     return mapped, text
 
 
+def _wrap_tuttut_ascii(text: str, max_width: int = 100) -> str:
+    """Split tuttut's one-song-wide staff into page-safe systems at bar lines."""
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    parsed: list[tuple[str, str]] = []
+    for line in lines:
+        if " " not in line:
+            raise ValueError("unexpected tuttut ASCII line without string label")
+        label, body = line.split(" ", 1)
+        parsed.append((label, body))
+
+    body_widths = {len(body) for _label, body in parsed}
+    if len(body_widths) != 1:
+        raise ValueError("tuttut ASCII strings are not column-aligned")
+    body_width = body_widths.pop()
+    boundaries = [
+        index for index in range(body_width)
+        if all(body[index] == "|" for _label, body in parsed)
+    ]
+    if not boundaries or boundaries[0] != 0 or boundaries[-1] != body_width - 1:
+        raise ValueError("tuttut ASCII has no shared outer bar lines")
+
+    systems: list[str] = []
+    start = 0
+    while start < body_width - 1:
+        fitting = [
+            boundary for boundary in boundaries
+            if start < boundary and len(parsed[0][0]) + 1 + boundary - start + 1 <= max_width
+        ]
+        if not fitting:
+            raise ValueError(f"tuttut measure exceeds printable width {max_width}")
+        end = fitting[-1]
+        systems.append("\n".join(
+            f"{label} {body[start:end + 1]}" for label, body in parsed
+        ))
+        start = end
+    return "\n\n".join(systems) + "\n"
+
+
 def run_tuttut(score_path: str | Path, out_path: str | Path, track_type: str) -> Path:
-    """Run tuttut 0.0.6 (which intentionally caps every instrument at 20 frets)."""
+    """Run tuttut 0.0.6 and reflow its page-wide ASCII at measure boundaries."""
     import pretty_midi
     from tuttut.logic.tab import Tab
     from tuttut.logic.theory import Tuning
 
     score_path, out_path = Path(score_path), Path(out_path)
     tuning = Tuning(["G2", "D2", "A1", "E1"]) if track_type == "BASS" else Tuning()
-    temp_name = out_path.stem + ".tmp"
+    temp_name = out_path.stem + "-raw-tuttut"
     tab = Tab(
         temp_name,
         tuning,
@@ -336,7 +377,9 @@ def run_tuttut(score_path: str | Path, out_path: str | Path, track_type: str) ->
     )
     tab.to_ascii()
     generated = (out_path.parent / temp_name).with_suffix(".txt")
-    generated.replace(out_path)
+    raw_text = generated.read_text(encoding="utf-8")
+    out_path.write_text(_wrap_tuttut_ascii(raw_text), encoding="utf-8")
+    generated.unlink()
     return out_path
 
 
