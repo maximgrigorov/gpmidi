@@ -318,48 +318,80 @@ def map_with_gtrsnipe(
     return mapped, text
 
 
-def _wrap_tuttut_ascii(text: str, max_width: int = 100) -> str:
-    """Split tuttut's one-song-wide staff into page-safe systems at bar lines."""
+def _wrap_tuttut_ascii(
+    text: str,
+    max_width: int = 100,
+    empty_measure_width: int = 16,
+    total_measures: int | None = None,
+) -> str:
+    """Reflow tuttut output, expanding its zero-width silent measures."""
     lines = [line.rstrip() for line in text.splitlines() if line.strip()]
     if not lines:
         return ""
 
-    parsed: list[tuple[str, str]] = []
+    parsed: list[tuple[str, list[str]]] = []
     for line in lines:
         if " " not in line:
             raise ValueError("unexpected tuttut ASCII line without string label")
         label, body = line.split(" ", 1)
-        parsed.append((label, body))
+        if not body.startswith("||") or not body.endswith("|"):
+            raise ValueError("tuttut ASCII has no expected outer bar lines")
+        parsed.append((label, body[2:-1].split("|")))
 
-    body_widths = {len(body) for _label, body in parsed}
-    if len(body_widths) != 1:
-        raise ValueError("tuttut ASCII strings are not column-aligned")
-    body_width = body_widths.pop()
-    boundaries = [
-        index for index in range(body_width)
-        if all(body[index] == "|" for _label, body in parsed)
-    ]
-    if not boundaries or boundaries[0] != 0 or boundaries[-1] != body_width - 1:
-        raise ValueError("tuttut ASCII has no shared outer bar lines")
+    measure_counts = {len(measures) for _label, measures in parsed}
+    if len(measure_counts) != 1:
+        raise ValueError("tuttut ASCII strings have different measure counts")
+    measure_count = measure_counts.pop()
+    if total_measures is not None:
+        if total_measures < measure_count:
+            raise ValueError("requested measure count is shorter than tuttut output")
+        for _label, measures in parsed:
+            measures.extend([""] * (total_measures - measure_count))
+        measure_count = total_measures
+    widths: list[int] = []
+    for index in range(measure_count):
+        measure_widths = {len(measures[index]) for _label, measures in parsed}
+        if len(measure_widths) != 1:
+            raise ValueError(f"tuttut measure {index + 1} is not column-aligned")
+        width = measure_widths.pop()
+        widths.append(width or empty_measure_width)
+        if width == 0:
+            for _label, measures in parsed:
+                measures[index] = "-" * empty_measure_width
 
     systems: list[str] = []
     start = 0
-    while start < body_width - 1:
-        fitting = [
-            boundary for boundary in boundaries
-            if start < boundary and len(parsed[0][0]) + 1 + boundary - start + 1 <= max_width
-        ]
-        if not fitting:
-            raise ValueError(f"tuttut measure exceeds printable width {max_width}")
-        end = fitting[-1]
-        systems.append("\n".join(
-            f"{label} {body[start:end + 1]}" for label, body in parsed
-        ))
+    label_width = max(len(label) for label, _measures in parsed)
+    while start < measure_count:
+        end = start
+        content_width = 0
+        while end < measure_count:
+            candidate_width = content_width + widths[end]
+            measure_total = end - start + 1
+            line_width = label_width + 1 + candidate_width + measure_total + 2
+            if line_width > max_width:
+                break
+            content_width = candidate_width
+            end += 1
+        if end == start:
+            raise ValueError(f"tuttut measure {start + 1} exceeds printable width {max_width}")
+        heading = f"Такты {start + 1}–{end}"
+        staff = "\n".join(
+            f"{label} ||{'|'.join(measures[start:end])}|"
+            for label, measures in parsed
+        )
+        systems.append(f"{heading}\n{staff}")
         start = end
     return "\n\n".join(systems) + "\n"
 
 
-def run_tuttut(score_path: str | Path, out_path: str | Path, track_type: str) -> Path:
+def run_tuttut(
+    score_path: str | Path,
+    out_path: str | Path,
+    track_type: str,
+    *,
+    total_measures: int | None = None,
+) -> Path:
     """Run tuttut 0.0.6 and reflow its page-wide ASCII at measure boundaries."""
     import pretty_midi
     from tuttut.logic.tab import Tab
@@ -378,7 +410,10 @@ def run_tuttut(score_path: str | Path, out_path: str | Path, track_type: str) ->
     tab.to_ascii()
     generated = (out_path.parent / temp_name).with_suffix(".txt")
     raw_text = generated.read_text(encoding="utf-8")
-    out_path.write_text(_wrap_tuttut_ascii(raw_text), encoding="utf-8")
+    out_path.write_text(
+        _wrap_tuttut_ascii(raw_text, total_measures=total_measures),
+        encoding="utf-8",
+    )
     generated.unlink()
     return out_path
 
@@ -439,7 +474,7 @@ def generate_track(
 
     try:
         tuttut_path = out_dir / f"{basename}.playable.tuttut.txt"
-        run_tuttut(score_path, tuttut_path, track_type)
+        run_tuttut(score_path, tuttut_path, track_type, total_measures=len(track.measures))
         files.append(tuttut_path.name)
         pdf = ascii_to_pdf(tuttut_path, track.name, preset=params["preset"], version=version)
         files.append(pdf.path.name)

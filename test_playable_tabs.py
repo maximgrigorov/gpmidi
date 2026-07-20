@@ -83,7 +83,24 @@ def test_tuttut_headless_smoke(tmp_path: Path):
     song, track = _song_with_tie()
     score = write_score_midi(build_score_events(track), tmp_path / "score.mid", song, track_name=track.name)
     output = run_tuttut(score, tmp_path / "tuttut.txt", "GUITAR")
-    assert output.read_text(encoding="utf-8").startswith("E ")
+    assert output.read_text(encoding="utf-8").startswith("Такты ")
+
+
+def test_tuttut_expands_zero_width_measures_and_labels_measure_range():
+    from playable_tabs import _wrap_tuttut_ascii
+
+    raw = "\n".join([
+        "E ||0---|||2--|",
+        "B ||----|||---|",
+        "G ||----|||---|",
+        "D ||----|||---|",
+        "A ||----|||---|",
+        "E ||----|||---|",
+    ])
+    wrapped = _wrap_tuttut_ascii(raw, total_measures=6)
+
+    assert wrapped.startswith("Такты 1–6\n")
+    assert "E ||0---|----------------|----------------|2--|----------------|----------------|" in wrapped
 
 
 def test_tuttut_wraps_full_song_without_losing_notes_or_clipping_pdf(tmp_path: Path):
@@ -100,7 +117,8 @@ def test_tuttut_wraps_full_song_without_losing_notes_or_clipping_pdf(tmp_path: P
 
     assert len(text.split("\n\n")) > 1
     assert max(map(len, text.splitlines())) <= 100
-    assert sum(len(re.findall(r"(?<!\d)\d+(?!\d)", line[3:])) for line in text.splitlines()) == len(events)
+    string_lines = [line for line in text.splitlines() if re.match(r"^[EBGDA] ", line)]
+    assert sum(len(re.findall(r"(?<!\d)\d+(?!\d)", line[3:])) for line in string_lines) == len(events)
     pdf = ascii_to_pdf(output, track.name, preset="solo", version=1)
     assert pdf.warning is None
 
