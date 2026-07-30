@@ -1,0 +1,6 @@
+apiVersion: kustomize.build/v1
+kind: Kustomization
+resources:
+- ../../base
+- ../../storage/project-assets-pvc.yaml
+- ../../smoke-app

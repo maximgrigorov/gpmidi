@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpmidi-ml-quota
+  namespace: gpmidi-ml
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "12"
+    limits.memory: 24Gi
+    nvidia.com/gpu: "1"
+    persistentvolumeclaims: "10"
+    pods: "20"
+    services: "10"

@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: smoke-pvc
+  namespace: gpmidi-ml
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pvc-writer
+  namespace: gpmidi-ml
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: pvc-smoke
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: writer
+        image: python:3.12-slim
+        command:
+        - python3
+        - -c
+        - |
+          import hashlib, uuid, os
+          marker = f"smoke-{uuid.uuid4()}"
+          path = "/var/lib/gpmidi/marker.txt"
+          sha_path = "/var/lib/gpmidi/marker.sha256"
+          with open(path, "w") as f:
+              f.write(marker)
+          sha = hashlib.sha256(marker.encode()).hexdigest()
+          with open(sha_path, "w") as f:
+              f.write(sha)
+          print(f"WRITTEN: {marker}")
+          print(f"SHA256:  {sha}")
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/gpmidi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          readOnlyRootFilesystem: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      restartPolicy: Never
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: smoke-pvc
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pvc-reader
+  namespace: gpmidi-ml
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: pvc-smoke
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: reader
+        image: python:3.12-slim
+        command:
+        - python3
+        - -c
+        - |
+          import hashlib
+          with open("/var/lib/gpmidi/marker.txt") as f:
+              marker = f.read()
+          with open("/var/lib/gpmidi/marker.sha256") as f:
+              expected_sha = f.read()
+          actual_sha = hashlib.sha256(marker.encode()).hexdigest()
+          print(f"READ:     {marker}")
+          print(f"EXPECTED: {expected_sha}")
+          print(f"ACTUAL:   {actual_sha}")
+          assert actual_sha == expected_sha, "SHA256 MISMATCH"
+          print("PERSISTENCE SMOKE: PASS")
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/gpmidi
+          readOnly: true
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          readOnlyRootFilesystem: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      restartPolicy: Never
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: smoke-pvc

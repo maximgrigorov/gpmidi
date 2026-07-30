@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smoke-app
+  namespace: gpmidi-ml
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  tls:
+  - secretName: ailab-tls
+    hosts:
+    - ailab.local
+    - gpmidi-ml.ailab.local
+  rules:
+  - host: ailab.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: smoke-app
+            port:
+              number: 8080
+  - host: gpmidi-ml.ailab.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: smoke-app
+            port:
+              number: 8080
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: smoke-app
+            port:
+              number: 8080

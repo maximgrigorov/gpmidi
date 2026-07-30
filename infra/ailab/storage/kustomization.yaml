@@ -1,0 +1,6 @@
+apiVersion: kustomize.build/v1
+kind: Kustomization
+resources:
+- local-path-config.yaml
+- project-assets-pvc.yaml
+- persistence-smoke.yaml

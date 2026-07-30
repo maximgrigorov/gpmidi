@@ -1,0 +1,6 @@
+apiVersion: kustomize.build/v1
+kind: Kustomization
+resources:
+- deployment.yaml
+- service.yaml
+- ingress.yaml

@@ -1,0 +1,6 @@
+apiVersion: kustomize.build/v1
+kind: Kustomization
+resources:
+- device-plugin.yaml
+- nvidia-smi-job.yaml
+- pytorch-smoke-job.yaml

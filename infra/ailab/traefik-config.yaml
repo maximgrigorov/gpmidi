@@ -1,0 +1,18 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        expose:
+          default: false
+      websecure:
+        expose:
+          default: true
+        exposedPort: 443
+    service:
+      spec:
+        externalTrafficPolicy: Local
