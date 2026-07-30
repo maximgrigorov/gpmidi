@@ -146,6 +146,8 @@ class GPNote:
     type: Any
     realValue: int
     harmonicFret: float = 0.0           # GPIF HarmonicFret (относительный лад узла)
+    playedOffset: int = 0               # GPIF playback Offset, 480 PPQ
+    playedDuration: float = 1.0         # GPIF playback Duration, множитель
 
 
 @dataclass
@@ -385,7 +387,11 @@ def _extract_gpif_percussion_articulations_root(root: ET.Element) -> dict[int, l
 
 
 def _extract_gpif_note_extras_root(root: ET.Element) -> dict[tuple[int, int, int, int], dict]:
-    """Извлечь note-свойства, которые ApolloTab не парсит: Tapped, Vibrato (Slight/Wide).
+    """Извлечь note-свойства, которые ApolloTab не парсит.
+
+    Помимо Tapped и Vibrato сохраняем playback-слой GP8: Offset (480 PPQ)
+    и Duration (множитель нотной длительности). По умолчанию экспортёр его
+    игнорирует; данные нужны opt-in преобразованиям.
 
     Адрес ноты: (track_idx, measure_idx, beat_pos, note_pos), где track_idx —
     индекс КОЛОНКИ Bars (после разворачивания мульти-стафф треков совпадает
@@ -395,18 +401,39 @@ def _extract_gpif_note_extras_root(root: ET.Element) -> dict[tuple[int, int, int
     """
     tapped_ids = set()
     vibrato_by_id: dict[str, str] = {}
+    played_by_id: dict[str, dict[str, int | float]] = {}
     for note in root.findall("Notes/Note"):
+        note_id = note.get("id")
+        if note_id is None:
+            continue
         for prop in note.findall("Properties/Property"):
             if prop.get("name") in ("Tapped", "LeftHandTapped") and prop.find("Enable") is not None:
-                tapped_ids.add(note.get("id"))
+                tapped_ids.add(note_id)
         # <Vibrato>Slight|Wide</Vibrato> — ДОЧЕРНИЙ тег ноты, не Property.
         # ApolloTab отдаёт vibrato булевым, то есть Slight и Wide схлопываются
         # в "да/нет", и обе играются одинаково глубоко. В партитуре пользователя
         # все 53 ноты помечены Slight, а игрались на глубине 80/127.
         vib = note.find("Vibrato")
-        if vib is not None and (vib.text or "").strip():
-            vibrato_by_id[note.get("id")] = vib.text.strip()
-    if not tapped_ids and not vibrato_by_id:
+        vib_text = (vib.text or "").strip() if vib is not None else ""
+        if vib_text:
+            vibrato_by_id[note_id] = vib_text
+
+        offset_text = note.findtext("Offset")
+        duration_text = note.findtext("Duration")
+        if offset_text is not None or duration_text is not None:
+            try:
+                played_offset = int(offset_text or 0)
+            except ValueError:
+                played_offset = 0
+            try:
+                played_duration = float(duration_text or 1.0)
+            except ValueError:
+                played_duration = 1.0
+            played_by_id[note_id] = {
+                "played_offset": played_offset,
+                "played_duration": played_duration,
+            }
+    if not tapped_ids and not vibrato_by_id and not played_by_id:
         return {}
 
     notes_of_beat = {
@@ -430,11 +457,13 @@ def _extract_gpif_note_extras_root(root: ET.Element) -> dict[tuple[int, int, int
             for vid in voices_of_bar.get(bar_id, []):
                 for bid in beats_of_voice.get(vid, []):
                     for npos, nid in enumerate(notes_of_beat.get(bid, [])):
+                        address = (ti, mi, beat_pos, npos)
                         if nid in tapped_ids:
-                            extras.setdefault((ti, mi, beat_pos, npos), {})["tapping"] = True
+                            extras.setdefault(address, {})["tapping"] = True
                         if nid in vibrato_by_id:
-                            extras.setdefault((ti, mi, beat_pos, npos), {})["vibrato_type"] = \
-                                vibrato_by_id[nid]
+                            extras.setdefault(address, {})["vibrato_type"] = vibrato_by_id[nid]
+                        if nid in played_by_id:
+                            extras.setdefault(address, {}).update(played_by_id[nid])
                     beat_pos += 1
     return extras
 
@@ -768,6 +797,8 @@ def adapt_apollotab_note(
         type=note_type,
         realValue=real_value,
         harmonicFret=float(getattr(note, "harmonic_value", 0.0) or 0.0),
+        playedOffset=int(extras.get("played_offset", 0) or 0),
+        playedDuration=float(extras.get("played_duration", 1.0) or 1.0),
     )
 
 

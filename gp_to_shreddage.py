@@ -133,6 +133,10 @@ def resolve_track_type(track):
 # --------------------------------------------------------------------------- #
 TICKS_PER_BEAT = 960            # GP по умолчанию: 960 тиков на четверть
 START_TICK = 960               # GP начинает первый такт с тика 960 -> нормализуем
+GPIF_PLAYED_PPQ = 480          # Offset в GP8 score.gpif использует 480 PPQ
+HIDDEN_32ND_GROUP_TOLERANCE = 12
+HIDDEN_32ND_GAP_MIN = 45
+HIDDEN_32ND_GAP_MAX = 75
 
 # --- Бенды / слайды ---
 # Дефолт мануалов Shreddage 3.5 (Hydra и Darkwall): +/- 2 полутона (НЕ 6!).
@@ -682,18 +686,70 @@ def add_track_meta(ev, song, track):
 # --------------------------------------------------------------------------- #
 #  Сборка MIDI: GUITAR / BASS (с кейсвитчами, CC1, PB)
 # --------------------------------------------------------------------------- #
+def hidden_32nd_note_timing(beat, enabled=False):
+    """Вернуть {id(note): (shift_ticks, duration_scale)} для скрытых GP8 32-х.
+
+    Реальный аккорд имеет одинаковые/близкие playback Offset. Последовательность,
+    визуально записанная одним Beat, имеет группы Offset с шагом около 60 тиков
+    GPIF (1/32 при 480 PPQ). Группы нормализуются к началу нотного Beat, сохраняя
+    внутреннюю полифонию каждой группы и GP playback Duration каждой ноты.
+    """
+    if not enabled:
+        return {}
+    notes = [note for note in beat.notes if note.type != NoteType.tie]
+    if len(notes) < 2:
+        return {}
+
+    ordered = sorted(notes, key=lambda note: int(getattr(note, "playedOffset", 0) or 0))
+    groups = []
+    for note in ordered:
+        offset = int(getattr(note, "playedOffset", 0) or 0)
+        if not groups or offset - groups[-1]["last"] > HIDDEN_32ND_GROUP_TOLERANCE:
+            groups.append({"offsets": [offset], "notes": [note], "last": offset})
+        else:
+            groups[-1]["offsets"].append(offset)
+            groups[-1]["notes"].append(note)
+            groups[-1]["last"] = offset
+    if len(groups) < 2:
+        return {}
+
+    centers = [sum(group["offsets"]) / len(group["offsets"]) for group in groups]
+    gaps = [right - left for left, right in zip(centers, centers[1:])]
+    if not all(HIDDEN_32ND_GAP_MIN <= gap <= HIDDEN_32ND_GAP_MAX for gap in gaps):
+        return {}
+
+    scale = float(TICKS_PER_BEAT) / GPIF_PLAYED_PPQ
+    first = centers[0]
+    timing = {}
+    for group, center in zip(groups, centers):
+        shift = int(round((center - first) * scale))
+        for note in group["notes"]:
+            duration_scale = max(0.05, float(getattr(note, "playedDuration", 1.0) or 1.0))
+            timing[id(note)] = (shift, duration_scale)
+    return timing
+
+
 def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           humanize_seed=7, auto_sustain_vibrato=False,
-                          fret_noise_on_hand_shift=False, performance_seed=7):
+                          fret_noise_on_hand_shift=False, performance_seed=7,
+                          expand_gp_hidden_32nds=False):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
     конфига инструмента (config/articulation_maps/*.yaml)."""
     cfg = cfg or config_for_track_type(track_type)
     stats = {"notes": 0, "ks": 0, "cc1": 0, "auto_vibrato_notes": 0,
-             "fret_noise_events": 0,
+             "fret_noise_events": 0, "hidden_32nd_beats": 0,
+             "hidden_32nd_notes": 0,
              "config": config_label(cfg), "warnings": []}
     log_config_used(track.name, cfg)
+
+    track_name_folded = (getattr(track, "name", "") or "").casefold()
+    expand_hidden_on_track = (
+        expand_gp_hidden_32nds
+        and track_type == TRACK_GUITAR
+        and any(word in track_name_folded for word in ("solo", "lead"))
+    )
 
     sustain_ks = keyswitch_note(cfg, "sustain")
     sustain_spec = cfg["keyswitches"]["sustain"]
@@ -784,9 +840,17 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             start_tick = pitched_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT,
                                            hprof, hrng)
 
+        # --- скрытые 32-е GP8: playback-группы внутри одного нотного Beat ---
+        hidden_timing = hidden_32nd_note_timing(beat, enabled=expand_hidden_on_track)
+        if hidden_timing:
+            stats["hidden_32nd_beats"] += 1
+            stats["hidden_32nd_notes"] += len(hidden_timing)
+
         # --- strum: разброс нот аккорда по струнам (только вперёд от start_tick) ---
+        # Для hidden-32nd Beat уже есть авторский GP playback-тайминг; второй
+        # независимый разброс поверх него исказил бы группировку.
         strum, strum_down = {}, True
-        if hprof is not None:
+        if hprof is not None and not hidden_timing:
             strum, strum_down = pitched_strum_offsets(
                 [clamp_note(string_pitch.get(n.string, 0) + n.value)
                  for n in beat.notes if n.type != NoteType.tie],
@@ -858,32 +922,39 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                                            art_name, hprof, hrng, vel_cap=127,
                                            down=strum_down)
 
+            hidden_entry = hidden_timing.get(id(note))
+            hidden_shift = hidden_entry[0] if hidden_entry else 0
+            on_tick = start_tick + hidden_shift + strum.get(pitch, 0)
+
             # --- легато (B15): эта нота — ЦЕЛЬ ожидающего hammer/pull? ---
             # Источник (нота с флагом hammer) продлевается внахлёст в цель,
             # если он дозвучал до её атаки (иначе легато прервано паузой).
             origin = pending_legato.get((vi, note.string))
             if origin is not None:
-                if origin["tick"] >= start_tick:
+                if origin["tick"] >= on_tick:
                     overlap = ms_to_ticks(LEGATO_OVERLAP_MS, cur_bpm)
-                    origin["tick"] = max(origin["tick"], start_tick + overlap)
+                    origin["tick"] = max(origin["tick"], on_tick + overlap)
                 del pending_legato[(vi, note.string)]
 
             # --- принудительный сброс PB перед атакой ---
             if pb_dirty:
-                ev.add(start_tick, ORDER_RESET,
+                ev.add(on_tick, ORDER_RESET,
                        Message("pitchwheel", channel=CHANNEL, pitch=0))
                 pb_dirty = False
 
             # --- note on / off ---
-            # strum сдвигает только АТАКУ ноты внутри аккорда; конец ноты не
-            # трогаем, иначе разъедутся лиги и легато, завязанные на off_rec
-            on_tick = start_tick + strum.get(pitch, 0)
             ev.add(on_tick, ORDER_ON,
                    Message("note_on", channel=CHANNEL, note=pitch, velocity=velocity))
-            note_end = start_tick + dur
+            if hidden_entry:
+                note_duration = max(1, int(round(dur * hidden_entry[1])))
+                note_end = on_tick + note_duration
+            else:
+                # Legacy/strum: конец остаётся на сетке Beat, как раньше.
+                note_duration = dur
+                note_end = start_tick + dur
             off_rec = ev.add(note_end, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
-            note_span = {"start": start_tick, "off": off_rec, "bpm": cur_bpm}
+            note_span = {"start": on_tick, "off": off_rec, "bpm": cur_bpm}
             all_note_spans.append(note_span)
             last_off[note.string] = off_rec
             stats["notes"] += 1
@@ -895,14 +966,14 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
 
             # --- PB / вибрато / слайды ---
             if eff.bend and eff.bend.points:
-                emit_bend(ev, start_tick, dur, eff.bend, cur_bpm, pb_range)
+                emit_bend(ev, on_tick, note_duration, eff.bend, cur_bpm, pb_range)
                 pb_dirty = True
 
             if eff.vibrato:
                 # НЕ рисуем сразу: лиги продлят ноту позже по циклу, и off_rec
                 # ("tick") — единственное место, где к концу цикла окажется
                 # настоящая длина. Откладываем до конца (см. pending_vibrato).
-                pending_vibrato.append((start_tick, off_rec, cur_bpm,
+                pending_vibrato.append((on_tick, off_rec, cur_bpm,
                                         getattr(eff, "vibratoType", None)))
             elif (auto_sustain_vibrato and track_type == TRACK_GUITAR
                   and ks_note == sustain_ks and not is_pinch
@@ -911,7 +982,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
 
             if eff.slides:
                 next_pitch = _next_note_pitch(voice.beats, bi, note.string, string_pitch)
-                emit_slide(ev, start_tick, dur, eff.slides, pitch, next_pitch, cur_bpm,
+                emit_slide(ev, on_tick, note_duration, eff.slides, pitch, next_pitch, cur_bpm,
                            pb_range)
                 pb_dirty = True
 
@@ -1249,6 +1320,7 @@ def parse_cli_options(argv):
         "seed": seed,
         "auto_sustain_vibrato": "--auto-sustain-vibrato" in flags,
         "fret_noise_on_hand_shift": "--fret-noise-on-hand-shift" in flags,
+        "expand_gp_hidden_32nds": "--expand-gp-hidden-32nds" in flags,
     }
 
 
@@ -1260,15 +1332,17 @@ def main(argv):
     seed = options["seed"]
     auto_sustain_vibrato = options["auto_sustain_vibrato"]
     fret_noise_on_hand_shift = options["fret_noise_on_hand_shift"]
+    expand_gp_hidden_32nds = options["expand_gp_hidden_32nds"]
 
     if options["source"] is None:
         sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
                  "[--humanize] [--ghost-notes] [--auto-sustain-vibrato] "
-                 "[--fret-noise-on-hand-shift] [--seed=N]\n"
+                 "[--fret-noise-on-hand-shift] [--expand-gp-hidden-32nds] [--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
                  "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
+                 "  --expand-gp-hidden-32nds разнести GP playback-пары на solo/lead guitar\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = options["source"]
@@ -1307,6 +1381,7 @@ def main(argv):
                 auto_sustain_vibrato=auto_sustain_vibrato,
                 fret_noise_on_hand_shift=fret_noise_on_hand_shift,
                 performance_seed=seed,
+                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
             )
 
         name = safe_filename(track.name) or ("Track_%d" % idx)

@@ -439,7 +439,8 @@ def is_empty_export_track(stats: dict[str, Any], preview_data: dict[str, Any]) -
 def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         humanize: bool = False, ghost_notes: bool = False,
                         seed: int = 7, auto_sustain_vibrato: bool = False,
-                        fret_noise_on_hand_shift: bool = False
+                        fret_noise_on_hand_shift: bool = False,
+                        expand_gp_hidden_32nds: bool = False,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
     used: dict[str, int] = {}
     tracks: list[dict[str, Any]] = []
@@ -460,6 +461,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 auto_sustain_vibrato=auto_sustain_vibrato,
                 fret_noise_on_hand_shift=fret_noise_on_hand_shift,
                 performance_seed=seed,
+                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
             )
 
         name = safe_filename(track.name) or f"Track_{idx}"
@@ -491,6 +493,10 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
             fixes.append(f"авто-вибрато на solo sustain: {stats['auto_vibrato_notes']}")
         if stats.get("fret_noise_events"):
             fixes.append(f"fret-noise при переносах руки: {stats['fret_noise_events']}")
+        if stats.get("hidden_32nd_beats"):
+            fixes.append(
+                f"скрытые GP 32-е: {stats['hidden_32nd_beats']} beat / "
+                f"{stats['hidden_32nd_notes']} нот")
         if stats.get("config"):
             fixes.append(f"конфиг артикуляций: {stats['config']}")
         if track_type != "OTHER":
@@ -561,7 +567,8 @@ def create_job(uploaded_file, humanize: bool = False,
                ghost_notes: bool = False, seed: int = 7,
                playable_tabs: bool = False,
                auto_sustain_vibrato: bool = False,
-               fret_noise_on_hand_shift: bool = False) -> str:
+               fret_noise_on_hand_shift: bool = False,
+               expand_gp_hidden_32nds: bool = False) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -582,6 +589,7 @@ def create_job(uploaded_file, humanize: bool = False,
         humanize=humanize, ghost_notes=ghost_notes, seed=seed,
         auto_sustain_vibrato=auto_sustain_vibrato,
         fret_noise_on_hand_shift=fret_noise_on_hand_shift,
+        expand_gp_hidden_32nds=expand_gp_hidden_32nds,
     )
 
     # Сборный Type 1 со всеми дорожками — из ТЕХ ЖЕ объектов, что и пофайловый
@@ -637,6 +645,7 @@ def create_job(uploaded_file, humanize: bool = False,
         "ghost_notes": ghost_notes,
         "auto_sustain_vibrato": auto_sustain_vibrato,
         "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
+        "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
     }
 
     manifest = load_manifest()
@@ -689,6 +698,7 @@ def upload():
     ghost_notes = request.form.get("ghost_notes") == "on"
     auto_sustain_vibrato = request.form.get("auto_sustain_vibrato") == "on"
     fret_noise_on_hand_shift = request.form.get("fret_noise_on_hand_shift") == "on"
+    expand_gp_hidden_32nds = request.form.get("expand_gp_hidden_32nds") == "on"
     playable_tabs = request.form.get("playable_tabs") == "on"
     try:
         seed = int(request.form.get("seed") or 7)
@@ -701,6 +711,7 @@ def upload():
             playable_tabs=playable_tabs,
             auto_sustain_vibrato=auto_sustain_vibrato,
             fret_noise_on_hand_shift=fret_noise_on_hand_shift,
+            expand_gp_hidden_32nds=expand_gp_hidden_32nds,
         )
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
@@ -715,6 +726,8 @@ def upload():
         msg += " Авто-вибрато длинных solo sustain включено."
     if fret_noise_on_hand_shift:
         msg += " Fret-noise при переносах руки включён."
+    if expand_gp_hidden_32nds:
+        msg += " Скрытые GP 32-е на solo/lead guitar развёрнуты."
     flash(msg, "success")
     return redirect(url_for("job_details", job_id=job_id))
 

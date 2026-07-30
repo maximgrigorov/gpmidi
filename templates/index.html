@@ -75,6 +75,14 @@
                   а не перед каждой нотой.</small>
                 </span>
               </label>
+              <label class="opt">
+                <input type="checkbox" name="expand_gp_hidden_32nds" id="expandGpHidden32ndsChk">
+                <span>
+                  <strong>Развернуть скрытые 32-е Guitar Pro</strong>
+                  <small>Только solo/lead guitar: разносит ноты одного визуального beat по
+                  playback Offset GP. Ноты с одинаковым offset остаются настоящим аккордом.</small>
+                </span>
+              </label>
               <label class="opt seed">
                 <span>Seed</span>
                 <input type="number" name="seed" value="7" min="0" max="9999">
@@ -169,6 +177,9 @@
                 {% endif %}
                 {% if current_job.fret_noise_on_hand_shift %}
                   <span class="badge on">fret-noise переносов вкл</span>
+                {% endif %}
+                {% if current_job.expand_gp_hidden_32nds %}
+                  <span class="badge on">скрытые GP 32-е развёрнуты</span>
                 {% endif %}
                 {% if current_job.playable_tabs %}
                   <span class="badge on">играбельные табы вкл</span>
