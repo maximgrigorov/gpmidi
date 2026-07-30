@@ -49,13 +49,16 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-egress-registries
+  name: allow-egress-web
   namespace: gpmidi-ml
 spec:
   podSelector: {}
   policyTypes:
   - Egress
   egress:
+  # Intentionally broad: public image/model endpoints cannot be constrained
+  # reliably by IP with standard NetworkPolicy. This permits all TCP 80/443,
+  # not just registries; keep the boundary explicit in documentation.
   - to: []
     ports:
     - protocol: TCP

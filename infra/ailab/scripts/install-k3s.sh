@@ -5,8 +5,6 @@ set -Eeuo pipefail
 # Prerequisites: sudo NOPASSWD, port 443 free, /data mounted.
 # Usage: ssh mgrigorov@192.168.30.2 'bash -s' < install-k3s.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 K3S_VERSION="${K3S_VERSION:-v1.36.2+k3s1}"
 K3S_DATA_DIR="/data/k3s"
 

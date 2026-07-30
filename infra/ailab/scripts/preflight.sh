@@ -42,7 +42,12 @@ df -hT / /var /data 2>/dev/null || true
 echo "=== MOUNT OPTIONS ==="
 mount | grep -E "on / |on /var |on /data " || true
 echo "=== /data TOP LEVEL ==="
-ls -la /data/ 2>/dev/null | head -30
+python3 - <<'PY'
+from pathlib import Path
+
+for path in sorted(Path("/data").iterdir(), key=lambda item: item.name)[:30]:
+    print(path.name)
+PY
 echo "=== LISTENING PORTS ==="
 ss -tlnp 2>/dev/null || true
 echo "=== FIREWALL (iptables INPUT) ==="

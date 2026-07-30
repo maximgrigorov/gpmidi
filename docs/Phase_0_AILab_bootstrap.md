@@ -1,7 +1,7 @@
 # Phase 0: AILab k3s GPU Bootstrap — Отчёт
 
-**Дата:** 2026-07-30  
-**Ветка:** `infra/ailab-k3s-bootstrap`  
+**Дата:** 2026-07-30
+**Ветка:** `infra/ailab-k3s-bootstrap`
 **Оператор:** Cursor Agent (Opus 4.6)
 
 ---
@@ -299,8 +299,9 @@ GPU smoke job (ресурсное конкурирование за GPU). Пер
    Bootstrap command в `FLUX-BOOTSTRAP.md`
 2. **Custom smoke-app image** — Gitea container registry не настроен для push.
    Используется `python:3.12-slim` с ConfigMap-mounted Python script
-3. **GPU coexistence** — llama.cpp и k3s GPU pods конкурируют за GPU VRAM.
-   Рекомендуется `gpu-switch.sh none` перед ML workloads
+3. **GPU workload lifecycle** — перед каждым GPU-heavy workload нужно через
+   homepage/API запомнить активный профиль, переключить его на `none`, дождаться
+   освобождения VRAM и обязательно восстановить тот же профиль в cleanup-path.
 
 ### Известные ограничения RBAC
 
@@ -308,8 +309,11 @@ GPU smoke job (ресурсное конкурирование за GPU). Пер
   это контролируется Pod Security Standards (`restricted` enforcement на
   namespace). PSS `restricted` запрещает hostPath volumes
 - `gpmidi-deployer` не может читать Secrets (по design), но может создавать
-  Jobs, которые потенциально могут mount секреты через volume — это
-  ограничено PSS enforcement
+  Deployments/Jobs. Kubernetes RBAC и PSS не запрещают такому workload
+  смонтировать уже известный Secret из того же namespace. Поэтому namespace
+  нельзя считать изолированным от самого deployer: в `gpmidi-ml` допустимы
+  только те Secrets, доступ к которым разрешён владельцу deployer credential.
+  Для более строгой границы нужен отдельный namespace и/или admission policy.
 
 ---
 

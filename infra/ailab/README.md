@@ -23,14 +23,15 @@ infra/ailab/
 ├── versions.env           # Pinned versions
 ├── ROLLBACK.md            # How to remove everything
 ├── FLUX-BOOTSTRAP.md      # Flux CD setup (placeholder)
+├── kustomization.yaml     # Buildable durable reconciliation root
 ├── traefik-config.yaml    # HelmChartConfig: 443 only
 ├── scripts/               # Idempotent host-side scripts
 ├── base/                  # Namespace, RBAC, quotas, policies
 ├── storage/               # StorageClass config, PVCs, smoke
 ├── gpu/                   # Device plugin, GPU smoke jobs
 ├── smoke-app/             # Test deployment
-├── clusters/ailab/        # Flux entrypoint (Kustomize root)
-├── apps/gpmidi-ml/        # Application layer
+├── clusters/ailab/        # Flux-generated files after bootstrap
+├── apps/gpmidi-ml/        # Phase 1 application layer
 └── reports/               # Verification reports
 ```
 
@@ -57,20 +58,33 @@ All k3s data is on `/data` (separate NVMe, 544G free):
 
 Existing `/data` contents are not touched.
 
-## GPU coexistence
+## GPU workload lifecycle
 
-The GPU is shared between Docker services (llama.cpp) and k3s pods.
-Before running GPU-heavy ML jobs in k3s, stop the Docker GPU service:
+Docker/systemd GPU profiles and Kubernetes GPU pods share one physical GPU and
+must be treated as mutually exclusive. The currently active profile is dynamic:
+normally it is `llama-cpp` serving `qwen3-coder-next`, but it may be ComfyUI or
+another model. Never hard-code the restore target.
+
+Before a GPU-heavy Kubernetes job:
+
+1. Read `http://192.168.30.2/api/stats` and record the active profile.
+2. Through the homepage on port 80, or its documented API, switch to `none`.
+3. Wait until the profile switch completes and GPU VRAM is released.
+4. Run the Kubernetes GPU workload.
+5. On success, failure, timeout, or cancellation, restore the profile recorded
+   in step 1 and verify its health endpoint.
+
+Manual API example (the response is an SSE stream):
 
 ```bash
-sudo ~/homepage/scripts/gpu-switch.sh none
+curl -N -X POST http://192.168.30.2/api/profiles/switch \
+  -H 'Content-Type: application/json' \
+  -d '{"profile":"none"}'
+# Run the GPU workload, then restore the profile that was active before it.
 ```
 
-After ML work, restore:
-
-```bash
-sudo ~/homepage/scripts/gpu-switch.sh llama-cpp
-```
+Do not start a Kubernetes GPU pod while a profile still owns VRAM. A previous
+smoke run stopped llama.cpp because this lifecycle was not followed.
 
 ## Port map
 

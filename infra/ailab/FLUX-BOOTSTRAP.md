@@ -19,7 +19,7 @@ this initial scope.
 flux bootstrap git \
   --url=http://192.168.30.2:3300/mgrigorov/gpmidi.git \
   --branch=main \
-  --path=infra/ailab/clusters/ailab \
+  --path=infra/ailab \
   --username=mgrigorov \
   --password=<GITEA_TOKEN> \
   --token-auth=true \
@@ -30,16 +30,19 @@ flux bootstrap git \
 
 ```
 infra/ailab/
-├── clusters/ailab/      # Flux entrypoint — Kustomization root
-│   └── kustomization.yaml
-└── apps/gpmidi-ml/      # Application manifests
-    └── kustomization.yaml
+├── kustomization.yaml   # Buildable reconciliation root
+├── clusters/ailab/      # Flux-generated flux-system files after bootstrap
+└── apps/gpmidi-ml/      # Phase 1 application layer
 ```
 
 ## Notes
 
-- The `clusters/ailab/kustomization.yaml` aggregates base, storage, gpu,
-  and smoke-app resources. Flux will reconcile them as a single Kustomization.
+- `infra/ailab/kustomization.yaml` is the durable reconciliation root:
+  Traefik configuration, local-path configuration, NVIDIA device plugin, and
+  the application layer. One-shot GPU/PVC smoke Jobs stay in git but are not
+  reconciled continuously by Flux.
+- The TLS secret is generated out-of-band and must exist before the smoke-app
+  Ingress becomes ready; its private key is never committed.
 - For production, replace the password-based auth with an SSH deploy key
   stored as a Kubernetes Secret.
 - Gitea webhook for push-based reconciliation can be configured at

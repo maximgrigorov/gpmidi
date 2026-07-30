@@ -110,6 +110,7 @@ Server rebooted at 2026-07-30 22:37 UTC+5. All services recovered:
 
 - **Flux**: controllers not installed (Gitea credentials not provisioned)
 - **Port 6443 firewall**: no restriction added; accessible from LAN
-- **llama-server coexistence**: GPU resource contention possible when k3s GPU
-  jobs run. Recommended: use `gpu-switch.sh none` before running ML workloads
-  in k3s, or accept shared GPU mode (Default compute).
+- **GPU workload lifecycle**: before every k3s GPU job, record the currently
+  active homepage profile, switch to `none`, wait for VRAM release, and restore
+  that same profile in a finally/cleanup path. Concurrent Docker/k3s GPU use is
+  unsupported on this host.

@@ -18,6 +18,16 @@ if [ ! -f "$CA_CERT" ]; then
     CA_CERT="/var/lib/rancher/k3s/server/tls/server-ca.crt"
 fi
 
+if [ ! -r "$CA_CERT" ]; then
+    echo "ERROR: k3s CA certificate not readable at $CA_CERT" >&2
+    exit 1
+fi
+
+# Embed the CA so the kubeconfig remains usable after it is copied to an
+# approved management workstation. A server-local certificate-authority path
+# would make the generated kubeconfig non-portable.
+CA_DATA="$(base64 -w0 < "$CA_CERT")"
+
 TOKEN="$(sudo k3s kubectl create token "$SA_NAME" -n "$NAMESPACE" --duration="$DURATION")"
 
 mkdir -p "$(dirname "$OUTPUT")"
@@ -27,7 +37,7 @@ apiVersion: v1
 kind: Config
 clusters:
 - cluster:
-    certificate-authority: $CA_CERT
+    certificate-authority-data: $CA_DATA
     server: $API_SERVER
   name: ailab
 contexts:
