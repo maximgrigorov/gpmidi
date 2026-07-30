@@ -310,7 +310,7 @@ git checkout main
 | Deployed image | `asset-api:2adc75b` |
 | Base (main) | `9811154` — docs: add Phase 1 project asset storage task |
 
-Not merged into `main`. Ready for independent review.
+Feature branch complete and independently accepted by Hermes. See `docs/PROJECT_STATUS.md` for the authoritative handoff and post-review hardening state.
 
 ---
 
@@ -332,3 +332,35 @@ $ bash -n infra/ailab/scripts/*.sh
 $ kubectl kustomize infra/ailab > rendered.yaml
 657 lines, no errors
 ```
+
+---
+
+## 21. Independent Hermes Acceptance
+
+Hermes independently reviewed the Cursor fixes, probed the live services, and reran the repository gates. The first independent root run exposed a scheduler-dependent concurrency test failure (`[201, 201]` rather than a guaranteed overlap), despite the live limiter behavior itself having been demonstrated. Commit `c9dbceb` replaced that test with a held streaming upload and added final defensive hardening:
+
+- interrupted `uploading` tickets become `failed` at startup;
+- unexpected 500 responses are sanitized and carry a matching request ID in body/header;
+- readiness errors do not leak filesystem details;
+- SQL result order has deterministic ID tie-breakers;
+- rate/concurrency limiter reads are locked;
+- stale package command and root Ruff findings are corrected.
+
+Independent final result after that commit:
+
+```text
+python -m pytest -q
+183 passed, 1 xfailed
+
+python -m ruff check <Phase 1 and changed root files>
+All checks passed!
+
+bash -n infra/ailab/scripts/*.sh
+ShellCheck 0.11.0
+kubectl kustomize infra/ailab
+Kubeconform 0.8.0: 23 resources, 22 valid, 0 invalid/errors, 1 skipped
+```
+
+The differing earlier `152 passed, 27 skipped, 3 failed` result was environment-dependent: Hermes' validation environment had the optional `tuttut` dependency available, so those tests passed rather than being skipped/failed. It is retained above as historical Cursor evidence, not the final acceptance baseline.
+
+Live before shutdown: Asset API, Flask UI, smoke-app, Gitea and homepage all returned HTTP 200; persisted Project data remained readable. The live image was still `asset-api:2adc75b`. The next task must first build and deploy an immutable image containing `c9dbceb` (or its accepted descendant), then rerun focused Phase 1 smoke checks before implementing Phase 2.
