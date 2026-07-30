@@ -11,10 +11,10 @@ RUN groupadd -r appuser && useradd -r -g appuser -d /app appuser
 WORKDIR /app
 COPY --from=builder /deps /deps
 ENV PYTHONPATH=/deps
-COPY app/ ./app/
+COPY asset_api/ ./asset_api/
 
 USER appuser
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["python", "-m", "uvicorn", "asset_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import os
 from typing import Any, BinaryIO
-from urllib.parse import urljoin
 
 import requests
 
 ASSET_API_BASE = os.environ.get("ASSET_API_BASE", "https://192.168.30.2/asset-api")
 ASSET_API_TIMEOUT = int(os.environ.get("ASSET_API_TIMEOUT", "30"))
-ASSET_API_VERIFY_TLS = os.environ.get("ASSET_API_VERIFY_TLS", "0") != "1"
+
+
+def _parse_bool(val: str) -> bool:
+    return val.lower() in ("1", "true", "yes", "on")
+
+
+ASSET_API_VERIFY_TLS = _parse_bool(os.environ.get("ASSET_API_VERIFY_TLS", "false"))
 
 
 class AssetAPIError(Exception):
@@ -115,11 +120,9 @@ class AssetAPIClient:
         )
         return self._handle(r)
 
-    def stream_proxy_upload(self, ticket: str, stream, content_length: int | None = None) -> dict:
+    def stream_proxy_upload(self, ticket: str, stream) -> dict:
         """Proxy upload from Flask request stream to AILab without storing full file."""
         headers: dict[str, str] = {"Content-Type": "application/octet-stream"}
-        if content_length:
-            headers["Content-Length"] = str(content_length)
         r = requests.put(
             self._url(f"/v1/uploads/{ticket}"),
             data=stream,

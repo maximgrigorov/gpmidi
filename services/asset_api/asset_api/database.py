@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
@@ -88,8 +88,27 @@ def init_db(db_path: Path | None = None) -> None:
     row = cur.fetchone()
     if row is None:
         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (_SCHEMA_VERSION,))
-    conn.commit()
+        conn.commit()
+    else:
+        current_ver = row[0]
+        if current_ver < 2:
+            _migrate_v1_to_v2(conn)
+        conn.execute("UPDATE schema_version SET version=?", (_SCHEMA_VERSION,))
+        conn.commit()
     conn.close()
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Add status column if missing (safe for existing DBs)."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(upload_tickets)").fetchall()]
+    if "status" not in cols:
+        conn.execute("ALTER TABLE upload_tickets ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+    # Invalidate any pending tickets for deleted projects
+    conn.execute("""
+        UPDATE upload_tickets SET status='expired'
+        WHERE status='pending'
+          AND project_id NOT IN (SELECT id FROM projects)
+    """)
 
 
 @contextmanager

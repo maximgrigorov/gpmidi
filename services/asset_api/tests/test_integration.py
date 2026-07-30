@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import struct
-import tempfile
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,23 +14,40 @@ def isolated_env(tmp_path, monkeypatch):
     """Each test gets its own fresh database and blob storage."""
     monkeypatch.setenv("ASSET_DATA_ROOT", str(tmp_path))
     import importlib
-    import app.config
-    importlib.reload(app.config)
-    from app.config import DATA_ROOT
+    import asset_api.config
+    importlib.reload(asset_api.config)
+    from asset_api.config import DATA_ROOT
     assert DATA_ROOT == tmp_path
     (tmp_path / "db").mkdir()
     (tmp_path / "blobs" / "sha256").mkdir(parents=True)
     (tmp_path / "tmp" / "uploads").mkdir(parents=True)
-    from app.database import init_db
+    from asset_api.database import init_db
     init_db(tmp_path / "db" / "projects.sqlite3")
     yield
-    importlib.reload(app.config)
+    importlib.reload(asset_api.config)
 
 
 @pytest.fixture
 def client(isolated_env):
-    from app.main import app
+    from asset_api.main import app
     return TestClient(app)
+
+
+@pytest.fixture
+def project_id(client):
+    """Create a project and return its id."""
+    r = client.post("/v1/projects", json={"name": "Test Project"})
+    assert r.status_code == 201
+    return r.json()["id"]
+
+
+@pytest.fixture(autouse=True)
+def reset_limiters():
+    """Reset rate/concurrency limiters between tests."""
+    yield
+    from asset_api.main import ticket_rate_limiter, upload_concurrency
+    ticket_rate_limiter.reset()
+    upload_concurrency.reset()
 
 
 def _wav_bytes(size: int = 100) -> bytes:
@@ -176,8 +190,9 @@ class TestUpload:
 
     def test_oversized_upload_rejected(self, client, monkeypatch):
         monkeypatch.setenv("MAX_TEXT_BYTES", "50")
-        import importlib, app.config
-        importlib.reload(app.config)
+        import importlib
+        import asset_api.config
+        importlib.reload(asset_api.config)
         cr = client.post("/v1/projects", json={"name": "P"})
         pid = cr.json()["id"]
         r = self._upload(client, pid, "lyrics.txt", "lyrics", b"x" * 100)
@@ -216,8 +231,9 @@ class TestUpload:
 
     def test_expired_ticket(self, client, monkeypatch):
         monkeypatch.setenv("TICKET_TTL_SECONDS", "0")
-        import importlib, app.config
-        importlib.reload(app.config)
+        import importlib
+        import asset_api.config
+        importlib.reload(asset_api.config)
         cr = client.post("/v1/projects", json={"name": "P"})
         pid = cr.json()["id"]
         ticket_r = client.post(
@@ -242,7 +258,7 @@ class TestUpload:
         cr = client.post("/v1/projects", json={"name": "P"})
         pid = cr.json()["id"]
         self._upload(client, pid, "bad.wav", "mix", b"NOT_WAV" + b"\x00" * 100)
-        from app.config import BLOBS_DIR, TMP_UPLOADS_DIR
+        from asset_api.config import BLOBS_DIR, TMP_UPLOADS_DIR
         blob_files = list(BLOBS_DIR.rglob("*"))
         blob_files = [f for f in blob_files if f.is_file()]
         tmp_files = list(TMP_UPLOADS_DIR.iterdir())
@@ -361,8 +377,8 @@ class TestDeleteLink:
         r = client.delete(f"/v1/projects/{pid}/assets/{link_id}")
         assert r.status_code == 204
 
-        from app.storage import blob_abspath
-        from app.config import BLOBS_DIR
+        from asset_api.storage import blob_abspath
+        from asset_api.config import BLOBS_DIR
         assert blob_abspath(sha, BLOBS_DIR).exists()
 
 
@@ -460,15 +476,16 @@ class TestPersistence:
     def test_data_survives_app_restart(self, tmp_path, monkeypatch):
         """Simulate pod restart: same DATA_ROOT, fresh app instance."""
         monkeypatch.setenv("ASSET_DATA_ROOT", str(tmp_path))
-        import importlib, app.config
-        importlib.reload(app.config)
+        import importlib
+        import asset_api.config
+        importlib.reload(asset_api.config)
         (tmp_path / "db").mkdir(exist_ok=True)
         (tmp_path / "blobs" / "sha256").mkdir(parents=True, exist_ok=True)
         (tmp_path / "tmp" / "uploads").mkdir(parents=True, exist_ok=True)
-        from app.database import init_db
+        from asset_api.database import init_db
         init_db(tmp_path / "db" / "projects.sqlite3")
 
-        from app.main import app as fastapi_app
+        from asset_api.main import app as fastapi_app
         c1 = TestClient(fastapi_app)
         cr = c1.post("/v1/projects", json={"name": "Persistent"})
         pid = cr.json()["id"]
@@ -484,3 +501,196 @@ class TestPersistence:
         assert r.status_code == 200
         assert r.json()["project"]["name"] == "Persistent"
         assert len(r.json()["assets"]) == 1
+
+
+class TestConcurrentTicket:
+    """Verify atomic ticket claim prevents concurrent consumption."""
+
+    def test_same_ticket_concurrent_upload(self, client, project_id):
+        """Two concurrent uploads with the same ticket: exactly one succeeds."""
+        import threading
+
+        wav = _wav_bytes(200)
+        ticket_r = client.post(
+            f"/v1/projects/{project_id}/upload-tickets",
+            json={"role": "mix", "original_filename": "dup.wav"},
+        )
+        ticket = ticket_r.json()["ticket"]
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def upload():
+            barrier.wait()
+            r = client.put(
+                f"/v1/uploads/{ticket}",
+                content=wav,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            results.append(r.status_code)
+
+        threads = [threading.Thread(target=upload) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert sorted(results) in ([201, 409], [201, 410]), f"Expected one 201 and one 409/410, got {results}"
+
+    def test_two_uploads_same_bytes_dedup(self, client, project_id):
+        """Two uploads with identical content produce one physical blob, two project_assets links (via different roles)."""
+        wav = _wav_bytes(150)
+        roles = ["mix", "stem.drums"]
+        links = []
+        for role in roles:
+            ticket_r = client.post(
+                f"/v1/projects/{project_id}/upload-tickets",
+                json={"role": role, "original_filename": "dup.wav"},
+            )
+            ticket = ticket_r.json()["ticket"]
+            r = client.put(
+                f"/v1/uploads/{ticket}",
+                content=wav,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            assert r.status_code == 201
+            links.append(r.json())
+
+        assert links[0]["sha256"] == links[1]["sha256"]
+        assert links[0]["link_id"] != links[1]["link_id"]
+        assert links[1]["deduplicated"] is True
+
+
+class TestRateLimiter:
+    """Verify rate and concurrency limiting."""
+
+    def test_ticket_rate_limit(self, client, project_id):
+        """Exceed ticket rate limit and get 429."""
+        from asset_api.main import ticket_rate_limiter
+        ticket_rate_limiter.reset()
+        ticket_rate_limiter.max_per_minute = 2
+
+        for i in range(2):
+            r = client.post(
+                f"/v1/projects/{project_id}/upload-tickets",
+                json={"role": "mix", "original_filename": f"f{i}.wav"},
+            )
+            assert r.status_code == 201
+
+        r = client.post(
+            f"/v1/projects/{project_id}/upload-tickets",
+            json={"role": "mix", "original_filename": "blocked.wav"},
+        )
+        assert r.status_code == 429
+        assert "Retry-After" in r.headers
+        body = r.json()
+        assert body["detail"]["code"] == "rate_limit_exceeded"
+
+        ticket_rate_limiter.max_per_minute = 30
+        ticket_rate_limiter.reset()
+
+    def test_concurrent_upload_limit(self, client, project_id):
+        """Exceed concurrent upload limit and get 429."""
+        import threading
+        from asset_api.main import upload_concurrency
+        upload_concurrency.reset()
+        old_max = upload_concurrency.max_concurrent
+        upload_concurrency._semaphore = threading.Semaphore(1)
+        upload_concurrency.max_concurrent = 1
+
+        wav = _wav_bytes(200)
+        ticket_r = client.post(
+            f"/v1/projects/{project_id}/upload-tickets",
+            json={"role": "mix", "original_filename": "occupy.wav"},
+        )
+        ticket1 = ticket_r.json()["ticket"]
+
+        ticket_r2 = client.post(
+            f"/v1/projects/{project_id}/upload-tickets",
+            json={"role": "mix", "original_filename": "blocked.wav"},
+        )
+        ticket2 = ticket_r2.json()["ticket"]
+
+        barrier = threading.Barrier(2)
+        results = []
+
+        def do_upload(tk):
+            barrier.wait()
+            r = client.put(
+                f"/v1/uploads/{tk}",
+                content=wav,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            results.append(r.status_code)
+
+        threads = [
+            threading.Thread(target=do_upload, args=(ticket1,)),
+            threading.Thread(target=do_upload, args=(ticket2,)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert 429 in results, f"Expected one 429, got {results}"
+
+        upload_concurrency.reset()
+        upload_concurrency._semaphore = threading.Semaphore(old_max)
+        upload_concurrency.max_concurrent = old_max
+
+
+class TestDeleteCascadeTickets:
+    """Verify that project deletion invalidates pending tickets."""
+
+    def test_ticket_invalid_after_project_delete(self, client, project_id):
+        """Issue ticket, delete project, PUT should fail."""
+        ticket_r = client.post(
+            f"/v1/projects/{project_id}/upload-tickets",
+            json={"role": "mix", "original_filename": "orphan.wav"},
+        )
+        ticket = ticket_r.json()["ticket"]
+
+        client.delete(f"/v1/projects/{project_id}")
+
+        wav = _wav_bytes(100)
+        r = client.put(
+            f"/v1/uploads/{ticket}",
+            content=wav,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert r.status_code in (404, 410), f"Expected 404 or 410, got {r.status_code}"
+
+
+class TestBlankNamePatch:
+    """Verify that PATCH with blank name is rejected."""
+
+    def test_patch_blank_name_rejected(self, client, project_id):
+        r = client.patch(
+            f"/v1/projects/{project_id}",
+            json={"name": "   ", "revision": 1},
+        )
+        assert r.status_code == 422
+
+    def test_patch_valid_name(self, client, project_id):
+        r = client.patch(
+            f"/v1/projects/{project_id}",
+            json={"name": "New Name", "revision": 1},
+        )
+        assert r.status_code == 200
+        assert r.json()["project"]["name"] == "New Name"
+
+
+class TestRequestId:
+    """Verify all error responses contain request_id."""
+
+    def test_404_has_request_id(self, client):
+        r = client.get("/v1/projects/nonexistent-id")
+        assert r.status_code == 404
+        body = r.json()
+        assert "request_id" in body["detail"]
+
+    def test_422_has_request_id(self, client):
+        r = client.post("/v1/projects", json={})
+        assert r.status_code == 422
+        body = r.json()
+        assert "request_id" in body["detail"]

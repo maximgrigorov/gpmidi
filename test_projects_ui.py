@@ -96,7 +96,6 @@ class TestNoAudioInSessions:
     @patch("app.get_client")
     def test_project_upload_no_local_storage(self, mock_get, flask_client, tmp_path):
         """Project uploads go to AILab, not data/sessions."""
-        import app as app_module
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
@@ -114,3 +113,33 @@ class TestNoAudioInSessions:
 
         audio_files = list(sessions_dir.rglob("*.wav")) + list(sessions_dir.rglob("*.flac"))
         assert len(audio_files) == 0
+
+
+class TestTLSParsing:
+    """Verify _parse_bool for TLS verification."""
+
+    @pytest.mark.parametrize("val,expected", [
+        ("1", True), ("true", True), ("True", True), ("TRUE", True),
+        ("yes", True), ("Yes", True), ("on", True), ("ON", True),
+        ("0", False), ("false", False), ("False", False), ("FALSE", False),
+        ("no", False), ("No", False), ("off", False), ("OFF", False),
+        ("", False), ("random", False),
+    ])
+    def test_parse_bool(self, val, expected):
+        from ailab_client import _parse_bool
+        assert _parse_bool(val) is expected
+
+    def test_default_verify_is_false(self, monkeypatch):
+        """Default (no env) should be False for self-signed AILab cert."""
+        monkeypatch.delenv("ASSET_API_VERIFY_TLS", raising=False)
+        import importlib
+        import ailab_client
+        importlib.reload(ailab_client)
+        assert ailab_client.ASSET_API_VERIFY_TLS is False
+
+    def test_verify_true_when_set(self, monkeypatch):
+        monkeypatch.setenv("ASSET_API_VERIFY_TLS", "true")
+        import importlib
+        import ailab_client
+        importlib.reload(ailab_client)
+        assert ailab_client.ASSET_API_VERIFY_TLS is True

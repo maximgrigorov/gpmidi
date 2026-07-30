@@ -995,10 +995,7 @@ def project_upload(project_id: str):
         client = get_client()
         ticket_data = client.create_upload_ticket(project_id, role, f.filename)
         ticket = ticket_data["ticket"]
-        result = client.stream_proxy_upload(
-            ticket, f.stream,
-            content_length=request.content_length,
-        )
+        result = client.stream_proxy_upload(ticket, f.stream)
         sha_short = result.get("sha256", "")[:12]
         dedup = " (дедупликация)" if result.get("deduplicated") else ""
         flash(f"Загружено: {f.filename} → SHA {sha_short}{dedup}", "success")

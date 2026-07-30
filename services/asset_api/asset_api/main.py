@@ -11,17 +11,16 @@ import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .config import (
     CORS_ORIGINS,
-    DATA_ROOT,
     PROJECT_NAME_MAX_LEN,
     PROJECT_DESC_MAX_LEN,
 )
@@ -34,9 +33,9 @@ from .roles import (
     validate_extension,
     validate_signature,
 )
+from .limiter import RateLimiter, ConcurrencyLimiter
 from .storage import (
     StreamingHashWriter,
-    blob_abspath,
     blob_relpath,
     cleanup_stale_temps,
     ensure_dirs,
@@ -47,6 +46,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 
 app = FastAPI(title="gpmidi Asset API", version="1.0.0", root_path="/asset-api")
 
+def _rate_limit_per_min() -> int:
+    from .config import UPLOAD_RATE_LIMIT_PER_MIN
+    return UPLOAD_RATE_LIMIT_PER_MIN
+
+def _max_concurrent_uploads() -> int:
+    return int(os.environ.get("MAX_CONCURRENT_UPLOADS", "5"))
+
+ticket_rate_limiter = RateLimiter(max_per_minute=_rate_limit_per_min())
+upload_concurrency = ConcurrencyLimiter(max_concurrent=_max_concurrent_uploads())
+
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -56,6 +65,25 @@ if CORS_ORIGINS:
         allow_headers=["*"],
         max_age=3600,
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    rid = _request_id()
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"code": "validation_error", "message": str(exc.errors()), "request_id": rid}},
+        headers={"X-Request-Id": rid},
+    )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail if isinstance(exc.detail, dict) else {"code": "error", "message": str(exc.detail)}
+    if "request_id" not in detail:
+        detail["request_id"] = _request_id()
+    headers = dict(exc.headers) if exc.headers else {}
+    headers["X-Request-Id"] = detail["request_id"]
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=headers)
 
 
 @app.on_event("startup")
@@ -87,6 +115,16 @@ class ProjectUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=PROJECT_DESC_MAX_LEN)
     revision: int = Field(description="Optimistic lock: must match current revision")
 
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be blank after trim")
+        return v
+
 
 class TicketRequest(BaseModel):
     role: AssetRole
@@ -113,11 +151,13 @@ class GPRevisionCreate(BaseModel):
 
 # --- Error helper ---
 
-def _error(status_code: int, code: str, message: str, request_id: str | None = None) -> HTTPException:
-    detail = {"code": code, "message": message}
-    if request_id:
-        detail["request_id"] = request_id
-    return HTTPException(status_code=status_code, detail=detail)
+def _error(status_code: int, code: str, message: str, request_id: str | None = None,
+           headers: dict | None = None) -> HTTPException:
+    detail = {"code": code, "message": message, "request_id": request_id or _request_id()}
+    exc = HTTPException(status_code=status_code, detail=detail)
+    if headers:
+        exc.headers = headers
+    return exc
 
 
 def _request_id() -> str:
@@ -239,6 +279,10 @@ def delete_project(project_id: str):
         row = conn.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
         if not row:
             raise _error(404, "project_not_found", "Project not found")
+        conn.execute(
+            "UPDATE upload_tickets SET status='expired' WHERE project_id=? AND status IN ('pending','uploading')",
+            (project_id,),
+        )
         conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
         conn.commit()
     return Response(status_code=204)
@@ -249,6 +293,10 @@ def delete_project(project_id: str):
 @app.post("/v1/projects/{project_id}/upload-tickets", status_code=201)
 def create_upload_ticket(project_id: str, body: TicketRequest):
     rid = _request_id()
+    if not ticket_rate_limiter.allow():
+        raise _error(429, "rate_limit_exceeded",
+                     "Too many ticket requests. Try again later.",
+                     headers={"Retry-After": str(ticket_rate_limiter.retry_after())})
     with get_db() as conn:
         row = conn.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
         if not row:
@@ -296,18 +344,41 @@ async def upload_blob(ticket: str, request: Request):
         ).fetchone()
         if not row:
             raise _error(404, "ticket_not_found", "Upload ticket not found or invalid")
-        if row["status"] != "pending":
+        if row["status"] not in ("pending",):
             raise _error(410, "ticket_consumed", "Ticket already used")
         expires = datetime.fromisoformat(row["expires_at"])
         if datetime.now(timezone.utc) > expires:
             raise _error(410, "ticket_expired", "Ticket expired")
+
+        # Atomic claim: CAS pending -> uploading
+        cur = conn.execute(
+            "UPDATE upload_tickets SET status='uploading' WHERE ticket_hash=? AND status='pending'",
+            (ticket_hash,),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            raise _error(409, "ticket_race", "Ticket claimed by another request")
 
     project_id = row["project_id"]
     role = AssetRole(row["role"])
     original_filename = row["original_filename"]
     max_bytes = row["max_bytes"]
 
+    # Verify project still exists after atomic claim
+    with get_db() as conn:
+        proj = conn.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
+        if not proj:
+            _mark_ticket_failed(ticket_hash)
+            raise _error(404, "project_not_found", "Project was deleted")
+
     ext = validate_extension(original_filename, role)
+
+    if not upload_concurrency.try_acquire():
+        _mark_ticket_failed(ticket_hash)
+        raise _error(429, "too_many_uploads",
+                     "Too many concurrent uploads. Try again later.",
+                     headers={"Retry-After": "5"})
+
     writer = StreamingHashWriter()
     header_checked = False
     header_buf = bytearray()
@@ -339,7 +410,7 @@ async def upload_blob(ticket: str, request: Request):
                              "File signature does not match expected format")
 
         sha256_hex = writer.finalize()
-        final_path = writer.commit(sha256_hex)
+        writer.commit(sha256_hex)
         rel = blob_relpath(sha256_hex)
 
         media_type = mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
@@ -394,10 +465,26 @@ async def upload_blob(ticket: str, request: Request):
             },
         )
     except HTTPException:
+        _mark_ticket_failed(ticket_hash)
         raise
     except Exception:
         writer.abort()
+        _mark_ticket_failed(ticket_hash)
         raise
+    finally:
+        upload_concurrency.release()
+
+
+def _mark_ticket_failed(ticket_hash: str) -> None:
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE upload_tickets SET status='failed' WHERE ticket_hash=? AND status='uploading'",
+                (ticket_hash,),
+            )
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _create_gp_revision(
@@ -433,13 +520,10 @@ def _create_gp_revision(
 @app.post("/v1/projects/{project_id}/gp-revisions", status_code=201)
 def create_gp_revision_via_ticket(project_id: str, body: GPRevisionCreate):
     """Create a GP revision via the ticket flow (upload GP with role guitar-pro)."""
-    rid = _request_id()
     with get_db() as conn:
         row = conn.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
         if not row:
             raise _error(404, "project_not_found", "Project not found")
-    ticket_body = TicketRequest(role=AssetRole.GUITAR_PRO, original_filename=body.original_filename)
-    from fastapi.testclient import TestClient
     raise _error(501, "use_ticket_flow",
                  "Use upload-tickets with role=guitar-pro for GP uploads, "
                  "revision is created automatically on upload")

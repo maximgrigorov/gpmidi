@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from app.roles import (
+from asset_api.roles import (
     AssetRole,
     allowed_extensions_for_role,
-    max_bytes_for_role,
     sanitize_filename,
     validate_extension,
     validate_signature,
 )
-from app.storage import StreamingHashWriter, blob_relpath, cleanup_stale_temps
-from app.cache_key import cache_key, canonical_json
+from asset_api.storage import StreamingHashWriter, blob_relpath, cleanup_stale_temps
+from asset_api.cache_key import cache_key, canonical_json
 
 
 # --- Role / extension validation ---
@@ -242,7 +242,7 @@ class TestCacheKey:
 
 class TestGPRevisionNumbering:
     def test_monotonic_revisions(self):
-        from app.database import init_db, get_db
+        from asset_api.database import init_db, get_db
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "test.db"
             init_db(db_path)
@@ -276,8 +276,8 @@ class TestGPRevisionNumbering:
 
     def test_idempotent_same_hash(self):
         """Same GP hash should not create a new revision unless force_new."""
-        from app.database import init_db, get_db
-        from app.main import _create_gp_revision
+        from asset_api.database import init_db, get_db
+        from asset_api.main import _create_gp_revision
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "test.db"
             init_db(db_path)
@@ -296,6 +296,3 @@ class TestGPRevisionNumbering:
                 conn.commit()
                 r2 = _create_gp_revision(conn, pid, "sha1", "f.gp5", "now")
                 assert r2["revision"] == r1["revision"]
-
-
-import os

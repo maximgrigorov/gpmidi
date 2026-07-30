@@ -1,7 +1,7 @@
 # Phase 1: Project and Asset Storage — Report
 
-**Date:** 2026-07-31  
-**Branch:** `feat/project-asset-storage`  
+**Date:** 2026-07-31
+**Branch:** `feat/project-asset-storage`
 **Operator:** Cursor Agent (Opus 4.6)
 
 ---
