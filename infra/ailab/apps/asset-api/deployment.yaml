@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: asset-api
-        image: asset-api:PLACEHOLDER
+        image: asset-api:17448310e361
         imagePullPolicy: Never
         ports:
         - containerPort: 8000
