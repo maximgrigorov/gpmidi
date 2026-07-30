@@ -239,6 +239,18 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
 .flash.success { background: var(--ok-soft); color: var(--ok); border-color: hsl(152, 35%, 86%); }
 .flash.error { background: var(--err-soft); color: var(--err); border-color: hsl(358, 44%, 86%); }
 
+.hydra-setting-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid hsl(40, 50%, 84%);
+  border-radius: var(--r);
+  background: var(--warn-soft);
+  font-size: 12px;
+}
+.hydra-setting-note strong { color: var(--warn); }
+.hydra-setting-note small { color: var(--fg-muted); line-height: 1.45; }
+
 .count-pill {
   display: inline-flex;
   align-items: center;

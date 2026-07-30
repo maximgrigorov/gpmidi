@@ -363,43 +363,37 @@ class EventList:
 #  Конвертация эффектов одной ноты (только для GUITAR/BASS)
 # --------------------------------------------------------------------------- #
 def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST):
-    """Плавная кривая Pitch Bend по точкам бенда. Шаг 10 мс. Сброс в 0 в конце."""
+    """Перенести опорные точки GP bend и сбросить Pitch Bend в конце.
+
+    Guitar Pro уже хранит семантические углы кривой в шкале position=0..12:
+    начало, вершину, границы плато и release. Прежняя 10-ms интерполяция
+    превращала каждый линейный участок в десятки MIDI-событий и засоряла
+    MIDI Draw в Logic. Сохраняем только авторские точки. Последнюю точку
+    ставим за тик до note-off, чтобы reset в 0 не затёр удерживаемую вершину.
+    """
+    if dur_ticks <= 0:
+        return
     points = sorted(bend.points, key=lambda p: p.position)
     if not points:
         return
-    note_ms = ticks_to_ms(dur_ticks, bpm)
 
-    def pos_to_ms(pos):
-        return pos / 12.0 * note_ms
+    end_tick = start_tick + dur_ticks
+    last_event = None
+    for point in points:
+        position = max(0.0, min(12.0, float(point.position)))
+        tick = start_tick + int(round((position / 12.0) * dur_ticks))
+        tick = min(tick, end_tick - 1)
+        pw = semitones_to_pitchwheel(
+            float(point.value) * SEMITONES_PER_BEND_UNIT, pb_range
+        )
+        event = (tick, pw)
+        if event == last_event:
+            continue
+        ev.add(tick, ORDER_CTRL,
+               Message("pitchwheel", channel=CHANNEL, pitch=pw))
+        last_event = event
 
-    def val_to_st(value):
-        return value * SEMITONES_PER_BEND_UNIT
-
-    first_ms = pos_to_ms(points[0].position)
-    last_ms = pos_to_ms(points[-1].position)
-
-    last_val = None
-    ms = first_ms
-    while ms <= last_ms + 1e-6:
-        st = val_to_st(points[-1].value)
-        for i in range(len(points) - 1):
-            p0, p1 = points[i], points[i + 1]
-            m0, m1 = pos_to_ms(p0.position), pos_to_ms(p1.position)
-            if m0 <= ms <= m1:
-                frac = 1.0 if m1 == m0 else (ms - m0) / (m1 - m0)
-                v = p0.value + (p1.value - p0.value) * frac
-                st = val_to_st(v)
-                break
-        pw = semitones_to_pitchwheel(st, pb_range)
-        if pw != last_val:
-            # держим точки кривой строго ДО тика сброса, иначе финальная точка
-            # (ORDER_CTRL > ORDER_RESET) затрёт сброс в 0 и PB утечёт в атаку.
-            tick = min(start_tick + ms_to_ticks(ms, bpm), start_tick + dur_ticks - 1)
-            ev.add(tick, ORDER_CTRL, Message("pitchwheel", channel=CHANNEL, pitch=pw))
-            last_val = pw
-        ms += BEND_STEP_MS
-
-    ev.add(start_tick + dur_ticks, ORDER_RESET,
+    ev.add(end_tick, ORDER_RESET,
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
@@ -473,6 +467,8 @@ def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None, vibrato_type=None,
 def emit_slide(ev, start_tick, dur_ticks, slides, this_pitch, next_pitch, bpm,
                pb_range=PITCH_BEND_RANGE_ST):
     """Слайд: Pitch Bend в последние 50 мс ноты в сторону следующей ноты, затем сброс."""
+    if dur_ticks <= 0:
+        return
     direction = 0
     if next_pitch is not None:
         direction = 1 if next_pitch > this_pitch else (-1 if next_pitch < this_pitch else 0)
@@ -490,13 +486,14 @@ def emit_slide(ev, start_tick, dur_ticks, slides, this_pitch, next_pitch, bpm,
     begin_tick = max(start_tick, start_tick + dur_ticks - lead_ticks)
     target_st = direction * SLIDE_BEND_ST
 
-    steps = max(1, int(SLIDE_LEAD_MS / BEND_STEP_MS))
-    for i in range(steps + 1):
-        frac = i / float(steps)
-        pw = semitones_to_pitchwheel(target_st * frac, pb_range)
-        tick = min(begin_tick + int((start_tick + dur_ticks - begin_tick) * frac),
-                   start_tick + dur_ticks - 1)
-        ev.add(tick, ORDER_CTRL, Message("pitchwheel", channel=CHANNEL, pitch=pw))
+    # Logic соединяет MIDI Draw control points линией. Для строго линейного
+    # 50-ms slide достаточно начала и целевой вершины; промежуточные 10-ms
+    # события лишь засоряют редактор и не несут новых изломов кривой.
+    ev.add(begin_tick, ORDER_CTRL,
+           Message("pitchwheel", channel=CHANNEL, pitch=0))
+    ev.add(start_tick + dur_ticks - 1, ORDER_CTRL,
+           Message("pitchwheel", channel=CHANNEL,
+                   pitch=semitones_to_pitchwheel(target_st, pb_range)))
     ev.add(start_tick + dur_ticks, ORDER_RESET,
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 

@@ -111,6 +111,11 @@ def _keyswitch_display_maps() -> dict[str, dict[int, str]]:
 
 
 ARTICULATION_MAPS = _keyswitch_display_maps()
+HYDRA_PITCH_BEND_RANGE = int(round(float(
+    (config_for_track_type("GUITAR") or {}).get(
+        "pitch_bend_range", PITCH_BEND_RANGE_ST
+    )
+)))
 
 ARTICULATION_LABELS = {
     "sustain": "sustain",
@@ -669,6 +674,7 @@ def index():
         "index.html", current_job=current_job, jobs=jobs,
         max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
+        hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
     )
 
 
@@ -752,6 +758,7 @@ def job_details(job_id: str):
         "index.html", current_job=current_job, jobs=jobs,
         max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
+        hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
     )
 
 
