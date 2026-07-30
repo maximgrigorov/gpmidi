@@ -29,9 +29,10 @@ infra/ailab/
 ├── base/                  # Namespace, RBAC, quotas, policies
 ├── storage/               # StorageClass config, PVCs, smoke
 ├── gpu/                   # Device plugin, GPU smoke jobs
-├── smoke-app/             # Test deployment
+├── smoke-app/             # Test deployment (Phase 0)
+├── apps/asset-api/        # Phase 1 asset storage service
 ├── clusters/ailab/        # Flux-generated files after bootstrap
-├── apps/gpmidi-ml/        # Phase 1 application layer
+├── apps/gpmidi-ml/        # Future application layer
 └── reports/               # Verification reports
 ```
 
