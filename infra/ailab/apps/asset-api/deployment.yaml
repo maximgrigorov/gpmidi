@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asset-api
+  namespace: gpmidi-ml
+  labels:
+    app: asset-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: asset-api
+  template:
+    metadata:
+      labels:
+        app: asset-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: asset-api
+        image: asset-api:PLACEHOLDER
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        env:
+        - name: ASSET_DATA_ROOT
+          value: /var/lib/gpmidi
+        - name: CORS_ORIGINS
+          value: "https://192.168.30.2,http://192.168.20.66:8082"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/gpmidi
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /asset-api/healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /asset-api/readyz
+            port: 8000
+          initialDelaySeconds: 3
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: project-assets
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi

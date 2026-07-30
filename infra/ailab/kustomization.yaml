@@ -7,3 +7,4 @@ resources:
 - gpu/device-plugin.yaml
 - base
 - smoke-app
+- apps/asset-api

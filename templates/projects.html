@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Проекты — конвертер midi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="mark">M</div>
+        <div>
+          <div class="name">конвертер midi</div>
+          <div class="sub">Guitar Pro → Logic / Shreddage</div>
+        </div>
+      </div>
+      <div class="sidebar-scroll">
+        <nav class="sidebar-nav">
+          <a href="{{ url_for('index') }}" class="btn ghost">← Конвертер</a>
+          <a href="{{ url_for('projects_list') }}" class="btn primary">Проекты</a>
+        </nav>
+        <div class="panel">
+          <h2>Новый проект</h2>
+          <form action="{{ url_for('projects_create') }}" method="post" class="form-stack">
+            <input type="text" name="name" placeholder="Название проекта" required maxlength="120" class="input">
+            <textarea name="description" placeholder="Описание (опционально)" rows="2" maxlength="4000" class="input"></textarea>
+            <button type="submit" class="btn primary">Создать</button>
+          </form>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="flash flash-{{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      <h1>Проекты</h1>
+      {% if projects %}
+      <div class="projects-grid">
+        {% for p in projects %}
+        <a href="{{ url_for('project_detail', project_id=p.id) }}" class="project-card">
+          <div class="project-card-title">{{ p.name }}</div>
+          <div class="project-card-meta">
+            <span>Assets: {{ p.asset_count or 0 }}</span>
+            {% if p.latest_gp_rev %}
+            <span>GP rev {{ p.latest_gp_rev }}</span>
+            {% endif %}
+          </div>
+          <div class="project-card-date">{{ p.updated_at[:10] }}</div>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">Нет проектов. Создай первый в форме слева.</p>
+      {% endif %}
+    </main>
+  </div>
+</body>
+</html>

@@ -653,3 +653,26 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
 .artifact-action { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
 .artifact-action form { margin: 0; }
 .actions-col { min-width: 180px; }
+
+/* --- Projects pages --- */
+.sidebar-nav { display: flex; flex-direction: column; gap: 6px; padding: 0 0 12px; }
+.form-stack { display: flex; flex-direction: column; gap: 8px; }
+.form-stack .input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: .85rem; background: white; }
+.form-stack textarea.input { resize: vertical; min-height: 40px; }
+.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.project-card { display: block; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; text-decoration: none; color: inherit; transition: border-color .15s, box-shadow .15s; }
+.project-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.project-card-title { font-weight: 600; font-size: .95rem; margin-bottom: 4px; }
+.project-card-meta { font-size: .78rem; color: var(--muted); display: flex; gap: 10px; }
+.project-card-date { font-size: .72rem; color: var(--muted); margin-top: 6px; }
+.meta-line { font-size: .8rem; color: var(--muted); margin: -4px 0 16px; }
+.section { margin: 24px 0; }
+.section h2 { font-size: 1rem; margin-bottom: 8px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.data-table th, .data-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.data-table th { font-weight: 600; color: var(--muted); }
+.data-table code { font-family: 'JetBrains Mono', monospace; font-size: .78rem; }
+.btn.small { padding: 3px 8px; font-size: .76rem; }
+.btn.danger { color: #c0392b; }
+.actions { white-space: nowrap; }
+

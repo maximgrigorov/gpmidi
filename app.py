@@ -926,5 +926,125 @@ def delete_job(job_id: str):
     return redirect(url_for("index"))
 
 
+# --- Projects (AILab Asset Storage) ---
+
+from ailab_client import get_client, AssetAPIError  # noqa: E402
+
+
+@app.get("/projects")
+def projects_list():
+    try:
+        client = get_client()
+        projects = client.list_projects()
+    except AssetAPIError as e:
+        flash(f"Ошибка AILab: {e.message}", "error")
+        projects = []
+    except Exception as e:
+        flash(f"AILab недоступен: {e}", "error")
+        projects = []
+    return render_template("projects.html", projects=projects)
+
+
+@app.post("/projects")
+def projects_create():
+    name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip() or None
+    if not name:
+        flash("Имя проекта обязательно.", "error")
+        return redirect(url_for("projects_list"))
+    try:
+        client = get_client()
+        result = client.create_project(name, description)
+        flash(f"Проект «{name}» создан.", "success")
+        return redirect(url_for("project_detail", project_id=result["id"]))
+    except AssetAPIError as e:
+        flash(f"Ошибка создания: {e.message}", "error")
+    except Exception as e:
+        flash(f"AILab недоступен: {e}", "error")
+    return redirect(url_for("projects_list"))
+
+
+@app.get("/projects/<project_id>")
+def project_detail(project_id: str):
+    try:
+        client = get_client()
+        data = client.get_project(project_id)
+    except AssetAPIError as e:
+        flash(f"Ошибка: {e.message}", "error")
+        return redirect(url_for("projects_list"))
+    except Exception as e:
+        flash(f"AILab недоступен: {e}", "error")
+        return redirect(url_for("projects_list"))
+    return render_template("project_detail.html",
+                           project=data["project"],
+                           assets=data["assets"],
+                           gp_revisions=data["gp_revisions"])
+
+
+@app.post("/projects/<project_id>/upload")
+def project_upload(project_id: str):
+    role = request.form.get("role", "")
+    if "file" not in request.files:
+        flash("Файл не выбран.", "error")
+        return redirect(url_for("project_detail", project_id=project_id))
+    f = request.files["file"]
+    if not f.filename:
+        flash("Файл не выбран.", "error")
+        return redirect(url_for("project_detail", project_id=project_id))
+    try:
+        client = get_client()
+        ticket_data = client.create_upload_ticket(project_id, role, f.filename)
+        ticket = ticket_data["ticket"]
+        result = client.stream_proxy_upload(
+            ticket, f.stream,
+            content_length=request.content_length,
+        )
+        sha_short = result.get("sha256", "")[:12]
+        dedup = " (дедупликация)" if result.get("deduplicated") else ""
+        flash(f"Загружено: {f.filename} → SHA {sha_short}{dedup}", "success")
+    except AssetAPIError as e:
+        flash(f"Ошибка загрузки: {e.message}", "error")
+    except Exception as e:
+        flash(f"AILab недоступен: {e}", "error")
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.post("/projects/<project_id>/assets/<link_id>/delete")
+def project_asset_delete(project_id: str, link_id: str):
+    try:
+        client = get_client()
+        client.delete_asset_link(project_id, link_id)
+        flash("Ссылка удалена. Физический файл сохранён.", "success")
+    except AssetAPIError as e:
+        flash(f"Ошибка: {e.message}", "error")
+    except Exception as e:
+        flash(f"AILab недоступен: {e}", "error")
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.get("/projects/<project_id>/assets/<link_id>/download")
+def project_asset_download(project_id: str, link_id: str):
+    try:
+        client = get_client()
+        resp = client.download_asset(project_id, link_id)
+        from flask import Response as FlaskResponse
+        disposition = resp.headers.get("Content-Disposition", "")
+        content_type = resp.headers.get("Content-Type", "application/octet-stream")
+
+        def generate():
+            for chunk in resp.iter_content(65536):
+                yield chunk
+
+        return FlaskResponse(
+            generate(),
+            content_type=content_type,
+            headers={"Content-Disposition": disposition},
+        )
+    except AssetAPIError as e:
+        abort(e.status_code, description=e.message)
+    except Exception as e:
+        abort(502, description=f"AILab недоступен: {e}")
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)

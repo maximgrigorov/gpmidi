@@ -11,3 +11,4 @@ numpy==1.23.2
 fpdf2>=2.7
 pypdf>=4.0
 pytest>=8.0
+requests>=2.31

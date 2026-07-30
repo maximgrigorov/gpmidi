@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ project.name }} — Проект</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="mark">M</div>
+        <div>
+          <div class="name">конвертер midi</div>
+          <div class="sub">Guitar Pro → Logic / Shreddage</div>
+        </div>
+      </div>
+      <div class="sidebar-scroll">
+        <nav class="sidebar-nav">
+          <a href="{{ url_for('index') }}" class="btn ghost">← Конвертер</a>
+          <a href="{{ url_for('projects_list') }}" class="btn ghost">← Проекты</a>
+        </nav>
+
+        <div class="panel">
+          <h2>Загрузка файла</h2>
+          <form action="{{ url_for('project_upload', project_id=project.id) }}" method="post" enctype="multipart/form-data" class="form-stack">
+            <select name="role" required class="input">
+              <option value="" disabled selected>Выбери роль</option>
+              <optgroup label="Audio">
+                <option value="mix">Mix (WAV/FLAC)</option>
+                <option value="stem.drums">Stem: Drums</option>
+                <option value="stem.bass">Stem: Bass</option>
+                <option value="stem.guitar">Stem: Guitar</option>
+                <option value="stem.vocals">Stem: Vocals</option>
+                <option value="stem.other">Stem: Other</option>
+              </optgroup>
+              <optgroup label="MIDI (Suno)">
+                <option value="suno-midi.mix">Suno MIDI: Mix</option>
+                <option value="suno-midi.drums">Suno MIDI: Drums</option>
+                <option value="suno-midi.bass">Suno MIDI: Bass</option>
+                <option value="suno-midi.guitar">Suno MIDI: Guitar</option>
+                <option value="suno-midi.other">Suno MIDI: Other</option>
+              </optgroup>
+              <optgroup label="Guitar Pro">
+                <option value="guitar-pro">Guitar Pro</option>
+              </optgroup>
+              <optgroup label="Text">
+                <option value="lyrics">Lyrics</option>
+                <option value="structure">Structure</option>
+              </optgroup>
+            </select>
+            <input type="file" name="file" required class="input">
+            <button type="submit" class="btn primary">Загрузить</button>
+          </form>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="flash flash-{{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      <h1>{{ project.name }}</h1>
+      {% if project.description %}
+      <p class="muted">{{ project.description }}</p>
+      {% endif %}
+      <p class="meta-line">ID: <code>{{ project.id[:8] }}…</code> · Revision {{ project.revision }} · {{ project.updated_at[:10] }}</p>
+
+      {% if gp_revisions %}
+      <section class="section">
+        <h2>Guitar Pro ревизии</h2>
+        <table class="data-table">
+          <thead><tr><th>#</th><th>Файл</th><th>SHA-256</th><th>Дата</th></tr></thead>
+          <tbody>
+            {% for rev in gp_revisions %}
+            <tr>
+              <td>{{ rev.revision }}</td>
+              <td>{{ rev.original_filename }}</td>
+              <td><code>{{ rev.asset_sha256[:12] }}…</code></td>
+              <td>{{ rev.created_at[:10] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% endif %}
+
+      {% if assets %}
+      <section class="section">
+        <h2>Assets</h2>
+        <table class="data-table">
+          <thead><tr><th>Role</th><th>Файл</th><th>SHA-256</th><th>Размер</th><th>Дата</th><th></th></tr></thead>
+          <tbody>
+            {% for a in assets %}
+            <tr>
+              <td><span class="badge">{{ a.role }}</span></td>
+              <td>{{ a.original_filename }}</td>
+              <td><code>{{ a.asset_sha256[:12] }}…</code></td>
+              <td>{{ "%.1f"|format(a.size_bytes / 1048576) if a.size_bytes else "?" }} MB</td>
+              <td>{{ a.created_at[:10] }}</td>
+              <td class="actions">
+                <a href="{{ url_for('project_asset_download', project_id=project.id, link_id=a.id) }}" class="btn ghost small">↓</a>
+                <form action="{{ url_for('project_asset_delete', project_id=project.id, link_id=a.id) }}" method="post" style="display:inline" onsubmit="return confirm('Удалить ссылку на этот asset?')">
+                  <button type="submit" class="btn ghost small danger">✕</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% else %}
+      <p class="muted">Нет загруженных файлов. Используй форму слева для загрузки.</p>
+      {% endif %}
+    </main>
+  </div>
+</body>
+</html>

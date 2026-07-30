@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: asset-api
+  namespace: gpmidi-ml
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  tls:
+  - secretName: ailab-tls
+  rules:
+  - http:
+      paths:
+      - path: /asset-api
+        pathType: Prefix
+        backend:
+          service:
+            name: asset-api
+            port:
+              number: 8000
