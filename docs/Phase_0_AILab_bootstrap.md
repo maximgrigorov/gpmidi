@@ -269,13 +269,28 @@ GPU smoke job (ресурсное конкурирование за GPU). Пер
 
 ## 7. Что осталось непроверенным или заблокированным
 
-### Непроверено
+### Reboot Persistence (ПРОВЕРЕНО)
 
-1. **Reboot persistence** — не перезагружали сервер (требуется явное
-   разрешение пользователя)
-2. **Port 6443 firewall** — k3s API доступен всему LAN, ограничение не
+Сервер перезагружен, все сервисы восстановились автоматически:
+
+| Проверка | Результат |
+|----------|-----------|
+| nvidia-smi | RTX 5060 Ti, driver 590.48.01 |
+| k3s service | active |
+| Node | Ready |
+| NVIDIA device plugin | Running (1 restart, нормально) |
+| nvidia.com/gpu allocatable | 1 |
+| PVC smoke-pvc | Bound (данные сохранились) |
+| Smoke app | Running (1 restart, нормально) |
+| HTTPS healthz | 200 OK |
+| Gitea 3300 | 200 OK |
+| LLM health 8080 | OK |
+
+### Оставшиеся непроверенные пункты
+
+1. **Port 6443 firewall** — k3s API доступен всему LAN, ограничение не
    добавлено (INPUT policy ACCEPT, нет ufw)
-3. **Flux reconciliation** — контроллеры не установлены, нет Gitea token
+2. **Flux reconciliation** — контроллеры не установлены, нет Gitea token
 
 ### Заблокировано
 

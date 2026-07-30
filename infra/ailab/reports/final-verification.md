@@ -89,9 +89,25 @@ New directories added: `k3s`, `k3s-storage`.
 | 10250 | kubelet | localhost+cluster |
 | 10257-10259 | k8s control plane | localhost |
 
-## Unprovoked / Not Verified
+## Reboot Persistence (VERIFIED)
 
-- **Reboot persistence**: NOT tested (requires explicit user approval)
+Server rebooted at 2026-07-30 22:37 UTC+5. All services recovered:
+
+| Check | Result |
+|-------|--------|
+| nvidia-smi | RTX 5060 Ti, 590.48.01 |
+| k3s service | active |
+| Node | Ready |
+| Device plugin | Running (1 restart) |
+| nvidia.com/gpu | 1 allocatable |
+| PVC smoke-pvc | Bound (data preserved) |
+| Smoke app | Running (1 restart) |
+| HTTPS healthz | 200 OK |
+| Gitea 3300 | 200 OK |
+| LLM health 8080 | OK |
+
+## Still Not Verified
+
 - **Flux**: controllers not installed (Gitea credentials not provisioned)
 - **Port 6443 firewall**: no restriction added; accessible from LAN
 - **llama-server coexistence**: GPU resource contention possible when k3s GPU
