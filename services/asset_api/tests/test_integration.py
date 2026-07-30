@@ -590,53 +590,61 @@ class TestRateLimiter:
         ticket_rate_limiter.reset()
 
     def test_concurrent_upload_limit(self, client, project_id):
-        """Exceed concurrent upload limit and get 429."""
+        """A request overlapping a held upload receives 429 deterministically."""
+        import asyncio
         import threading
-        from asset_api.main import upload_concurrency
-        upload_concurrency.reset()
-        old_max = upload_concurrency.max_concurrent
-        upload_concurrency._semaphore = threading.Semaphore(1)
-        upload_concurrency.max_concurrent = 1
+
+        import httpx
+
+        from asset_api.main import app, upload_concurrency
 
         wav = _wav_bytes(200)
-        ticket_r = client.post(
-            f"/v1/projects/{project_id}/upload-tickets",
-            json={"role": "mix", "original_filename": "occupy.wav"},
-        )
-        ticket1 = ticket_r.json()["ticket"]
-
-        ticket_r2 = client.post(
-            f"/v1/projects/{project_id}/upload-tickets",
-            json={"role": "mix", "original_filename": "blocked.wav"},
-        )
-        ticket2 = ticket_r2.json()["ticket"]
-
-        barrier = threading.Barrier(2)
-        results = []
-
-        def do_upload(tk):
-            barrier.wait()
-            r = client.put(
-                f"/v1/uploads/{tk}",
-                content=wav,
-                headers={"Content-Type": "application/octet-stream"},
+        tickets = []
+        for filename in ("occupy.wav", "blocked.wav"):
+            response = client.post(
+                f"/v1/projects/{project_id}/upload-tickets",
+                json={"role": "mix", "original_filename": filename},
             )
-            results.append(r.status_code)
+            tickets.append(response.json()["ticket"])
 
-        threads = [
-            threading.Thread(target=do_upload, args=(ticket1,)),
-            threading.Thread(target=do_upload, args=(ticket2,)),
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        async def exercise_limit():
+            upload_concurrency.reset()
+            old_max = upload_concurrency.max_concurrent
+            upload_concurrency._semaphore = threading.Semaphore(1)
+            upload_concurrency.max_concurrent = 1
+            started = asyncio.Event()
+            release = asyncio.Event()
 
-        assert 429 in results, f"Expected one 429, got {results}"
+            async def slow_body():
+                yield wav[:64]
+                started.set()
+                await release.wait()
+                yield wav[64:]
 
-        upload_concurrency.reset()
-        upload_concurrency._semaphore = threading.Semaphore(old_max)
-        upload_concurrency.max_concurrent = old_max
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as async_client:
+                first = asyncio.create_task(async_client.put(
+                    f"/v1/uploads/{tickets[0]}", content=slow_body()
+                ))
+                await asyncio.wait_for(started.wait(), timeout=2)
+                blocked = await async_client.put(
+                    f"/v1/uploads/{tickets[1]}", content=wav
+                )
+                release.set()
+                completed = await first
+
+            upload_concurrency.reset()
+            upload_concurrency._semaphore = threading.Semaphore(old_max)
+            upload_concurrency.max_concurrent = old_max
+            return completed, blocked
+
+        completed, blocked = asyncio.run(exercise_limit())
+        assert completed.status_code == 201
+        assert blocked.status_code == 429
+        assert blocked.json()["detail"]["code"] == "too_many_uploads"
+        assert "Retry-After" in blocked.headers
 
 
 class TestDeleteCascadeTickets:
@@ -694,3 +702,55 @@ class TestRequestId:
         assert r.status_code == 422
         body = r.json()
         assert "request_id" in body["detail"]
+        assert r.headers["X-Request-Id"] == body["detail"]["request_id"]
+
+    def test_unexpected_error_is_sanitized_and_has_request_id(self, isolated_env):
+        from fastapi.testclient import TestClient
+
+        from asset_api.main import app
+
+        path = f"/__test_unexpected_error_{id(self)}"
+
+        def explode():
+            raise RuntimeError("/private/path/must-not-leak")
+
+        app.add_api_route(path, explode, methods=["GET"])
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            response = test_client.get(path)
+
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert detail["code"] == "internal_error"
+        assert detail["message"] == "Internal server error"
+        assert "/private/path" not in response.text
+        assert response.headers["X-Request-Id"] == detail["request_id"]
+
+
+class TestInterruptedUploadRecovery:
+    def test_uploading_ticket_is_failed_on_recovery(self, isolated_env):
+        from datetime import datetime, timezone
+
+        from asset_api.config import DB_PATH
+        from asset_api.database import get_db, recover_interrupted_uploads
+
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO projects "
+                "(id, name, description, created_at, updated_at, revision) "
+                "VALUES ('p1', 'P', NULL, ?, ?, 1)",
+                (datetime.now(timezone.utc).isoformat(),) * 2,
+            )
+            conn.execute(
+                "INSERT INTO upload_tickets "
+                "(ticket_hash, project_id, role, original_filename, max_bytes, "
+                "expires_at, status) VALUES ('t1', 'p1', 'mix', 'x.wav', 100, ?, 'uploading')",
+                (datetime.now(timezone.utc).isoformat(),),
+            )
+            conn.commit()
+
+        assert recover_interrupted_uploads(DB_PATH) == 1
+        with get_db() as conn:
+            status = conn.execute(
+                "SELECT status FROM upload_tickets WHERE ticket_hash='t1'"
+            ).fetchone()["status"]
+        assert status == "failed"

@@ -24,7 +24,7 @@ from .config import (
     PROJECT_NAME_MAX_LEN,
     PROJECT_DESC_MAX_LEN,
 )
-from .database import get_db, init_db
+from .database import get_db, init_db, recover_interrupted_uploads
 from .roles import (
     AssetRole,
     allowed_extensions_for_role,
@@ -86,10 +86,28 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=headers)
 
 
+@app.exception_handler(Exception)
+async def unexpected_exception_handler(request: Request, exc: Exception):
+    rid = _request_id()
+    logger.exception("Unhandled request error request_id=%s", rid, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": {
+            "code": "internal_error",
+            "message": "Internal server error",
+            "request_id": rid,
+        }},
+        headers={"X-Request-Id": rid},
+    )
+
+
 @app.on_event("startup")
 def startup() -> None:
     ensure_dirs()
     init_db()
+    recovered = recover_interrupted_uploads()
+    if recovered:
+        logger.warning("Marked %d interrupted upload tickets as failed", recovered)
     removed = cleanup_stale_temps()
     if removed:
         logger.info("Cleaned up %d stale temp uploads", removed)
@@ -187,8 +205,9 @@ def readyz():
     try:
         with get_db() as conn:
             conn.execute("SELECT 1")
-    except Exception as e:
-        errors.append(f"sqlite: {e}")
+    except Exception:
+        logger.exception("Readiness SQLite check failed")
+        errors.append("sqlite unavailable")
     if errors:
         return JSONResponse({"status": "not_ready", "errors": errors}, status_code=503)
     return {"status": "ready"}
@@ -218,7 +237,7 @@ def list_projects():
             """SELECT p.id, p.name, p.description, p.created_at, p.updated_at, p.revision,
                       (SELECT COUNT(*) FROM project_assets WHERE project_id=p.id) as asset_count,
                       (SELECT MAX(revision) FROM gp_revisions WHERE project_id=p.id) as latest_gp_rev
-               FROM projects p ORDER BY p.updated_at DESC"""
+               FROM projects p ORDER BY p.updated_at DESC, p.id"""
         ).fetchall()
     return {"projects": [dict(r) for r in rows]}
 
@@ -230,7 +249,7 @@ def get_project(project_id: str):
         if not row:
             raise _error(404, "project_not_found", "Project not found")
         assets = conn.execute(
-            "SELECT * FROM project_assets WHERE project_id=? ORDER BY created_at",
+            "SELECT * FROM project_assets WHERE project_id=? ORDER BY created_at, id",
             (project_id,),
         ).fetchall()
         revisions = conn.execute(
@@ -541,7 +560,7 @@ def list_project_assets(project_id: str):
             """SELECT pa.id, pa.role, pa.original_filename, pa.label, pa.created_at,
                       pa.provenance, a.sha256, a.size_bytes, a.media_type
                FROM project_assets pa JOIN assets a ON pa.asset_sha256=a.sha256
-               WHERE pa.project_id=? ORDER BY pa.created_at""",
+               WHERE pa.project_id=? ORDER BY pa.created_at, pa.id""",
             (project_id,),
         ).fetchall()
     return {"assets": [dict(a) for a in assets]}
@@ -606,7 +625,7 @@ def get_manifest(project_id: str):
             """SELECT pa.id as link_id, pa.role, pa.original_filename, pa.label,
                       pa.created_at, pa.provenance, a.sha256, a.size_bytes, a.media_type
                FROM project_assets pa JOIN assets a ON pa.asset_sha256=a.sha256
-               WHERE pa.project_id=? ORDER BY pa.role, pa.created_at""",
+               WHERE pa.project_id=? ORDER BY pa.role, pa.created_at, pa.id""",
             (project_id,),
         ).fetchall()
         revisions = conn.execute(

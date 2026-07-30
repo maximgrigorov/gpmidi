@@ -22,7 +22,6 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-import guitarpro
 from mido import MidiFile
 
 from gp_import import parse_song
@@ -33,7 +32,6 @@ from gp_to_shreddage import (
     build_drum_midi,
     build_instrument_midi,
     build_other_midi,
-    detect_track_type,
     iter_voice_beats_with_canonical_ticks,
     resolve_track_type,
     safe_filename,

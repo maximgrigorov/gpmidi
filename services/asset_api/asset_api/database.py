@@ -111,6 +111,25 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
     """)
 
 
+def recover_interrupted_uploads(db_path: Path | None = None) -> int:
+    """Fail tickets left in ``uploading`` by a terminated process.
+
+    Upload temp files are cleaned separately during startup. A claimed ticket is
+    intentionally not made reusable because the server cannot know how much of
+    its body the previous process accepted.
+    """
+    p = db_path or _db_path()
+    conn = sqlite3.connect(str(p), timeout=10)
+    try:
+        cur = conn.execute(
+            "UPDATE upload_tickets SET status='failed' WHERE status='uploading'"
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 @contextmanager
 def get_db(db_path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
     """Provide a database connection with WAL and FK enforcement."""

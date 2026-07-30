@@ -13,7 +13,7 @@ Guitar Pro revisions, upload tickets, and deterministic manifests.
 ```bash
 cd services/asset_api
 pip install -r requirements.txt
-ASSET_DATA_ROOT=/tmp/asset-api-dev python -m uvicorn app.main:app --reload --port 8000
+ASSET_DATA_ROOT=/tmp/asset-api-dev python -m uvicorn asset_api.main:app --reload --port 8000
 ```
 
 ## API

@@ -27,10 +27,11 @@ class RateLimiter:
 
     def retry_after(self) -> int:
         """Seconds until next slot opens."""
-        if not self._timestamps:
-            return 0
-        oldest = self._timestamps[0]
-        return max(1, int(60.0 - (time.monotonic() - oldest)) + 1)
+        with self._lock:
+            if not self._timestamps:
+                return 0
+            oldest = self._timestamps[0]
+            return max(1, int(60.0 - (time.monotonic() - oldest)) + 1)
 
     def reset(self) -> None:
         with self._lock:
@@ -60,7 +61,8 @@ class ConcurrencyLimiter:
 
     @property
     def active(self) -> int:
-        return self._active
+        with self._lock:
+            return self._active
 
     def reset(self) -> None:
         with self._lock:
