@@ -83,6 +83,14 @@
                   playback Offset GP. Ноты внутри группы остаются настоящим аккордом.</small>
                 </span>
               </label>
+              <label class="opt">
+                <input type="checkbox" name="preserve_gp_played_offsets" id="preserveGpPlayedOffsetsChk">
+                <span>
+                  <strong>Сохранить GP8-сдвиги атак «как сыграно»</strong>
+                  <small>Guitar и Bass: переносит индивидуальные playback Offset из Guitar Pro.
+                  Полезно, когда авторский groove относительно баса и ударных важнее строгой сетки.</small>
+                </span>
+              </label>
               <label class="opt seed">
                 <span>Seed</span>
                 <input type="number" name="seed" value="7" min="0" max="9999">
@@ -186,6 +194,9 @@
                 {% endif %}
                 {% if current_job.expand_gp_hidden_32nds %}
                   <span class="badge on">скрытые GP 32-е развёрнуты</span>
+                {% endif %}
+                {% if current_job.preserve_gp_played_offsets %}
+                  <span class="badge on">GP8-сдвиги атак сохранены</span>
                 {% endif %}
                 {% if current_job.playable_tabs %}
                   <span class="badge on">играбельные табы вкл</span>

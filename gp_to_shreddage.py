@@ -729,7 +729,8 @@ def hidden_32nd_note_timing(beat, enabled=False):
 def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           humanize_seed=7, auto_sustain_vibrato=False,
                           fret_noise_on_hand_shift=False, performance_seed=7,
-                          expand_gp_hidden_32nds=False):
+                          expand_gp_hidden_32nds=False,
+                          preserve_gp_played_offsets=False):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
@@ -737,7 +738,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     cfg = cfg or config_for_track_type(track_type)
     stats = {"notes": 0, "ks": 0, "cc1": 0, "auto_vibrato_notes": 0,
              "fret_noise_events": 0, "hidden_32nd_beats": 0,
-             "hidden_32nd_notes": 0,
+             "hidden_32nd_notes": 0, "played_offset_notes": 0,
              "config": config_label(cfg), "warnings": []}
     log_config_used(track.name, cfg)
 
@@ -832,8 +833,28 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             start_tick = pitched_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT,
                                            hprof, hrng)
 
+        # --- GP8 playback Offset: авторский слой «как сыграно» (opt-in) ---
+        # GPIF хранит Offset с разрешением 480 PPQ, MIDI экспортируется в 960 PPQ.
+        # Сдвигаем атаку каждой ноты, а не сетку/длину такта: дорожки остаются
+        # на общей шкале, но сохраняют относительный groove GP playback.
+        played_shifts = {}
+        if preserve_gp_played_offsets:
+            for item in beat.notes:
+                if item.type == NoteType.tie:
+                    continue
+                raw_offset = int(getattr(item, "playedOffset", 0) or 0)
+                shift = int(round(raw_offset * TICKS_PER_BEAT / GPIF_PLAYED_PPQ))
+                played_shifts[id(item)] = shift
+                if shift:
+                    stats["played_offset_notes"] += 1
+        earliest_played_shift = min(played_shifts.values(), default=0)
+        beat_control_tick = max(0, start_tick + earliest_played_shift)
+
         # --- скрытые 32-е GP8: playback-группы внутри одного нотного Beat ---
-        hidden_timing = hidden_32nd_note_timing(beat, enabled=expand_hidden_on_track)
+        hidden_timing = hidden_32nd_note_timing(
+            beat,
+            enabled=expand_hidden_on_track and not preserve_gp_played_offsets,
+        )
         if hidden_timing:
             stats["hidden_32nd_beats"] += 1
             stats["hidden_32nd_notes"] += len(hidden_timing)
@@ -863,7 +884,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                         1.0, float(fret_cfg.get("probability", 0.0))))):
                 fret_note = (cfg.get("fx_keyswitches") or {}).get("fret_noise")
                 if fret_note is not None:
-                    emit_keyswitch(ev, start_tick, int(fret_note), cur_bpm)
+                    emit_keyswitch(ev, beat_control_tick, int(fret_note), cur_bpm)
                     stats["ks"] += 1
                     stats["fret_noise_events"] += 1
             previous_hand_position = hand_position
@@ -871,10 +892,10 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         # --- keyswitch для бита: переключаем артикуляцию при изменении ---
         ks_note = beat_keyswitch(beat, track_type, cfg)
         if ks_note != current_ks:
-            emit_keyswitch(ev, start_tick, ks_note, cur_bpm)
+            emit_keyswitch(ev, beat_control_tick, ks_note, cur_bpm)
             stats["ks"] += 1
             current_ks = ks_note
-            last_palm_tick = start_tick
+            last_palm_tick = beat_control_tick
 
         for note in beat.notes:
             eff = note.effect
@@ -916,7 +937,10 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
 
             hidden_entry = hidden_timing.get(id(note))
             hidden_shift = hidden_entry[0] if hidden_entry else 0
-            on_tick = start_tick + hidden_shift + strum.get(pitch, 0)
+            played_shift = played_shifts.get(id(note), 0)
+            on_tick = max(
+                0, start_tick + played_shift + hidden_shift + strum.get(pitch, 0),
+            )
 
             # --- легато (B15): эта нота — ЦЕЛЬ ожидающего hammer/pull? ---
             # Источник (нота с флагом hammer) продлевается внахлёст в цель,
@@ -940,6 +964,10 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             if hidden_entry:
                 note_duration = max(1, int(round(dur * hidden_entry[1])))
                 note_end = on_tick + note_duration
+            elif preserve_gp_played_offsets:
+                # Offset меняет положение атаки, но не нотную длительность.
+                note_duration = dur
+                note_end = on_tick + dur
             else:
                 # Legacy/strum: конец остаётся на сетке Beat, как раньше.
                 note_duration = dur
@@ -1336,6 +1364,7 @@ def parse_cli_options(argv):
         "auto_sustain_vibrato": "--auto-sustain-vibrato" in flags,
         "fret_noise_on_hand_shift": "--fret-noise-on-hand-shift" in flags,
         "expand_gp_hidden_32nds": "--expand-gp-hidden-32nds" in flags,
+        "preserve_gp_played_offsets": "--preserve-gp-played-offsets" in flags,
     }
 
 
@@ -1348,16 +1377,19 @@ def main(argv):
     auto_sustain_vibrato = options["auto_sustain_vibrato"]
     fret_noise_on_hand_shift = options["fret_noise_on_hand_shift"]
     expand_gp_hidden_32nds = options["expand_gp_hidden_32nds"]
+    preserve_gp_played_offsets = options["preserve_gp_played_offsets"]
 
     if options["source"] is None:
         sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
                  "[--humanize] [--ghost-notes] [--auto-sustain-vibrato] "
-                 "[--fret-noise-on-hand-shift] [--expand-gp-hidden-32nds] [--seed=N]\n"
+                 "[--fret-noise-on-hand-shift] [--expand-gp-hidden-32nds] "
+                 "[--preserve-gp-played-offsets] [--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
                  "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
                  "  --expand-gp-hidden-32nds разнести GP playback-группы на тональных треках\n"
+                 "  --preserve-gp-played-offsets сохранить GP8-сдвиги атак Guitar/Bass\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = options["source"]
@@ -1400,6 +1432,7 @@ def main(argv):
                 fret_noise_on_hand_shift=fret_noise_on_hand_shift,
                 performance_seed=seed,
                 expand_gp_hidden_32nds=expand_gp_hidden_32nds,
+                preserve_gp_played_offsets=preserve_gp_played_offsets,
             )
 
         name = safe_filename(track.name) or ("Track_%d" % idx)
