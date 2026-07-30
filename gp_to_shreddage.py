@@ -11,7 +11,8 @@ gp_to_shreddage.py
 
 Запуск:
     python gp_to_shreddage.py song.gp5 [--humanize] [--ghost-notes] [--seed=N]
-                                       [--no-verify]
+                                       [--auto-sustain-vibrato]
+                                       [--fret-noise-on-hand-shift] [--no-verify]
 
 Результат: рядом с исходным файлом создаётся папка "<имя_файла>_midi/"
 с одним MIDI-файлом (Type 0) на каждый трек (имя файла = название трека)
@@ -398,25 +399,28 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
-def _vibrato_amount_at(ms, note_ms, amp):
+def _vibrato_amount_at(ms, note_ms, amp, delay_ms=VIBRATO_DELAY_MS,
+                        ramp_ms=VIBRATO_RAMP_MS,
+                        release_ms=VIBRATO_RELEASE_MS):
     """Глубина вибрато (0..amp) в момент ms от атаки ноты — огибающая.
 
-    delay -> линейное нарастание за VIBRATO_RAMP_MS -> удержание -> спад к концу.
+    delay -> линейное нарастание за ramp_ms -> удержание -> спад к концу.
     Это ЗНАЧЕНИЕ РУЧКИ, а не позиция колебания: качает высоту сам инструмент.
     """
-    if ms < VIBRATO_DELAY_MS:
+    if ms < delay_ms:
         return 0.0
-    rel_start = max(VIBRATO_DELAY_MS, note_ms - VIBRATO_RELEASE_MS)
+    rel_start = max(delay_ms, note_ms - release_ms)
     if ms >= rel_start:
         frac = (note_ms - ms) / max(1.0, note_ms - rel_start)
         return amp * max(0.0, min(1.0, frac))
-    ramp = ms - VIBRATO_DELAY_MS
-    if ramp < VIBRATO_RAMP_MS:
-        return amp * (ramp / VIBRATO_RAMP_MS)
+    ramp = ms - delay_ms
+    if ramp < ramp_ms:
+        return amp * (ramp / max(1.0, ramp_ms))
     return float(amp)
 
 
-def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None, vibrato_type=None):
+def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None, vibrato_type=None,
+                 amp_override=None, delay_ms=None, ramp_ms=None, release_ms=None):
     """CC1 = глубина вибрато инструмента. См. VIBRATO_MODE.
 
     dur_ticks — ПОЛНАЯ звучащая длительность ноты, включая лиги. Вызывается
@@ -426,22 +430,25 @@ def emit_vibrato(ev, start_tick, dur_ticks, bpm, stats=None, vibrato_type=None):
 
     Возвращает количество добавленных CC1-событий.
     """
-    amp = VIBRATO_AMP_BY_TYPE.get(vibrato_type or "", VIBRATO_AMP)
+    amp = (VIBRATO_AMP_BY_TYPE.get(vibrato_type or "", VIBRATO_AMP)
+           if amp_override is None else clamp_cc(amp_override))
+    delay_ms = VIBRATO_DELAY_MS if delay_ms is None else max(0, float(delay_ms))
+    ramp_ms = VIBRATO_RAMP_MS if ramp_ms is None else max(1, float(ramp_ms))
+    release_ms = VIBRATO_RELEASE_MS if release_ms is None else max(1, float(release_ms))
     note_ms = ticks_to_ms(dur_ticks, bpm)
-    # CC1 только на нотах >= 300 мс
     if note_ms < VIBRATO_MIN_NOTE_MS:
         return 0
-    if note_ms <= VIBRATO_DELAY_MS:
+    if note_ms <= delay_ms:
         return 0
     count = 0
     last_val = None
-    ms = VIBRATO_DELAY_MS
+    ms = delay_ms
     while ms <= note_ms:
         if VIBRATO_MODE == "sine":
-            t = (ms - VIBRATO_DELAY_MS) / 1000.0
+            t = (ms - delay_ms) / 1000.0
             val = (amp / 2.0) * (1.0 + math.sin(2.0 * math.pi * VIBRATO_FREQ_HZ * t))
         else:
-            val = _vibrato_amount_at(ms, note_ms, amp)
+            val = _vibrato_amount_at(ms, note_ms, amp, delay_ms, ramp_ms, release_ms)
         cc = clamp_cc(val)
         if cc != last_val:
             tick = min(start_tick + ms_to_ticks(ms, bpm), start_tick + dur_ticks - 1)
@@ -676,13 +683,15 @@ def add_track_meta(ev, song, track):
 #  Сборка MIDI: GUITAR / BASS (с кейсвитчами, CC1, PB)
 # --------------------------------------------------------------------------- #
 def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
-                          humanize_seed=7):
+                          humanize_seed=7, auto_sustain_vibrato=False,
+                          fret_noise_on_hand_shift=False, performance_seed=7):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
     конфига инструмента (config/articulation_maps/*.yaml)."""
     cfg = cfg or config_for_track_type(track_type)
-    stats = {"notes": 0, "ks": 0, "cc1": 0,
+    stats = {"notes": 0, "ks": 0, "cc1": 0, "auto_vibrato_notes": 0,
+             "fret_noise_events": 0,
              "config": config_label(cfg), "warnings": []}
     log_config_used(track.name, cfg)
 
@@ -690,6 +699,10 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     sustain_spec = cfg["keyswitches"]["sustain"]
     sustain_vel_max = int(sustain_spec.get("vel_max", 127))
     pb_range = float(cfg.get("pitch_bend_range") or PITCH_BEND_RANGE_ST)
+    life_cfg = cfg.get("performance_life") or {}
+    fret_cfg = life_cfg.get("fret_noise_on_hand_shift") or {}
+    fret_rng = random.Random(performance_seed ^ 0xFEE7)
+    previous_hand_position = None
 
     ev = EventList()
     base_bpm = add_track_meta(ev, song, track)
@@ -726,6 +739,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     stats["ks"] += 1
     current_ks = sustain_ks
     pending_vibrato = []            # (start_tick, off_rec, bpm, vibrato_type)
+    pending_auto_vibrato = []       # subset элементов all_note_spans
+    all_note_spans = []             # все атаки для проверки монодичности CC1
     last_palm_tick = 0
     last_end_tick = 0
     last_off_by_voice = {}
@@ -776,6 +791,26 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 [clamp_note(string_pitch.get(n.string, 0) + n.value)
                  for n in beat.notes if n.type != NoteType.tie],
                 start_tick, cur_bpm, TICKS_PER_BEAT, hprof, hrng)
+
+        # --- fret noise: только при реальном переносе позиции левой руки ---
+        frets = sorted(int(n.value) for n in beat.notes
+                       if n.type != NoteType.tie and int(n.value) > 0)
+        if frets:
+            middle = len(frets) // 2
+            hand_position = (float(frets[middle]) if len(frets) % 2
+                             else (frets[middle - 1] + frets[middle]) / 2.0)
+            if (fret_noise_on_hand_shift and track_type == TRACK_GUITAR and fret_cfg
+                    and previous_hand_position is not None
+                    and abs(hand_position - previous_hand_position)
+                    >= float(fret_cfg.get("min_fret_shift", 4))
+                    and fret_rng.random() < max(0.0, min(
+                        1.0, float(fret_cfg.get("probability", 0.0))))):
+                fret_note = (cfg.get("fx_keyswitches") or {}).get("fret_noise")
+                if fret_note is not None:
+                    emit_keyswitch(ev, start_tick, int(fret_note), cur_bpm)
+                    stats["ks"] += 1
+                    stats["fret_noise_events"] += 1
+            previous_hand_position = hand_position
 
         # --- keyswitch для бита: переключаем артикуляцию при изменении ---
         ks_note = beat_keyswitch(beat, track_type, cfg)
@@ -848,6 +883,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             note_end = start_tick + dur
             off_rec = ev.add(note_end, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
+            note_span = {"start": start_tick, "off": off_rec, "bpm": cur_bpm}
+            all_note_spans.append(note_span)
             last_off[note.string] = off_rec
             stats["notes"] += 1
 
@@ -867,6 +904,10 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 # настоящая длина. Откладываем до конца (см. pending_vibrato).
                 pending_vibrato.append((start_tick, off_rec, cur_bpm,
                                         getattr(eff, "vibratoType", None)))
+            elif (auto_sustain_vibrato and track_type == TRACK_GUITAR
+                  and ks_note == sustain_ks and not is_pinch
+                  and not eff.bend and not eff.slides):
+                pending_auto_vibrato.append(note_span)
 
             if eff.slides:
                 next_pitch = _next_note_pitch(voice.beats, bi, note.string, string_pitch)
@@ -879,6 +920,40 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     for v_start, v_off, v_bpm, v_type in pending_vibrato:
         emit_vibrato(ev, v_start, v_off["tick"] - v_start, v_bpm, stats,
                      vibrato_type=v_type)
+
+    auto_cfg = life_cfg.get("auto_sustain_vibrato") or {}
+    auto_rng = random.Random(performance_seed)
+    role_words = [str(word).casefold() for word in auto_cfg.get("track_name_keywords", [])]
+    track_role_allowed = (not role_words or any(
+        word in (getattr(track, "name", "") or "").casefold() for word in role_words
+    ))
+    if auto_sustain_vibrato and auto_cfg and track_role_allowed:
+        probability = max(0.0, min(1.0, float(auto_cfg.get("probability", 0.0))))
+        min_note_ms = float(auto_cfg.get("min_note_ms", 900))
+        delay_range = auto_cfg.get("delay_ms", [250, 500])
+        amount_range = auto_cfg.get("amount", [18, 34])
+        for item in pending_auto_vibrato:
+            start = item["start"]
+            end = item["off"]["tick"]
+            if any(other is not item
+                   and other["start"] < end
+                   and start < other["off"]["tick"]
+                   for other in all_note_spans):
+                continue
+            dur_ticks = end - start
+            if ticks_to_ms(dur_ticks, item["bpm"]) < min_note_ms:
+                continue
+            if auto_rng.random() >= probability:
+                continue
+            delay = auto_rng.uniform(float(delay_range[0]), float(delay_range[-1]))
+            amount = auto_rng.randint(int(amount_range[0]), int(amount_range[-1]))
+            emit_vibrato(
+                ev, item["start"], dur_ticks, item["bpm"], stats,
+                amp_override=amount, delay_ms=delay,
+                ramp_ms=float(auto_cfg.get("ramp_ms", 180)),
+                release_ms=float(auto_cfg.get("release_ms", 120)),
+            )
+            stats["auto_vibrato_notes"] += 1
 
     # сброс артикуляции в sustain в конце трека
     if current_ks != sustain_ks:
@@ -1158,26 +1233,45 @@ def _next_note_pitch(beats, bi, string, string_pitch):
 # --------------------------------------------------------------------------- #
 #  main
 # --------------------------------------------------------------------------- #
-def main(argv):
+def parse_cli_options(argv):
+    """Разобрать простые CLI-флаги без побочных эффектов (удобно тестировать)."""
     args = [a for a in argv[1:] if not a.startswith("--")]
     flags = {a for a in argv[1:] if a.startswith("--")}
-    humanize = "--humanize" in flags
-    ghost_notes = True if "--ghost-notes" in flags else None
-    no_verify = "--no-verify" in flags
     seed = 7
-    for f in flags:
-        if f.startswith("--seed="):
-            seed = int(f.split("=", 1)[1])
+    for flag in flags:
+        if flag.startswith("--seed="):
+            seed = int(flag.split("=", 1)[1])
+    return {
+        "source": args[0] if len(args) == 1 else None,
+        "humanize": "--humanize" in flags,
+        "ghost_notes": True if "--ghost-notes" in flags else None,
+        "no_verify": "--no-verify" in flags,
+        "seed": seed,
+        "auto_sustain_vibrato": "--auto-sustain-vibrato" in flags,
+        "fret_noise_on_hand_shift": "--fret-noise-on-hand-shift" in flags,
+    }
 
-    if len(args) != 1:
+
+def main(argv):
+    options = parse_cli_options(argv)
+    humanize = options["humanize"]
+    ghost_notes = options["ghost_notes"]
+    no_verify = options["no_verify"]
+    seed = options["seed"]
+    auto_sustain_vibrato = options["auto_sustain_vibrato"]
+    fret_noise_on_hand_shift = options["fret_noise_on_hand_shift"]
+
+    if options["source"] is None:
         sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
-                 "[--humanize] [--ghost-notes] [--seed=N]\n"
-                 "  --humanize    оживить барабаны (velocity + микро-тайминг);\n"
-                 "                без флага выхлоп прежний\n"
+                 "[--humanize] [--ghost-notes] [--auto-sustain-vibrato] "
+                 "[--fret-noise-on-hand-shift] [--seed=N]\n"
+                 "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
+                 "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
+                 "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
-    src = args[0]
+    src = options["source"]
     if not os.path.isfile(src):
         sys.exit("Файл не найден: %s" % src)
 
@@ -1207,9 +1301,13 @@ def main(argv):
         elif track_type == TRACK_OTHER:
             midi_track, stats = build_other_midi(song, track)
         else:
-            midi_track, stats = build_instrument_midi(song, track, track_type,
-                                                      humanize=humanize,
-                                                      humanize_seed=seed)
+            midi_track, stats = build_instrument_midi(
+                song, track, track_type,
+                humanize=humanize, humanize_seed=seed,
+                auto_sustain_vibrato=auto_sustain_vibrato,
+                fret_noise_on_hand_shift=fret_noise_on_hand_shift,
+                performance_seed=seed,
+            )
 
         name = safe_filename(track.name) or ("Track_%d" % idx)
         fname = name

@@ -13,7 +13,7 @@
 
 instrument: "Shreddage 3.5 Hydra"
 library_version: "3.5"
-config_version: 1
+config_version: 2
 
 # Дефолт мануала: +/- 2 полутона (НЕ 6). Если пользователь менял ручку
 # PITCH BEND RANGE в Kontakt (MAIN tab) — обновить здесь и только здесь.
@@ -76,6 +76,25 @@ fx_keyswitches:
   force_hand_position_off: 11 # B-2
   legato_on:  114             # F#8 (дефолт)
   legato_off: 115             # G8
+
+# Опциональное «оживление» сустейнов. Само наличие профиля MIDI не меняет:
+# каждый механизм включается отдельным CLI/UI-флагом и детерминирован seed.
+performance_life:
+  # CC1 — глубина внутреннего vibrato Hydra. Только длинные одиночные ноты
+  # solo/lead-треков; аккорды, ритм-гитара и явно размеченное GP vibrato исключены.
+  auto_sustain_vibrato:
+    min_note_ms: 900
+    delay_ms: [280, 480]
+    ramp_ms: 180
+    release_ms: 120
+    amount: [18, 34]
+    probability: 0.65
+    track_name_keywords: [solo, lead]
+
+  # Короткий non-latching C#0 только при заметном переносе позиции левой руки.
+  fret_noise_on_hand_shift:
+    min_fret_shift: 4
+    probability: 0.40
 
 # Какая артикуляция выигрывает, если в бите совпало несколько (раньше = важнее)
 articulation_priority:

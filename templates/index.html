@@ -59,6 +59,22 @@
                   <em>меняет партию</em>, а не только подачу. Только барабаны.</small>
                 </span>
               </label>
+              <label class="opt">
+                <input type="checkbox" name="auto_sustain_vibrato" id="autoSustainVibratoChk">
+                <span>
+                  <strong>Живые длинные solo sustain</strong>
+                  <small>Мягко вводит внутреннее вибрато Hydra через CC1 только на длинных
+                  одиночных нотах solo/lead. Аккорды, ритм и уже размеченное вибрато не трогает.</small>
+                </span>
+              </label>
+              <label class="opt">
+                <input type="checkbox" name="fret_noise_on_hand_shift" id="fretNoiseShiftChk">
+                <span>
+                  <strong>Fret-noise при переносе руки</strong>
+                  <small>Добавляет короткий C#0 только при заметном скачке позиции по грифу,
+                  а не перед каждой нотой.</small>
+                </span>
+              </label>
               <label class="opt seed">
                 <span>Seed</span>
                 <input type="number" name="seed" value="7" min="0" max="9999">
@@ -147,6 +163,12 @@
                   {% endif %}
                 {% else %}
                   <span class="badge">оживление выкл — выхлоп как раньше</span>
+                {% endif %}
+                {% if current_job.auto_sustain_vibrato %}
+                  <span class="badge on">solo sustain vibrato вкл</span>
+                {% endif %}
+                {% if current_job.fret_noise_on_hand_shift %}
+                  <span class="badge on">fret-noise переносов вкл</span>
                 {% endif %}
                 {% if current_job.playable_tabs %}
                   <span class="badge on">играбельные табы вкл</span>

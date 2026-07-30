@@ -29,6 +29,7 @@
 """
 from __future__ import annotations
 
+import copy
 import re
 import shutil
 import warnings
@@ -831,11 +832,167 @@ def test_legato_not_bridged_across_rest_b15():
     first2 = next(e for e in events2 if e[1] == 0)
     overlap = g.ms_to_ticks(g.LEGATO_OVERLAP_MS, 120.0)
     assert first2[2] == 960 + overlap, (
-        f"нет перекрытия источник->цель: off={first2[2]}, ожидалось {960 + overlap}"
+        f"нет перекрытия источник->цель: off={first2[2]}, ожидалось {960 + overlap}")
+
+
+def _life_cfg(*, auto_probability=1.0, fret_probability=1.0):
+    """Hydra-конфиг с детерминированными вероятностями для unit-тестов."""
+    cfg = copy.deepcopy(config_for_track_type("GUITAR"))
+    cfg["performance_life"] = {
+        "auto_sustain_vibrato": {
+            "min_note_ms": 900,
+            "delay_ms": [250, 500],
+            "ramp_ms": 180,
+            "release_ms": 120,
+            "amount": [18, 34],
+            "probability": auto_probability,
+            "track_name_keywords": ["solo", "lead"],
+        },
+        "fret_noise_on_hand_shift": {
+            "min_fret_shift": 4,
+            "probability": fret_probability,
+        },
+    }
+    return cfg
+
+
+def _absolute_cc(midi_track, control):
+    tick = 0
+    out = []
+    for msg in midi_track:
+        tick += msg.time
+        if msg.type == "control_change" and msg.control == control:
+            out.append((tick, msg.value))
+    return out
+
+
+def test_auto_sustain_vibrato_adds_delayed_cc1_only_when_enabled():
+    """Длинный одиночный sustain получает мягкую CC1-огибающую по opt-in."""
+    song, track = _mini_song([(1, [(0, 5, False)])])
+    track.name = "Solo Guitar"
+
+    plain, plain_stats = g.build_instrument_midi(song, track, "GUITAR", cfg=_life_cfg())
+    alive, alive_stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=_life_cfg(),
+        auto_sustain_vibrato=True, performance_seed=17,
     )
 
+    assert _absolute_cc(plain, g.VIBRATO_CC) == []
+    cc1 = _absolute_cc(alive, g.VIBRATO_CC)
+    assert cc1, "opt-in auto vibrato не добавил CC1"
+    assert cc1[0][0] >= g.ms_to_ticks(250, song.tempo)
+    assert cc1[-1] == (3840, 0)
+    assert plain_stats.get("auto_vibrato_notes", 0) == 0
+    assert alive_stats["auto_vibrato_notes"] == 1
 
-# --------------------------------------------------------------------------- #
+
+def test_auto_sustain_vibrato_skips_chords():
+    """Канальный CC1 нельзя применять к аккорду: все струны качались бы синхронно."""
+    from gp_import import GPString
+
+    song, track = _mini_song([(1, [(0, 5, False), (1, 7, False)])])
+    track.name = "Lead Guitar"
+    track.strings.append(GPString(1, 59))
+
+    midi_track, stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=_life_cfg(),
+        auto_sustain_vibrato=True, performance_seed=17,
+    )
+
+    assert _absolute_cc(midi_track, g.VIBRATO_CC) == []
+    assert stats["auto_vibrato_notes"] == 0
+
+
+def test_auto_sustain_vibrato_skips_non_solo_guitar_tracks():
+    song, track = _mini_song([(1, [(0, 5, False)])])
+    track.name = "Rhythm Guitar"
+
+    midi_track, stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=_life_cfg(),
+        auto_sustain_vibrato=True, performance_seed=17,
+    )
+
+    assert _absolute_cc(midi_track, g.VIBRATO_CC) == []
+    assert stats["auto_vibrato_notes"] == 0
+
+
+def test_auto_sustain_vibrato_preserves_explicit_gp_vibrato_without_duplicate():
+    song, track = _mini_song([(1, [(0, 5, False)])])
+    track.name = "Solo Guitar"
+    track.measures[0].voices[0].beats[0].notes[0].effect.vibrato = True
+
+    midi_track, stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=_life_cfg(),
+        auto_sustain_vibrato=True, performance_seed=17,
+    )
+
+    assert _absolute_cc(midi_track, g.VIBRATO_CC)
+    assert stats["auto_vibrato_notes"] == 0
+
+
+def test_auto_sustain_vibrato_skips_short_notes():
+    song, track = _mini_song([
+        (8, [(0, 5, False)]),
+        (8, None), (4, None), (2, None),
+    ])
+    track.name = "Solo Guitar"
+
+    midi_track, stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=_life_cfg(),
+        auto_sustain_vibrato=True, performance_seed=17,
+    )
+
+    assert _absolute_cc(midi_track, g.VIBRATO_CC) == []
+    assert stats["auto_vibrato_notes"] == 0
+
+
+def test_fret_noise_emitted_only_for_opt_in_large_hand_shift():
+    song, track = _mini_song([
+        (4, [(0, 2, False)]),
+        (4, [(0, 8, False)]),
+        (2, None),
+    ])
+    cfg = _life_cfg()
+    fx_note = cfg["fx_keyswitches"]["fret_noise"]
+
+    plain, plain_stats = g.build_instrument_midi(song, track, "GUITAR", cfg=cfg)
+    noisy, noisy_stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=cfg,
+        fret_noise_on_hand_shift=True, performance_seed=23,
+    )
+
+    assert ks_events(plain, fx_note) == []
+    expected_tick = 960 - g.ms_to_ticks(g.KS_LEAD_MS, song.tempo)
+    assert ks_events(noisy, fx_note) == [expected_tick]
+    assert plain_stats["fret_noise_events"] == 0
+    assert noisy_stats["fret_noise_events"] == 1
+    assert noisy_stats["ks"] == plain_stats["ks"] + 1
+
+
+def test_fret_noise_skips_small_position_changes():
+    song, track = _mini_song([
+        (4, [(0, 4, False)]),
+        (4, [(0, 6, False)]),
+        (2, None),
+    ])
+    cfg = _life_cfg()
+    midi_track, stats = g.build_instrument_midi(
+        song, track, "GUITAR", cfg=cfg,
+        fret_noise_on_hand_shift=True, performance_seed=23,
+    )
+
+    assert ks_events(midi_track, cfg["fx_keyswitches"]["fret_noise"]) == []
+    assert stats["fret_noise_events"] == 0
+
+
+def test_hydra_config_defines_opt_in_performance_life_profiles():
+    cfg = config_for_track_type("GUITAR")
+    life = cfg["performance_life"]
+    assert 0.0 < life["auto_sustain_vibrato"]["probability"] < 1.0
+    assert life["auto_sustain_vibrato"]["track_name_keywords"]
+    assert life["fret_noise_on_hand_shift"]["min_fret_shift"] >= 3
+    assert 0.0 < life["fret_noise_on_hand_shift"]["probability"] < 1.0
+
 #  Тест 16 — B14: мульти-стафф треки не смещают последующие треки
 # --------------------------------------------------------------------------- #
 def test_multistaff_tracks_not_shifted_b14():
