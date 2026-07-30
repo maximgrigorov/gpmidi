@@ -744,12 +744,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
              "config": config_label(cfg), "warnings": []}
     log_config_used(track.name, cfg)
 
-    track_name_folded = (getattr(track, "name", "") or "").casefold()
-    expand_hidden_on_track = (
-        expand_gp_hidden_32nds
-        and track_type == TRACK_GUITAR
-        and any(word in track_name_folded for word in ("solo", "lead"))
-    )
+    expand_hidden_on_track = bool(expand_gp_hidden_32nds)
 
     sustain_ks = keyswitch_note(cfg, "sustain")
     sustain_spec = cfg["keyswitches"]["sustain"]
@@ -1082,7 +1077,7 @@ def _hairpin_ramps(items):
     return ramps
 
 
-def build_other_midi(song, track):
+def build_other_midi(song, track, expand_gp_hidden_32nds=False):
     """MIDI для не-Shreddage дорожек (Logic-инструменты).
 
     Категория A (универсальные эффекты, переносим ВСЕГДА):
@@ -1098,7 +1093,9 @@ def build_other_midi(song, track):
     Без keyswitch-ей / CC1-вибрато / legato-хака velocity=1. Темп сохраняем.
     """
     ev = EventList()
-    stats = {"notes": 0, "ks": 0, "cc1": 0, "config": None, "warnings": []}
+    stats = {"notes": 0, "ks": 0, "cc1": 0,
+             "hidden_32nd_beats": 0, "hidden_32nd_notes": 0,
+             "config": None, "warnings": []}
     log_config_used(track.name, None)
 
     base_bpm = add_track_meta(ev, song, track)
@@ -1107,6 +1104,7 @@ def build_other_midi(song, track):
 
     string_pitch = {s.number: s.value for s in track.strings}
     last_off_by_voice = {}
+    hidden_off_by_voice = {}
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
 
@@ -1144,6 +1142,7 @@ def build_other_midi(song, track):
         # fresh voice object per measure, so id(voice) breaks tie linking across
         # barlines. Voice index is stable across measures -> ties over barlines hold.
         last_off = last_off_by_voice.setdefault(vi, {})
+        hidden_off = hidden_off_by_voice.setdefault(vi, {})
         ts = measure.header.timeSignature
         ts_key = (ts.numerator, ts.denominator.value)
         if ts_key != last_ts:
@@ -1163,22 +1162,41 @@ def build_other_midi(song, track):
         if not beat.notes:
             continue
 
+        hidden_timing = hidden_32nd_note_timing(
+            beat, enabled=expand_gp_hidden_32nds,
+        )
+        if hidden_timing:
+            stats["hidden_32nd_beats"] += 1
+            stats["hidden_32nd_notes"] += len(hidden_timing)
+
         for note in beat.notes:
             pitch = clamp_note(string_pitch.get(note.string, 0) + note.value)
             if note.type == NoteType.tie:
-                rec = last_off.get(note.string)
+                # Hidden-группы могут содержать разные pitch на одном pseudo-string.
+                # Только такие цепочки ведём отдельно по pitch; обычный OTHER путь
+                # остаётся прежним и продолжает связывать tie по string.
+                rec = hidden_off.get(pitch)
+                if rec is None:
+                    rec = last_off.get(note.string)
                 if rec is not None:
                     rec["tick"] = start_tick + dur
                 continue
             velocity = accent_boosted_velocity(note, clamp_vel(note.velocity))
-            note_dur = dur
+            hidden_entry = hidden_timing.get(id(note))
+            on_tick = start_tick + (hidden_entry[0] if hidden_entry else 0)
+            note_dur = (max(1, int(round(dur * hidden_entry[1])))
+                        if hidden_entry else dur)
             if getattr(note.effect, "staccato", False):
-                note_dur = max(1, int(dur * STACCATO_GATE))
-            ev.add(start_tick, ORDER_ON,
+                note_dur = max(1, int(note_dur * STACCATO_GATE))
+            ev.add(on_tick, ORDER_ON,
                    Message("note_on", channel=CHANNEL, note=pitch, velocity=velocity))
-            off_rec = ev.add(start_tick + note_dur, ORDER_OFF,
+            off_rec = ev.add(on_tick + note_dur, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
-            last_off[note.string] = off_rec
+            if hidden_entry:
+                hidden_off[pitch] = off_rec
+            else:
+                hidden_off.pop(pitch, None)
+                last_off[note.string] = off_rec
             stats["notes"] += 1
 
     return ev.to_miditrack(), stats
@@ -1342,7 +1360,7 @@ def main(argv):
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
                  "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
-                 "  --expand-gp-hidden-32nds разнести GP playback-пары на solo/lead guitar\n"
+                 "  --expand-gp-hidden-32nds разнести GP playback-группы на тональных треках\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = options["source"]
@@ -1373,7 +1391,10 @@ def main(argv):
                                                 humanize_seed=seed,
                                                 ghost_notes=ghost_notes)
         elif track_type == TRACK_OTHER:
-            midi_track, stats = build_other_midi(song, track)
+            midi_track, stats = build_other_midi(
+                song, track,
+                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
+            )
         else:
             midi_track, stats = build_instrument_midi(
                 song, track, track_type,

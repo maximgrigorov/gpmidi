@@ -454,7 +454,10 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 song, track, humanize=humanize, humanize_seed=seed,
                 ghost_notes=True if ghost_notes else None)
         elif track_type == "OTHER":
-            midi_track, stats = build_other_midi(song, track)
+            midi_track, stats = build_other_midi(
+                song, track,
+                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
+            )
         else:
             midi_track, stats = build_instrument_midi(
                 song, track, track_type, humanize=humanize, humanize_seed=seed,
@@ -727,7 +730,7 @@ def upload():
     if fret_noise_on_hand_shift:
         msg += " Fret-noise при переносах руки включён."
     if expand_gp_hidden_32nds:
-        msg += " Скрытые GP 32-е на solo/lead guitar развёрнуты."
+        msg += " Скрытые GP 32-е на тональных дорожках развёрнуты."
     flash(msg, "success")
     return redirect(url_for("job_details", job_id=job_id))
 

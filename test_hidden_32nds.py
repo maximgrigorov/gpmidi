@@ -54,7 +54,10 @@ def _song(track_name: str, notes: list[GPNote]) -> tuple[GPSong, GPTrack]:
     )
     track = GPTrack(
         name=track_name,
-        strings=[GPString(1, 64), GPString(2, 59)],
+        strings=[
+            GPString(1, 64), GPString(2, 59), GPString(3, 55),
+            GPString(4, 50), GPString(5, 45), GPString(6, 40),
+        ],
         channel=GPChannel(30),
         measures=[GPMeasure(960, header, [GPVoice([beat])])],
     )
@@ -135,7 +138,7 @@ def test_real_chord_with_nearly_equal_offsets_stays_polyphonic():
     assert stats["hidden_32nd_beats"] == 0
 
 
-def test_hidden_32nds_do_not_change_non_solo_guitar():
+def test_hidden_32nds_expand_non_solo_guitar_when_enabled():
     song, track = _song("Rhytm Guitar", [
         _note(1, 10, offset=-6, duration=1.01667),
         _note(2, 13, offset=-60, duration=0.508333),
@@ -146,7 +149,86 @@ def test_hidden_32nds_do_not_change_non_solo_guitar():
     )
 
     intervals = _note_intervals(midi)
-    assert intervals[72][0] == intervals[74][0] == 0
+    assert intervals[72] == (0, 122)
+    assert intervals[74] == (108, 352)
+    assert stats["hidden_32nd_beats"] == 1
+
+
+def test_hidden_32nds_expand_other_track_and_preserve_polyphonic_groups():
+    song, track = _song("Synth (Staff 1)", [
+        _note(1, 10, offset=-57, duration=1.0),
+        _note(2, 13, offset=-57, duration=1.0),
+        _note(3, 12, offset=-57, duration=1.0),
+        _note(4, 14, offset=0, duration=1.0),
+        _note(5, 15, offset=0, duration=1.0),
+    ])
+
+    legacy, legacy_stats = g.build_other_midi(song, track)
+    expanded, stats = g.build_other_midi(
+        song, track, expand_gp_hidden_32nds=True,
+    )
+
+    legacy_intervals = _note_intervals(legacy)
+    expanded_intervals = _note_intervals(expanded)
+    assert {legacy_intervals[p][0] for p in (74, 72, 67, 64, 60)} == {0}
+    assert {expanded_intervals[p][0] for p in (74, 72, 67)} == {0}
+    assert {expanded_intervals[p][0] for p in (64, 60)} == {114}
+    assert legacy_stats.get("hidden_32nd_beats", 0) == 0
+    assert stats["hidden_32nd_beats"] == 1
+    assert stats["hidden_32nd_notes"] == 5
+
+
+def test_other_hidden_polyphony_keeps_independent_ties_for_same_pseudo_string():
+    later = _note(1, 10, offset=0, duration=1.0)     # pitch 74
+    earlier = _note(1, 8, offset=-58, duration=1.0)  # pitch 72
+    song, track = _song("Synth (Staff 1)", [later, earlier])
+
+    tie_earlier = _note(1, 8, offset=0, duration=1.0)
+    tie_earlier.type = NoteType.tie
+    tie_later = _note(1, 10, offset=0, duration=1.0)
+    tie_later.type = NoteType.tie
+    track.measures[0].voices[0].beats.append(GPBeat(
+        start=1200,
+        duration=GPDuration(value=16, tuplet=GPTuplet(), time=240),
+        notes=[tie_earlier, tie_later],
+        effect=GPBeatEffect(),
+        status=GPBeatStatus("normal"),
+    ))
+
+    midi, stats = g.build_other_midi(
+        song, track, expand_gp_hidden_32nds=True,
+    )
+
+    intervals = _note_intervals(midi)
+    assert intervals[72] == (0, 480)
+    assert intervals[74] == (116, 480)
+    assert stats["hidden_32nd_beats"] == 1
+
+
+def test_other_track_without_hidden_group_is_event_identical_when_enabled():
+    later = _note(1, 10, offset=-4, duration=1.0)
+    earlier = _note(1, 8, offset=-6, duration=1.0)
+    song, track = _song("Keyboard (Staff 1)", [later, earlier])
+
+    tie_earlier = _note(1, 8, offset=0, duration=1.0)
+    tie_earlier.type = NoteType.tie
+    tie_later = _note(1, 10, offset=0, duration=1.0)
+    tie_later.type = NoteType.tie
+    track.measures[0].voices[0].beats.append(GPBeat(
+        start=1200,
+        duration=GPDuration(value=16, tuplet=GPTuplet(), time=240),
+        notes=[tie_earlier, tie_later],
+        effect=GPBeatEffect(),
+        status=GPBeatStatus("normal"),
+    ))
+
+    legacy, legacy_stats = g.build_other_midi(song, track)
+    enabled, stats = g.build_other_midi(
+        song, track, expand_gp_hidden_32nds=True,
+    )
+
+    assert list(enabled) == list(legacy)
+    assert legacy_stats["hidden_32nd_beats"] == 0
     assert stats["hidden_32nd_beats"] == 0
 
 
@@ -191,3 +273,5 @@ def test_index_exposes_hidden_32nds_checkbox(monkeypatch):
 
     assert response.status_code == 200
     assert b'name="expand_gp_hidden_32nds"' in response.data
+    assert "Все тональные дорожки".encode() in response.data
+    assert "Только solo/lead guitar".encode() not in response.data
