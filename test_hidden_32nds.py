@@ -112,6 +112,7 @@ def test_hidden_32nds_are_opt_in_and_preserve_gp_attack_and_duration_relationshi
     legacy, legacy_stats = g.build_instrument_midi(song, track, "GUITAR")
     expanded, stats = g.build_instrument_midi(
         song, track, "GUITAR", expand_gp_hidden_32nds=True,
+        preserve_gp_played_offsets=False,
     )
 
     assert _note_intervals(legacy)[72][0] == _note_intervals(legacy)[74][0] == 0
@@ -146,6 +147,7 @@ def test_hidden_32nds_expand_non_solo_guitar_when_enabled():
 
     midi, stats = g.build_instrument_midi(
         song, track, "GUITAR", expand_gp_hidden_32nds=True,
+        preserve_gp_played_offsets=False,
     )
 
     intervals = _note_intervals(midi)

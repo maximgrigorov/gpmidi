@@ -1,4 +1,4 @@
-"""Opt-in preservation of GP8 per-note playback attack offsets."""
+"""Default preservation of GP8 per-note playback attack offsets."""
 from __future__ import annotations
 
 import io
@@ -84,18 +84,18 @@ def _note_ons(midi_track) -> list[tuple[int, int]]:
     return result
 
 
-def test_played_offsets_are_opt_in_and_convert_gpif_480_ppq_to_midi_960_ppq():
+def test_played_offsets_are_default_and_convert_gpif_480_ppq_to_midi_960_ppq():
     song, track = _two_beat_song(offset=-25)
 
-    legacy, legacy_stats = g.build_instrument_midi(song, track, "GUITAR")
-    preserved, stats = g.build_instrument_midi(
-        song, track, "GUITAR", preserve_gp_played_offsets=True,
+    preserved, stats = g.build_instrument_midi(song, track, "GUITAR")
+    quantized, quantized_stats = g.build_instrument_midi(
+        song, track, "GUITAR", preserve_gp_played_offsets=False,
     )
 
-    assert _note_ons(legacy) == [(240, 74)]
     assert _note_ons(preserved) == [(190, 74)]
-    assert legacy_stats.get("played_offset_notes", 0) == 0
+    assert _note_ons(quantized) == [(240, 74)]
     assert stats["played_offset_notes"] == 1
+    assert quantized_stats.get("played_offset_notes", 0) == 0
 
 
 def test_played_offsets_are_not_applied_twice_with_hidden_32nds_option():
@@ -117,14 +117,14 @@ def test_played_offsets_are_not_applied_twice_with_hidden_32nds_option():
     assert stats["hidden_32nd_beats"] == 0
 
 
-def test_cli_parses_played_offsets_as_independent_opt_in():
-    options = g.parse_cli_options([
-        "gp_to_shreddage.py", "song.gp", "--preserve-gp-played-offsets",
+def test_cli_preserves_played_offsets_by_default_and_allows_opt_out():
+    defaults = g.parse_cli_options(["gp_to_shreddage.py", "song.gp"])
+    quantized = g.parse_cli_options([
+        "gp_to_shreddage.py", "song.gp", "--quantize-gp-attacks",
     ])
 
-    assert options["preserve_gp_played_offsets"] is True
-    assert options["humanize"] is False
-    assert options["expand_gp_hidden_32nds"] is False
+    assert defaults["preserve_gp_played_offsets"] is True
+    assert quantized["preserve_gp_played_offsets"] is False
 
 
 def test_web_upload_forwards_played_offsets_opt_in(monkeypatch):
@@ -151,7 +151,35 @@ def test_web_upload_forwards_played_offsets_opt_in(monkeypatch):
     assert captured["preserve_gp_played_offsets"] is True
 
 
-def test_index_exposes_gp_played_offsets_checkbox(monkeypatch):
+@pytest.mark.parametrize(
+    ("form_value", "expected"),
+    [("off", False), (None, True)],
+)
+def test_web_upload_allows_quantized_opt_out_but_defaults_to_offsets(
+    monkeypatch, form_value, expected,
+):
+    import app as web
+
+    captured = {}
+
+    def fake_create_job(uploaded_file, **kwargs):
+        captured.update(kwargs)
+        return "job123"
+
+    monkeypatch.setattr(web, "create_job", fake_create_job)
+    web.app.config.update(TESTING=True)
+    data = {"file": (io.BytesIO(b"fixture"), "song.gp")}
+    if form_value is not None:
+        data["preserve_gp_played_offsets"] = form_value
+    response = web.app.test_client().post(
+        "/upload", data=data, content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 302
+    assert captured["preserve_gp_played_offsets"] is expected
+
+
+def test_index_enables_gp_played_offsets_checkbox_by_default(monkeypatch):
     import app as web
 
     monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": [], "current_job_id": None})
@@ -160,6 +188,7 @@ def test_index_exposes_gp_played_offsets_checkbox(monkeypatch):
 
     assert response.status_code == 200
     assert b'name="preserve_gp_played_offsets"' in response.data
+    assert b'id="preserveGpPlayedOffsetsChk" checked' in response.data
     assert "как сыграно".encode() in response.data
 
 
