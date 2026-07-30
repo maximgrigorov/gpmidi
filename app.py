@@ -446,7 +446,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         seed: int = 7, auto_sustain_vibrato: bool = False,
                         fret_noise_on_hand_shift: bool = False,
                         expand_gp_hidden_32nds: bool = False,
-                        preserve_gp_played_offsets: bool = True,
+                        preserve_gp_played_offsets: bool = False,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
     used: dict[str, int] = {}
     tracks: list[dict[str, Any]] = []
@@ -581,7 +581,7 @@ def create_job(uploaded_file, humanize: bool = False,
                auto_sustain_vibrato: bool = False,
                fret_noise_on_hand_shift: bool = False,
                expand_gp_hidden_32nds: bool = False,
-               preserve_gp_played_offsets: bool = True) -> str:
+               preserve_gp_played_offsets: bool = False) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -715,11 +715,7 @@ def upload():
     auto_sustain_vibrato = request.form.get("auto_sustain_vibrato") == "on"
     fret_noise_on_hand_shift = request.form.get("fret_noise_on_hand_shift") == "on"
     expand_gp_hidden_32nds = request.form.get("expand_gp_hidden_32nds") == "on"
-    preserve_gp_played_offsets = (
-        "on" in request.form.getlist("preserve_gp_played_offsets")
-        if "preserve_gp_played_offsets" in request.form
-        else True
-    )
+    preserve_gp_played_offsets = request.form.get("preserve_gp_played_offsets") == "on"
     playable_tabs = request.form.get("playable_tabs") == "on"
     try:
         seed = int(request.form.get("seed") or 7)

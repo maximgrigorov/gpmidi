@@ -1,28 +1,7 @@
 """Компактные bend-кривые и явная настройка Hydra 3.5 в UI."""
 from __future__ import annotations
 
-from guitarpro.models import NoteType
-
-from gp_import import (
-    GPBeat,
-    GPBeatEffect,
-    GPBeatStatus,
-    GPBend,
-    GPBendPoint,
-    GPChannel,
-    GPDenominator,
-    GPDuration,
-    GPMeasure,
-    GPMeasureHeader,
-    GPNote,
-    GPNoteEffect,
-    GPSong,
-    GPString,
-    GPTimeSignature,
-    GPTrack,
-    GPTuplet,
-    GPVoice,
-)
+from gp_import import GPBend, GPBendPoint
 import gp_to_shreddage as g
 
 
@@ -118,67 +97,6 @@ def test_pitch_bend_edge_durations_and_negative_direction():
         (1000, 0),
         (1000, g.semitones_to_pitchwheel(-2, 7)),
         (1001, 0),
-    ]
-
-
-def test_bend_endpoint_is_held_until_end_of_tied_note():
-    """GP bend достигает цели на исходном beat и держит её через tie до note-off."""
-    header = GPMeasureHeader(GPTimeSignature(4, GPDenominator(4)))
-    bend = GPBend(points=[
-        GPBendPoint(position=0, value=0),
-        GPBendPoint(position=3, value=4),
-        GPBendPoint(position=12, value=4),
-    ])
-    bent = GPNote(
-        string=1, value=8, velocity=95, effect=GPNoteEffect(bend=bend),
-        type=NoteType.normal, realValue=0, playedOffset=0, playedDuration=1.0,
-    )
-    tied = GPNote(
-        string=1, value=8, velocity=95, effect=GPNoteEffect(),
-        type=NoteType.tie, realValue=0, playedOffset=0, playedDuration=1.0,
-    )
-    later_attack = GPNote(
-        string=2, value=10, velocity=95, effect=GPNoteEffect(),
-        type=NoteType.normal, realValue=0, playedOffset=0, playedDuration=1.0,
-    )
-    beats = [
-        GPBeat(
-            start=960,
-            duration=GPDuration(value=16, tuplet=GPTuplet(), time=240),
-            notes=[bent], effect=GPBeatEffect(), status=GPBeatStatus("normal"),
-        ),
-        GPBeat(
-            start=1200,
-            duration=GPDuration(value=8, tuplet=GPTuplet(), time=480),
-            notes=[tied], effect=GPBeatEffect(), status=GPBeatStatus("normal"),
-        ),
-        GPBeat(
-            start=1440,
-            duration=GPDuration(value=16, tuplet=GPTuplet(), time=240),
-            notes=[later_attack], effect=GPBeatEffect(), status=GPBeatStatus("normal"),
-        ),
-    ]
-    track = GPTrack(
-        name="Solo Guitar", strings=[GPString(1, 64), GPString(2, 59)],
-        channel=GPChannel(30), measures=[GPMeasure(960, header, [GPVoice(beats)])],
-    )
-    song = GPSong("fixture", "", "", 120, [track], [header])
-
-    midi_track, _ = g.build_instrument_midi(
-        song, track, "GUITAR", preserve_gp_played_offsets=False,
-    )
-    events = []
-    tick = 0
-    for message in midi_track:
-        tick += message.time
-        if message.type == "pitchwheel":
-            events.append((tick, message.pitch))
-
-    assert events == [
-        (0, 0),
-        (60, g.semitones_to_pitchwheel(2, 7)),
-        (239, g.semitones_to_pitchwheel(2, 7)),
-        (720, 0),
     ]
 
 

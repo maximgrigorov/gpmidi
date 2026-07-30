@@ -761,10 +761,7 @@ def test_legato_origin_destination_b15():
               if st == bar71 + 1440 for n in b.notes)
     assert c5.effect.hammer, "разметка изменилась: C5 больше не hop-источник"
 
-    quantized_midi, _ = g.build_instrument_midi(
-        song, track, "GUITAR", preserve_gp_played_offsets=False,
-    )
-    events = note_events(quantized_midi)
+    events = note_events(g.build_instrument_midi(song, track, "GUITAR")[0])
 
     d4 = [e for e in events if e[0] == 62 and e[1] == bar70 + 3720]
     assert d4, "не найдена D4 в конце такта 70"
@@ -781,7 +778,7 @@ def test_legato_origin_destination_b15():
 
     abs_tick = 0
     c5_vel = None
-    for msg in quantized_midi:
+    for msg in g.build_instrument_midi(song, track, "GUITAR")[0]:
         abs_tick += msg.time
         if msg.type == "note_on" and msg.velocity > 0 and msg.note == 72 and abs_tick == on:
             c5_vel = msg.velocity
@@ -1092,9 +1089,7 @@ def test_harmonics_folded_into_articulation_range():
                     harm_ticks[start_tick] = g.shreddage_harmonic_pitch(n, sp, cfg)
     assert harm_ticks, "в Solo Guitar нет гармоник"
 
-    events = note_events(g.build_instrument_midi(
-        song, track, "GUITAR", preserve_gp_played_offsets=False,
-    )[0])
+    events = note_events(g.build_instrument_midi(song, track, "GUITAR")[0])
     exported = {}
     for p, on, off in events:
         exported.setdefault(on, set()).add(p)

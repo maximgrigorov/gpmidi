@@ -241,9 +241,10 @@ def parse_song(path: str | Path):
         if played_offsets:
             warnings.warn(
                 f"Файл содержит {played_offsets} нот(ы) со значительным сдвигом "
-                "в слое «как сыграно» (<Offset> на ноте, > 1/32). Эти playback "
-                "Offset по умолчанию сохраняются, чтобы авторский groove совпадал "
-                "с Guitar Pro. Для строгой нотной сетки отключите их при экспорте.",
+                "в слое «как сыграно» (<Offset> на ноте, > 1/32). По умолчанию "
+                "эталон экспорта — НОТНАЯ ЗАПИСЬ, поэтому playback Offset "
+                "игнорируется. Для сохранения авторского groove включите "
+                "опцию preserve_gp_played_offsets.",
                 stacklevel=2,
             )
 

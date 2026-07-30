@@ -362,13 +362,8 @@ class EventList:
 # --------------------------------------------------------------------------- #
 #  Конвертация эффектов одной ноты (только для GUITAR/BASS)
 # --------------------------------------------------------------------------- #
-def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST,
-              reset_tick=None):
-    """Перенести опорные точки GP bend и сбросить PB в конце звучащей ноты.
-
-    ``dur_ticks`` задаёт длительность исходного beat и темп самой кривой.
-    ``reset_tick`` может быть позже, когда нота продолжается через tie: конечная
-    высота тогда удерживается до настоящего note-off без растягивания подъёма.
+def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST):
+    """Перенести опорные точки GP bend и сбросить Pitch Bend в конце.
 
     Guitar Pro уже хранит семантические углы кривой в шкале position=0..12:
     начало, вершину, границы плато и release. Прежняя 10-ms интерполяция
@@ -382,15 +377,12 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
     if not points:
         return
 
-    curve_end_tick = start_tick + dur_ticks
-    reset_tick = curve_end_tick if reset_tick is None else max(
-        curve_end_tick, int(reset_tick),
-    )
+    end_tick = start_tick + dur_ticks
     last_event = None
     for point in points:
         position = max(0.0, min(12.0, float(point.position)))
         tick = start_tick + int(round((position / 12.0) * dur_ticks))
-        tick = min(tick, curve_end_tick - 1)
+        tick = min(tick, end_tick - 1)
         pw = semitones_to_pitchwheel(
             float(point.value) * SEMITONES_PER_BEND_UNIT, pb_range
         )
@@ -401,7 +393,7 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
                Message("pitchwheel", channel=CHANNEL, pitch=pw))
         last_event = event
 
-    ev.add(reset_tick, ORDER_RESET,
+    ev.add(end_tick, ORDER_RESET,
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
@@ -738,7 +730,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           humanize_seed=7, auto_sustain_vibrato=False,
                           fret_noise_on_hand_shift=False, performance_seed=7,
                           expand_gp_hidden_32nds=False,
-                          preserve_gp_played_offsets=True):
+                          preserve_gp_played_offsets=False):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
@@ -796,7 +788,6 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     stats["ks"] += 1
     current_ks = sustain_ks
     pending_vibrato = []            # (start_tick, off_rec, bpm, vibrato_type)
-    pending_bends = []              # (start, curve_dur, bend, bpm, range, off_rec)
     pending_auto_vibrato = []       # subset элементов all_note_spans
     all_note_spans = []             # все атаки для проверки монодичности CC1
     last_palm_tick = 0
@@ -842,7 +833,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             start_tick = pitched_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT,
                                            hprof, hrng)
 
-        # --- GP8 playback Offset: авторский слой «как сыграно» (по умолчанию) ---
+        # --- GP8 playback Offset: авторский слой «как сыграно» (opt-in) ---
         # GPIF хранит Offset с разрешением 480 PPQ, MIDI экспортируется в 960 PPQ.
         # Сдвигаем атаку каждой ноты, а не сетку/длину такта: дорожки остаются
         # на общей шкале, но сохраняют относительный groove GP playback.
@@ -995,12 +986,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
 
             # --- PB / вибрато / слайды ---
             if eff.bend and eff.bend.points:
-                # Tie-ноты ниже по циклу продлят off_rec. Рисуем bend после
-                # полного прохода, чтобы конечная высота держалась до реального
-                # note-off, а не сбрасывалась в конце первого beat.
-                pending_bends.append(
-                    (on_tick, note_duration, eff.bend, cur_bpm, pb_range, off_rec),
-                )
+                emit_bend(ev, on_tick, note_duration, eff.bend, cur_bpm, pb_range)
+                pb_dirty = True
 
             if eff.vibrato:
                 # НЕ рисуем сразу: лиги продлят ноту позже по циклу, и off_rec
@@ -1018,14 +1005,6 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 emit_slide(ev, on_tick, note_duration, eff.slides, pitch, next_pitch, cur_bpm,
                            pb_range)
                 pb_dirty = True
-
-    # Bend и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и off_rec["tick"]
-    # у каждой ноты содержит её настоящий конец.
-    for b_start, b_curve_dur, bend, b_bpm, b_range, b_off in pending_bends:
-        emit_bend(
-            ev, b_start, b_curve_dur, bend, b_bpm, b_range,
-            reset_tick=b_off["tick"],
-        )
 
     # Вибрато рисуем ЗДЕСЬ, когда все лиги отработали и off_rec["tick"] у каждой
     # ноты содержит её настоящий конец.
@@ -1385,7 +1364,7 @@ def parse_cli_options(argv):
         "auto_sustain_vibrato": "--auto-sustain-vibrato" in flags,
         "fret_noise_on_hand_shift": "--fret-noise-on-hand-shift" in flags,
         "expand_gp_hidden_32nds": "--expand-gp-hidden-32nds" in flags,
-        "preserve_gp_played_offsets": "--quantize-gp-attacks" not in flags,
+        "preserve_gp_played_offsets": "--preserve-gp-played-offsets" in flags,
     }
 
 
@@ -1404,13 +1383,13 @@ def main(argv):
         sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
                  "[--humanize] [--ghost-notes] [--auto-sustain-vibrato] "
                  "[--fret-noise-on-hand-shift] [--expand-gp-hidden-32nds] "
-                 "[--quantize-gp-attacks] [--seed=N]\n"
+                 "[--preserve-gp-played-offsets] [--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
                  "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
                  "  --expand-gp-hidden-32nds разнести GP playback-группы на тональных треках\n"
-                 "  --quantize-gp-attacks игнорировать GP8-сдвиги атак Guitar/Bass\n"
+                 "  --preserve-gp-played-offsets сохранить GP8-сдвиги атак Guitar/Bass\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = options["source"]
