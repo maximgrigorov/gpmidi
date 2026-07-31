@@ -61,6 +61,8 @@ spec:
     params:
     - name: image
       value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
+    - name: image-latest
+      value: $(params.registry)/$(params.registry-owner)/asset-api:latest
     - name: context
       value: services/asset_api
     workspaces:
@@ -77,6 +79,8 @@ spec:
     params:
     - name: image
       value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
+    - name: image-latest
+      value: $(params.registry)/$(params.registry-owner)/reference-time:latest
     - name: context
       value: services/reference_time
     workspaces:

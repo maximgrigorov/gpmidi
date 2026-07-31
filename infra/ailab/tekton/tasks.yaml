@@ -81,6 +81,9 @@ spec:
   - name: image
     type: string
     description: Full image reference (registry/owner/name:tag)
+  - name: image-latest
+    type: string
+    description: Full image reference with :latest tag
   - name: context
     type: string
     description: Path to build context relative to workspace root
@@ -101,6 +104,7 @@ spec:
     - --dockerfile=/workspace/source/$(params.context)/$(params.dockerfile)
     - --context=/workspace/source/$(params.context)
     - --destination=$(params.image)
+    - --destination=$(params.image-latest)
     - --digest-file=$(results.digest.path)
     - --insecure
     - --skip-tls-verify
