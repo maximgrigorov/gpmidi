@@ -74,12 +74,15 @@ spec:
       printf '%s' "$SHA" > '$(results.commit-sha.path)'
       git log -1 --pretty='%s' | tr -d '\n' > '$(results.commit-subject.path)'
 ---
-# Source gates. Every tool is pinned inside the CI image; nothing is downloaded
-# here. Steps run in order and the task fails closed on the first failure.
+# Source gates, split into three small tasks. A single eleven-step pod summed to
+# 9.1 CPU of limits, which does not fit beside the running application pods under
+# the namespace ResourceQuota (limits.cpu: 12). Smaller pods also attribute a
+# failure to a specific gate group. The pipeline chains them, so peak concurrent
+# usage stays well inside the quota.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: source-gates
+  name: test-gates
   namespace: gpmidi-ml
 spec:
   params:
@@ -120,7 +123,7 @@ spec:
     timeout: 20m
     computeResources:
       requests: {cpu: 200m, memory: 384Mi}
-      limits: {cpu: "1500m", memory: 2Gi}
+      limits: {cpu: 1500m, memory: 2Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -134,7 +137,7 @@ spec:
     timeout: 20m
     computeResources:
       requests: {cpu: 200m, memory: 384Mi}
-      limits: {cpu: "1500m", memory: 2Gi}
+      limits: {cpu: 1500m, memory: 2Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -148,14 +151,27 @@ spec:
     timeout: 20m
     computeResources:
       requests: {cpu: 200m, memory: 384Mi}
-      limits: {cpu: "1500m", memory: 2Gi}
+      limits: {cpu: 1500m, memory: 2Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
       /opt/venv-svc/bin/python -m pytest -q 2>&1 \
         | tee /workspace/evidence/pytest-asset-api.txt
       exit "${PIPESTATUS[0]}"
-
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: static-gates
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  workspaces:
+  - name: source
+  - name: evidence
+  steps:
   - name: ruff
     image: $(params.ci-image)
     workingDir: /workspace/source
@@ -222,7 +238,20 @@ spec:
         /workspace/evidence/rendered.yaml 2>&1 \
         | tee /workspace/evidence/manifest-policy.txt
       exit "${PIPESTATUS[0]}"
-
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: security-gates
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  workspaces:
+  - name: source
+  - name: evidence
+  steps:
   - name: secret-scan
     image: $(params.ci-image)
     workingDir: /workspace/source
@@ -247,10 +276,10 @@ spec:
         > /workspace/evidence/licenses-root.md
       /opt/venv-svc/bin/pip-licenses --format=markdown --with-urls \
         > /workspace/evidence/licenses-svc.md
-      /opt/venv-svc/bin/pip-licenses --format=json > /tmp/licenses.json
       /opt/venv-root/bin/pip-licenses --format=json > /tmp/licenses-root.json
+      /opt/venv-svc/bin/pip-licenses --format=json > /tmp/licenses-svc.json
       /opt/venv-svc/bin/python infra/ailab/scripts/check_licenses.py \
-        /tmp/licenses-root.json /tmp/licenses.json 2>&1 \
+        /tmp/licenses-root.json /tmp/licenses-svc.json 2>&1 \
         | tee /workspace/evidence/license-review.txt
       exit "${PIPESTATUS[0]}"
 ---
@@ -297,7 +326,7 @@ spec:
       value: /workspace/docker-config
     computeResources:
       requests: {cpu: 500m, memory: 1Gi}
-      limits: {cpu: "4", memory: 6Gi, ephemeral-storage: 12Gi}
+      limits: {cpu: "2", memory: 6Gi, ephemeral-storage: 12Gi}
     timeout: 25m
 ---
 # Record provenance linking source SHA, build task and pushed digest, and audit

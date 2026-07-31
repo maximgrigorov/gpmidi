@@ -5,17 +5,22 @@
 # imageID has been proven equal to the published digest.
 #
 #   clone(exact SHA, verified)
-#     -> source-gates .......... tests, lint, whitespace, shell, render, schema,
-#                                manifest policy, secrets, dependency+license
+#     -> test-gates ............ three test suites in their two environments
+#     -> static-gates .......... lint, whitespace, shell, render, schema, policy
+#     -> security-gates ........ secret scan, dependency + license review
 #     -> pvc-before ............ record data-bearing volume identities
-#     -> build-* ............... kaniko, linux/amd64, immutable SHA tag only
-#     -> audit-* ............... digest match, arch, effective user, content,
+#     -> build/audit per image . kaniko (linux/amd64, immutable SHA tag only) then
+#                                digest match, arch, effective user, content,
 #                                vulnerability scan
 #     -> deploy-* .............. patch by digest, wait rollout, verify imageID
 #     -> pvc-after ............. prove volumes were not replaced
 #     -> smoke-* ............... focused readiness probes
 #     -> live-e2e .............. fourteen fail-closed acceptance scenarios
 #     -> publish-evidence ...... archive the bundle (always runs)
+#
+# Gate groups and per-image build/audit pairs are chained rather than parallel:
+# the namespace ResourceQuota caps limits.cpu at 12 and the running application
+# pods already hold about 5.7, so only one heavy pod may exist at a time.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -89,10 +94,37 @@ spec:
     - name: source
       workspace: shared-workspace
 
-  - name: source-gates
+  # Tests first: they are the gate most likely to catch a real defect.
+  - name: test-gates
     taskRef:
-      name: source-gates
+      name: test-gates
     runAfter: [clone]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+
+  - name: static-gates
+    taskRef:
+      name: static-gates
+    runAfter: [test-gates]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+
+  - name: security-gates
+    taskRef:
+      name: security-gates
+    runAfter: [static-gates]
     params:
     - name: ci-image
       value: $(params.ci-image)
@@ -122,7 +154,7 @@ spec:
   - name: build-asset-api
     taskRef:
       name: kaniko-build-push
-    runAfter: [source-gates]
+    runAfter: [security-gates]
     params:
     - name: image
       value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
@@ -139,7 +171,7 @@ spec:
   - name: build-reference-time
     taskRef:
       name: kaniko-build-push
-    runAfter: [source-gates]
+    runAfter: [audit-asset-api]
     params:
     - name: image
       value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
@@ -156,7 +188,7 @@ spec:
   - name: build-gpmidi-web
     taskRef:
       name: kaniko-build-push
-    runAfter: [source-gates]
+    runAfter: [audit-reference-time]
     params:
     - name: image
       value: $(params.registry)/$(params.registry-owner)/gpmidi-web:$(tasks.clone.results.commit-sha)
@@ -505,9 +537,9 @@ spec:
     workspaces:
     - name: source
       workspace: shared-workspace
-  - name: source-gates
+  - name: test-gates
     taskRef:
-      name: source-gates
+      name: test-gates
     runAfter: [inject-failure]
     params:
     - name: ci-image
@@ -517,6 +549,30 @@ spec:
       workspace: shared-workspace
     - name: evidence
       workspace: evidence
+  - name: static-gates
+    taskRef:
+      name: static-gates
+    runAfter: [test-gates]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+  - name: security-gates
+    taskRef:
+      name: security-gates
+    runAfter: [static-gates]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
   # There is deliberately NO build or deploy task here. The pipeline that can
-  # mutate a Deployment is `gpmidi-ci`, and in it every deploy task runs after
-  # `source-gates`, so a red gate stops delivery by construction.
+  # mutate a Deployment is `gpmidi-ci`, and in it every build and deploy task runs
+  # after the gate chain, so a red gate stops delivery by construction.
