@@ -1,0 +1,399 @@
+# Phase 2 — Reference-Time Vertical Slice
+
+**Branch:** `feat/reference-time-vertical-slice`  
+**Source SHA:** `86f46b5a5f18` (tip at time of writing)  
+**Status:** Feature-complete on branch; **do not merge to main; Phase 3 not started.**
+
+## 1. Architecture and deviations
+
+### Deployed architecture
+
+```
+Client → Traefik (443/TLS) → Ingress
+         ├── /asset-api/*  → asset-api:8000
+         └── /reference-time/* → reference-time:8000
+                                    │
+                                    ├── HTTP ← asset-api (download assets)
+                                    └── SQLite ← /var/lib/reference-time/db/
+```
+
+Both services run in the `gpmidi-ml` namespace on AILab (single node, k3s
+v1.36.2+k3s1). The reference-time service is an additive, independently
+testable microservice with no changes to existing conversion logic.
+
+### Deviations from task specification
+
+| Requirement | Status | Notes |
+|---|---|---|
+| Tekton CI/CD pipeline | **Not implemented** | AILab lacks Tekton. Images are built with `docker build` on AILab, imported via `k3s ctr images import`. |
+| Durable OCI registry | **Not implemented** | No registry server; images are locally imported to containerd. |
+| Gitea webhook trigger | **Not implemented** | Build is manual (script-driven). |
+| GitOps / Flux CD | **Not implemented** | Placeholder exists; not bootstrapped. |
+| ARM64 prohibition | **Complied** | All images built natively on AILab (linux/amd64). |
+| Audio evidence module | Implemented | Lightweight onset/downbeat extraction (bounded, no ML). |
+| Structure JSON input | Implemented | Optional `structure_link_id` in API. |
+
+The task specification required Tekton-based CI/CD as a prerequisite. This was
+not feasible because AILab does not have Tekton installed and bootstrapping it
+was not in scope. The manual build-import-deploy workflow is documented and
+reproducible via `infra/ailab/scripts/build-import-reference-time.sh`.
+
+## 2. Source/GP time-grid model
+
+### Source time grid
+
+A Suno MIDI file produces `SourceTempoEvidence`:
+
+- **Tempo events**: `(tick, bpm, seconds)` — piecewise-linear tempo map
+- **Time-signature events**: `(tick, numerator, denominator, seconds)`
+- **Duration**: total seconds from first musical event to last
+- **Preroll detection**: ticks before first musical note flagged as warning
+
+From evidence, `build_source_measures` constructs `SourceMeasure` objects:
+
+- `measure_index`, `start_tick`, `end_tick`
+- `start_seconds`, `end_seconds`, `duration_seconds`
+- `tempo_bpm`, `time_signature` (numerator/denominator)
+- `note_density` (notes per second, 0 if no notes found)
+
+### GP grid
+
+`extract_gp_grid` parses a Guitar Pro file via PyGuitarPro and yields
+`GPMeasure` objects:
+
+- `measure_index`, `start_tick`, `end_tick`
+- `tempo_bpm`, `time_signature`
+- `has_notes` (any track has notes in this measure)
+- `repeat_open`, `repeat_close`, `repeat_count`
+- `marker_name` (section markers like "Verse", "Chorus")
+
+Tick-to-second conversion uses the same piecewise-constant tempo map as MIDI.
+
+### Consensus (multiple Suno MIDIs)
+
+`build_consensus` compares N source evidence objects:
+
+- Selects the one with longest duration as primary
+- Compares tempo trajectories (normalized 100-point interpolation) and time
+  signatures against each reference
+- Reports conflicts (`tempo_trajectory_divergence`, `time_signature_mismatch`)
+  and drops conflicting sources from the consensus set
+- Produces `MidiConsensus` with `primary_sha256`, `agreed_sha256s`, warnings
+
+## 3. Schemas and cache-key contract
+
+### Cache key
+
+`compute_cache_key` produces a deterministic SHA-256 hash over:
+
+```python
+{
+    "gp_revision_sha256": str,
+    "source_midi_sha256s": sorted(list[str]),  # sorted for order-independence
+    "audio_sha256s": sorted(list[str]),
+    "structure_sha256": Optional[str],
+    "processor_versions": dict,
+    "parameters": dict
+}
+```
+
+Canonical JSON serialization (`json.dumps(sort_keys=True)`) ensures
+determinism. Any change to input data, processor version, or algorithm
+parameters produces a different cache key.
+
+### Key models (Pydantic v2)
+
+- `FiniteFloat`: validator rejecting NaN/Infinity
+- `SourceTempoEvidence`: full MIDI parse output
+- `SourceMeasure`: measure with timing, tempo, note density
+- `GPMeasure`: measure from Guitar Pro with markers and repeats
+- `MeasureMapping`: source → GP mapping with type, score, confidence, alternatives
+- `MidiConsensus`: multi-MIDI agreement result
+- `ReferenceTimeAnalysis`: top-level analysis with all evidence
+
+## 4. Mapping/scoring algorithm and tolerances
+
+Dynamic programming alignment (`align_measures`) with scoring:
+
+| Parameter | Value | Description |
+|---|---|---|
+| `ts_match_score` | 10.0 | Bonus for matching time signatures |
+| `ts_mismatch_penalty` | −5.0 | Penalty for time-signature mismatch |
+| `marker_anchor_bonus` | 8.0 | Bonus when GP markers align with source structure |
+| `user_anchor_score` | 100.0 | Score for user-provided anchor constraints |
+| `gap_penalty` | −3.0 | Penalty for leaving a measure unmapped |
+| `duration_weight` | 2.0 | Weight for duration similarity |
+| `duration_tolerance_ratio` | 0.3 | Max acceptable ratio difference (30%) |
+| `density_weight` | 1.0 | Weight for note-density similarity |
+| `repeat_bonus` | 2.0 | Bonus for GP repeat boundaries |
+
+Confidence components (sum to 1.0):
+
+| Component | Weight |
+|---|---|
+| Time-signature match | 0.3 |
+| Duration similarity | 0.2 |
+| Marker alignment | 0.2 |
+| Monotonicity | 0.2 |
+| Note density | 0.1 |
+
+Mapping types: `matched`, `gap_source`, `gap_gp`, `ambiguous`.
+
+Monotonicity is enforced: if source measure `i` maps to GP measure `j`, then
+source measure `i+1` maps to GP measure `≥ j`. User anchors override DP scoring.
+
+## 5. Dependency versions and licenses
+
+| Package | Version | License |
+|---|---|---|
+| fastapi | 0.115.12 | MIT |
+| uvicorn | 0.34.2 | BSD-3-Clause |
+| pydantic | 2.11.4 | MIT |
+| mido | 1.3.3 | MIT |
+| httpx | 0.28.1 | BSD-3-Clause |
+| soundfile | 0.13.1 | BSD-3-Clause |
+| numpy | 2.2.6 | BSD-3-Clause |
+| PyGuitarPro | 0.11 | LGPL-3.0-only |
+
+PyGuitarPro is LGPL-3.0 — used as a library dependency (imported, not
+modified), which is compatible with the project's usage model.
+
+All dependencies are permissively licensed or LGPL (library-use only).
+
+## 6. API endpoints
+
+Base path: `/reference-time`
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/healthz` | Liveness probe |
+| GET | `/readyz` | Readiness probe (DB check) |
+| POST | `/v1/projects/{id}/analyses` | Create analysis job |
+| GET | `/v1/projects/{id}/analyses` | List analyses and jobs |
+| GET | `/v1/projects/{id}/analyses/{aid}` | Get analysis metadata |
+| GET | `/v1/projects/{id}/analyses/{aid}/report.json` | JSON report |
+| GET | `/v1/projects/{id}/analyses/{aid}/report.html` | HTML report |
+| GET | `/v1/jobs/{jid}` | Poll job status |
+
+### Create analysis request
+
+```json
+{
+  "gp_revision_sha256": "c59eff2c...",
+  "gp_asset_link_id": "uuid",
+  "source_midi_link_ids": ["uuid", "uuid"],
+  "audio_link_ids": ["uuid"],
+  "structure_link_id": null
+}
+```
+
+### Create analysis response
+
+```json
+{
+  "job_id": "uuid",
+  "analysis_id": "uuid",
+  "status": "queued",
+  "cache_hit": false,
+  "request_id": "hex12"
+}
+```
+
+Job phases: `validating → gp_parse → midi_extract → consensus → measures → alignment → done`
+
+## 7. Kubernetes resources and security
+
+### Deployments
+
+| Deployment | Image | Replicas | Resources |
+|---|---|---|---|
+| asset-api | `asset-api:a87e8fc914ef` | 1 | (default) |
+| reference-time | `reference-time:86f46b5a5f18` | 1 | (default) |
+
+### NetworkPolicies
+
+- `default-deny-all`: deny all ingress/egress by default
+- `allow-dns`: egress to kube-dns
+- `allow-egress-registries`: egress to registries
+- `allow-ingress-asset-api`: ingress from Traefik + reference-time pods
+- `allow-ingress-controller`: ingress from Traefik to smoke-app
+- `reference-time`: ingress from Traefik, egress to asset-api
+
+### PVCs
+
+| PVC | Capacity | Use |
+|---|---|---|
+| `project-assets` | 50Gi | Asset API blob storage |
+| `reference-time-data` | 5Gi | SQLite DB + analysis artifacts |
+
+### Security context
+
+- Non-root user (`appuser`) in both images
+- Read-only root filesystem where applicable
+- No GPU required (CPU-only service)
+
+## 8. Test counts and commands
+
+```bash
+cd services/reference_time
+python3 -m pytest tests/ -v
+```
+
+**54 tests passed, 0 failed, 0 skipped** (0.54s)
+
+Breakdown:
+- Unit tests (`test_unit.py`): 43 tests
+  - `TestTickToSeconds`: 5
+  - `TestExtractTempoEvidence`: 7
+  - `TestBuildSourceMeasures`: 3
+  - `TestConsensus`: 6
+  - `TestAlignment`: 10
+  - `TestCacheKey`: 6
+  - `TestReport`: 3
+  - `TestModels`: 3
+- Integration tests (`test_integration.py`): 11 tests
+  - `TestDatabase`: 8
+  - `TestCacheInvalidation`: 3
+
+## 9. E2E evidence
+
+### Live E2E test (2026-07-31)
+
+Full end-to-end test against live AILab deployment:
+
+1. **GP fixture created**: 1422 bytes GP5 via PyGuitarPro, 8 measures
+2. **Uploaded to asset-api**: via ticket flow, `link_id` returned
+3. **Assets resolved**: 2 MIDI + 1 audio existing in project `4c0b0ad0-...`
+4. **Analysis created**: `job_id` returned, `cache_hit=false`
+5. **Job polled**: succeeded on first poll (< 2s total processing)
+6. **JSON report fetched**: 9203 chars
+   - `global_confidence`: 0.26
+   - `gp_measures`: 1 (default Song has minimal structure)
+   - `source_measures`: 8
+   - `mappings`: 8
+   - `source_evidence`: 2
+7. **HTML report fetched**: 10439 chars, XSS-safe
+8. **Cache hit confirmed**: second identical request returned `cache_hit=true`
+
+### Cache invalidation
+
+Tested via integration tests:
+- Changed MIDI SHA → new cache key → no cache hit
+- Changed GP SHA but same MIDIs → source evidence reuse possible
+- HTML report re-render does not re-run analysis
+
+## 10. Persistence and restart evidence
+
+- SQLite WAL mode with `check_same_thread=False` for cross-thread access
+- `recover_interrupted_jobs()` runs on startup: marks orphaned `running` jobs as
+  `interrupted` with `error_code='process_restart'`
+- Failed/interrupted analyses are never returned as cache hits
+- Pod restart tested implicitly: rollout replaces the pod cleanly, and readiness
+  probe confirms DB init succeeds
+
+## 11. Before/after GPU/LLM and existing service state
+
+### GPU state (unchanged)
+
+```
+NVIDIA GeForce RTX 5060 Ti, 16311 MiB, 14630 MiB used, 0% utilization
+```
+
+The reference-time service does **not** use the GPU. GPU memory usage is from
+the existing llama.cpp profile — unchanged before and after deployment.
+
+### Existing services (verified after deployment)
+
+| Service | Status |
+|---|---|
+| asset-api | Running (1/1), image `asset-api:a87e8fc914ef` |
+| smoke-app | Running (1/1) |
+| GPU smoke jobs | Completed |
+| PVC smoke jobs | Completed |
+| Homepage (port 80) | Accessible |
+| Gitea (port 3300) | Accessible |
+
+No existing service was disrupted by the Phase 2 deployment.
+
+## 12. Image tag/digest and rollback
+
+### Current images
+
+| Service | Image tag | Commit |
+|---|---|---|
+| asset-api | `a87e8fc914ef` | `a87e8fc` — GP5 signature fix |
+| reference-time | `86f46b5a5f18` | `86f46b5` — SQLite threading fix |
+
+### Rollback
+
+```bash
+# Rollback reference-time to previous version
+sudo k3s kubectl -n gpmidi-ml set image deployment/reference-time \
+  reference-time=reference-time:d3bda2d3cc24
+
+# Complete removal of reference-time
+sudo k3s kubectl -n gpmidi-ml delete -f infra/ailab/apps/reference-time/
+
+# Rollback asset-api to pre-Phase-2
+sudo k3s kubectl -n gpmidi-ml set image deployment/asset-api \
+  asset-api=asset-api:49ee7ef0b4ba
+# Or the original Phase 1 image:
+#  asset-api=asset-api:2adc75b
+```
+
+Removing reference-time has no effect on asset-api or any other service.
+
+## 13. Known boundaries and Phase 3 handoff
+
+### Known boundaries
+
+1. **No CI/CD pipeline**: builds are manual docker-build-import-deploy. The
+   task required Tekton — not available on AILab.
+2. **Low confidence with synthetic fixtures**: the E2E GP fixture is a default
+   Song (8 empty measures). Real-world analysis needs real GP + Suno MIDI pairs.
+3. **Audio evidence is lightweight**: onset-based downbeat estimation only, no
+   ML, no beat tracking model. Sufficient for corroborating tempo estimates.
+4. **Single-threaded SQLite**: `check_same_thread=False` works for low
+   concurrency but is not suitable for high-throughput scenarios.
+5. **No authentication/authorization**: the API is open within the cluster;
+   Traefik provides HTTPS but no auth.
+6. **Structure JSON input**: accepted but not yet integrated into the alignment
+   algorithm (field parsed, endpoint ready, scoring TODO).
+
+### Phase 3 handoff
+
+Phase 3 would be the actual MIDI restoration — using the measure mappings
+produced by Phase 2 to time-stretch, re-map, and insert Suno MIDI notes into
+the GP grid with confidence-gated automation. Prerequisites:
+
+- Validate Phase 2 mappings with real production GP + Suno MIDI pairs
+- Tune scoring parameters based on real-world alignment quality
+- Implement structure JSON integration into alignment scoring
+- Consider authentication if the service is exposed beyond the local network
+- Establish CI/CD (Tekton or equivalent) before production deployment
+
+## Ordered commits
+
+```
+49ee7ef docs: require AILab-native Tekton delivery
+2a0e6b8 chore: update asset-api image tag to 49ee7ef0b4ba
+f8c69ef feat: implement Phase 2 reference-time analysis service
+da187f3 chore: set reference-time image tag to f8c69ef8e2a4
+9bcfb71 fix: add PyGuitarPro to runtime requirements
+5096af8 chore: update reference-time image tag to 9bcfb71dbca7
+89fa60f fix: allow reference-time -> asset-api ingress in NetworkPolicy
+d3bda2d fix: use asset 'id' instead of 'link_id' to match asset-api response
+a87e8fc fix: GP5 signature validation offset (length-prefixed format)
+86f46b5 fix: allow SQLite cross-thread access for ThreadPoolExecutor
+```
+
+## Live URLs
+
+| URL | Purpose |
+|---|---|
+| `https://192.168.30.2/reference-time/healthz` | Health check |
+| `https://192.168.30.2/reference-time/readyz` | Readiness check |
+| `https://192.168.30.2/reference-time/v1/projects/{id}/analyses` | API |
+| `https://192.168.30.2/asset-api/v1/projects` | Asset API |
+
+**Do not merge to main; Phase 3 not started.**

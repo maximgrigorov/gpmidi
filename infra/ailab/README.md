@@ -31,6 +31,7 @@ infra/ailab/
 ├── gpu/                   # Device plugin, GPU smoke jobs
 ├── smoke-app/             # Test deployment (Phase 0)
 ├── apps/asset-api/        # Phase 1 asset storage service
+├── apps/reference-time/   # Phase 2 reference-time analysis service
 ├── clusters/ailab/        # Flux-generated files after bootstrap
 ├── apps/gpmidi-ml/        # Future application layer
 └── reports/               # Verification reports

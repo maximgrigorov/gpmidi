@@ -61,20 +61,39 @@ Live checks before shutdown:
 
 Therefore the **first prerequisite in the next Cursor task** is to establish AILab-native Tekton CI/CD with a durable OCI registry and a Gitea-triggered, fail-closed pipeline. Tests, Linux/amd64 image builds, publication and deployment must run on AILab from the exact accepted `main` commit; the ARM64 Cursor workstation must not build, cache or transfer images. The pipeline must then build/deploy the hardened `asset-api`, pin the exact tag/digest, and rerun Phase 1 focused live smoke checks. Do not start Phase 2 implementation until this rollout succeeds. The previous `asset-api:2adc75b` deployment remains the rollback target.
 
+### Phase 2 — Reference-Time Vertical Slice (feature branch)
+
+**Branch:** `feat/reference-time-vertical-slice`  
+**Status:** Feature-complete on branch, not merged to main.
+
+Implemented on branch:
+
+- reference-time analysis service (`services/reference_time/`);
+- MIDI tempo-map extraction, multi-MIDI consensus, GP grid extraction;
+- dynamic-programming measure alignment with configurable scoring;
+- JSON and HTML report generation (XSS-safe);
+- SQLite persistence with WAL mode, cache-key invalidation;
+- FastAPI with background job processing (ThreadPoolExecutor);
+- K8s deployment, service, ingress, NetworkPolicy, PVC;
+- 54 unit/integration tests passing;
+- live E2E test on AILab confirmed: analysis, reports, cache hit.
+
+Not implemented (deviations from task spec):
+
+- Tekton CI/CD pipeline (AILab lacks Tekton);
+- durable OCI registry (local containerd import);
+- Gitea webhook trigger (manual build);
+- GitOps / Flux CD (placeholder only).
+
+Deployed images:
+- `asset-api:a87e8fc914ef` (includes GP5 signature fix)
+- `reference-time:86f46b5a5f18`
+
+Report: `docs/Phase_2_Reference_Time_Vertical_Slice.md`
+
 ## Next
 
-Phase 2 — Reference-time vertical slice:
-
-- ingest/use GP + mix + drums/bass stems + one or more Suno MIDI assets already held by Phase 1;
-- construct and validate a source-time map;
-- preserve separate source-time and destination GP grids;
-- map source measures to GP measures with confidence and explicit ambiguity;
-- generate deterministic per-measure JSON and HTML reports;
-- do **not** modify MIDI and do not run transcription models.
-
-The self-contained clean-session task is:
-
-`docs/cursor-phase-2-reference-time-vertical-slice-task.md`
+Phase 3 — MIDI restoration using Phase 2 measure mappings.
 
 ## Operational state
 
