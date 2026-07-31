@@ -43,9 +43,9 @@ SIGNATURES: dict[str, list[tuple[int, bytes]]] = {
     ".flac": [(0, b"fLaC")],
     ".mid": [(0, b"MThd")],
     ".midi": [(0, b"MThd")],
-    ".gp3": [(0, b"FICHIER GUITAR PRO v3")],
-    ".gp4": [(0, b"FICHIER GUITAR PRO v4")],
-    ".gp5": [(0, b"FICHIER GUITAR PRO v5")],
+    ".gp3": [(1, b"FICHIER GUITAR PRO v3")],
+    ".gp4": [(1, b"FICHIER GUITAR PRO v4")],
+    ".gp5": [(1, b"FICHIER GUITAR PRO v5")],
     ".gpx": [(0, b"BCFZ")],
     ".gp": [(0, b"BCFZ")],
 }

@@ -78,6 +78,14 @@ class TestSignatureValidation:
         header = b"MThd" + b"\x00" * 60
         assert validate_signature(header, ".mid") is True
 
+    def test_gp5_signature(self):
+        header = b"\x18FICHIER GUITAR PRO v5.10" + b"\x00" * 50
+        assert validate_signature(header, ".gp5") is True
+
+    def test_gp5_bad_signature(self):
+        header = b"NOTG" + b"\x00" * 60
+        assert validate_signature(header, ".gp5") is False
+
     def test_unknown_extension_passes(self):
         assert validate_signature(b"anything", ".xyz") is True
 

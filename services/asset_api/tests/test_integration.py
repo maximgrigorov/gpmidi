@@ -74,8 +74,8 @@ def _midi_bytes() -> bytes:
 
 
 def _gp5_bytes() -> bytes:
-    """Fake GP5 header (just signature for validation)."""
-    return b"FICHIER GUITAR PRO v5" + b"\x00" * 200
+    """Fake GP5 header (length-prefixed signature for validation)."""
+    return b"\x18FICHIER GUITAR PRO v5.10" + b"\x00" * 200
 
 
 # --- Project CRUD ---
