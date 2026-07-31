@@ -42,6 +42,7 @@ import os
 import struct
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import uuid
@@ -948,7 +949,20 @@ def scenario_05_anchor(check: Check, shared: dict) -> None:
         "anchored" in anchored_map[1]["reason_codes"],
         "the mapping records that it was anchored",
     )
-    check.equal(report["anchored_source_indices"], [1], "the anchor is reported")
+    # The fixture declares a section (source 0 -> GP 0) and an explicit anchor
+    # (source 1 -> GP 5), so both are honoured as hard constraints.
+    check.equal(
+        report["anchored_source_indices"], [0, 1],
+        "both the section-derived and the explicit anchor are reported",
+    )
+    check.equal(
+        anchored_map[0]["gp_measure_index"], 0,
+        "the section-derived anchor is honoured too",
+    )
+    check.require(
+        "anchored" in anchored_map[0]["reason_codes"],
+        "the section-derived mapping records that it was anchored",
+    )
     check.require(
         free_map[1]["gp_measure_index"] != 5,
         "without the anchor that source measure mapped elsewhere",
@@ -1106,32 +1120,39 @@ def scenario_08_cold_cache_concurrency(check: Check, shared: dict) -> None:
     # Prove the identity really is cold: no result and no job for it yet.
     probe_jobs = {j["job_id"] for j in before["jobs"]}
 
+    # A barrier makes the requests genuinely simultaneous. Submitting them to a
+    # pool one by one let the first analysis finish before the last was sent, so a
+    # straggler saw a legitimately warm cache — a race in the test, not the service.
     concurrency = 8
+    barrier = threading.Barrier(concurrency)
+
+    def fire():
+        barrier.wait()
+        return api.create_analysis(pid, request)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futures = [
-            pool.submit(api.create_analysis, pid, request) for _ in range(concurrency)
-        ]
-        responses = [f.result() for f in futures]
+        responses = [f.result() for f in [pool.submit(fire) for _ in range(concurrency)]]
 
     codes = [r.status_code for r in responses]
     check.require(
         all(c == 200 for c in codes), "every concurrent request is accepted", f"{codes}"
     )
     payloads = [r.json() for r in responses]
-    cache_hits = [p for p in payloads if p["cache_hit"]]
-    check.equal(
-        len(cache_hits), 0,
-        "no request reported a cache hit, so the cache really was cold",
+    admitted = [p for p in payloads if not p["cache_hit"]]
+    check.require(
+        admitted, "at least one request was admitted rather than served from cache"
     )
-    job_ids = {p["job_id"] for p in payloads}
+    job_ids = {p["job_id"] for p in admitted}
     analysis_ids = {p["analysis_id"] for p in payloads}
     check.equal(
         len(job_ids), 1,
         "exactly one computation was admitted for the cold identity",
     )
     check.equal(
-        len(analysis_ids), 1, "every follower was given the admitted analysis id"
+        len(analysis_ids), 1,
+        "every request — admitted or follower — resolved to the same analysis",
     )
+    check.fact("cache_hits_among_concurrent", len(payloads) - len(admitted))
     admitted_job = next(iter(job_ids))
     check.require(
         admitted_job not in probe_jobs, "the admitted job is new to this project"
@@ -1291,29 +1312,32 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
         len(submitted) >= 3, "several slow analyses were admitted", f"{len(submitted)}"
     )
 
-    # Observe both states before disrupting anything.
-    observed = {"queued": set(), "running": set()}
-    deadline = time.time() + 60
+    # The snapshot must be taken immediately before the pod is deleted: a job
+    # observed running a minute earlier may legitimately have finished, and then
+    # `succeeded` is correct rather than a recovery failure.
+    snapshot: dict[str, str] = {}
+    deadline = time.time() + 90
     while time.time() < deadline:
-        states = {j: api.job(j)["status"] for j in submitted}
-        for job_id, status in states.items():
-            if status in observed:
-                observed[status].add(job_id)
-        if observed["queued"] and observed["running"]:
+        snapshot = {j: api.job(j)["status"] for j in submitted}
+        if "queued" in snapshot.values() and "running" in snapshot.values():
             break
-        if all(s in ("succeeded", "failed", "interrupted") for s in states.values()):
+        if all(
+            s in ("succeeded", "failed", "interrupted") for s in snapshot.values()
+        ):
             break
         time.sleep(0.5)
 
+    queued_at_snapshot = sorted(j for j, s in snapshot.items() if s == "queued")
+    running_at_snapshot = sorted(j for j, s in snapshot.items() if s == "running")
     check.require(
-        observed["running"],
-        "at least one job was observed running before the restart",
-        f"{sorted(observed['running'])}",
+        running_at_snapshot,
+        "a job was running at the instant the pod was disrupted",
+        f"{[j[:8] for j in running_at_snapshot]}",
     )
     check.require(
-        observed["queued"],
-        "at least one job was observed queued before the restart",
-        f"{sorted(observed['queued'])}",
+        queued_at_snapshot,
+        "a job was queued at the instant the pod was disrupted",
+        f"{[j[:8] for j in queued_at_snapshot]}",
     )
 
     old_pods = cluster.pod_names("reference-time")
@@ -1339,38 +1363,20 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     check.require(ready, "the restarted service reports ready")
 
     recovered = {j: api.job(j) for j in submitted}
-    for job_id in sorted(observed["running"] | observed["queued"]):
+    for job_id, prior in (
+        [(j, "running") for j in running_at_snapshot]
+        + [(j, "queued") for j in queued_at_snapshot]
+    ):
         job = recovered[job_id]
-        check.require(
-            job["status"] in ("interrupted", "succeeded", "failed"),
-            f"job {job_id[:8]} reached a terminal state after restart",
-            job["status"],
+        check.equal(
+            (job["status"], job["error_code"]),
+            ("interrupted", "process_restart"),
+            f"the {prior} job {job_id[:8]} was terminally recovered",
         )
     interrupted = [
         j for j in recovered.values()
         if j["status"] == "interrupted" and j["error_code"] == "process_restart"
     ]
-    check.require(
-        interrupted,
-        "orphaned jobs were terminally recovered as interrupted/process_restart",
-        f"{len(interrupted)} of {len(recovered)}",
-    )
-    recovered_queued = [
-        j for j in recovered.values()
-        if j["job_id"] in observed["queued"] and j["status"] == "interrupted"
-    ]
-    recovered_running = [
-        j for j in recovered.values()
-        if j["job_id"] in observed["running"] and j["status"] == "interrupted"
-    ]
-    check.require(
-        recovered_queued, "a job that was queued was recovered",
-        f"{[j['job_id'][:8] for j in recovered_queued]}",
-    )
-    check.require(
-        recovered_running, "a job that was running was recovered",
-        f"{[j['job_id'][:8] for j in recovered_running]}",
-    )
     check.require(
         not any(j["status"] in ("queued", "running") for j in recovered.values()),
         "no job was left orphaned in an active state",
@@ -1392,8 +1398,8 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     check.fact("old_pods", old_pods)
     check.fact("new_pod", new_pod)
     check.fact("interrupted_jobs", [j["job_id"] for j in interrupted])
-    check.fact("observed_queued", sorted(observed["queued"]))
-    check.fact("observed_running", sorted(observed["running"]))
+    check.fact("queued_at_disruption", queued_at_snapshot)
+    check.fact("running_at_disruption", running_at_snapshot)
 
 
 def scenario_11_determinism(check: Check, shared: dict) -> None:
@@ -1499,9 +1505,20 @@ def scenario_12_flask_ui(check: Check, shared: dict) -> None:
     listing = api.flask_get("/projects")
     check.equal(listing.status_code, 200, "the Projects list renders over HTTP")
 
+    # Do not follow redirects: the view redirects to /projects when it cannot reach
+    # the Asset API, which would otherwise look like a 200 with missing content.
+    direct = api.flask_get(f"/projects/{pid}", allow_redirects=False)
+    check.equal(
+        direct.status_code, 200,
+        "the Project page renders directly, without redirecting away",
+    )
     page = api.flask_get(f"/projects/{pid}")
     check.equal(page.status_code, 200, "the Project page renders over HTTP")
     html = page.text
+    check.require(
+        "недоступен" not in html,
+        "the Project page reports no upstream outage",
+    )
     check.require("Reference-Time" in html, "the Project page shows the analysis section")
     check.require(
         'name="gp_link_id"' in html, "the deployed page offers a GP revision selector"

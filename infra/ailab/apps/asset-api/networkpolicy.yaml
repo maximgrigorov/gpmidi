@@ -24,6 +24,15 @@ spec:
     ports:
     - port: 8000
       protocol: TCP
+  # The Flask UI reads projects and streams uploads through to this service.
+  # Without this rule the Project page cannot render at all.
+  - from:
+    - podSelector:
+        matchLabels:
+          app: gpmidi-web
+    ports:
+    - port: 8000
+      protocol: TCP
   - from:
     - podSelector:
         matchLabels:

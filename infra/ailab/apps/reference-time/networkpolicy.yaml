@@ -25,6 +25,14 @@ spec:
     ports:
     - protocol: TCP
       port: 8000
+  # The Flask UI creates analyses, polls job status and proxies both reports.
+  - from:
+    - podSelector:
+        matchLabels:
+          app: gpmidi-web
+    ports:
+    - protocol: TCP
+      port: 8000
   egress:
   - to:
     - podSelector:
