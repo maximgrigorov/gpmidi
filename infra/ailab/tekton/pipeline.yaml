@@ -7,13 +7,13 @@ spec:
   params:
   - name: repo-url
     type: string
-    default: http://server:3300/mgrigorov/gpmidi.git
+    default: http://192.168.30.2:3300/mgrigorov/gpmidi.git
   - name: revision
     type: string
     default: main
   - name: registry
     type: string
-    default: server:3300
+    default: 192.168.30.2:3300
   - name: registry-owner
     type: string
     default: mgrigorov
