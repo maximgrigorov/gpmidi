@@ -77,6 +77,9 @@ DECLARED_EXCEPTIONS = {
     "tuttut": "MIT upstream, no PyPI metadata, installed --no-deps",
     # No PyPI license metadata. Guitar Pro 7/8 parsing helper used by gp_import.
     "ApolloTab": "no PyPI metadata; permissive upstream, unmodified import only",
+    # setuptools 79 publishes neither License-Expression nor classifiers, only a
+    # LICENSE file. It is MIT, and is present because tuttut imports pkg_resources.
+    "setuptools": "MIT; setuptools 79 ships a LICENSE file with no metadata field",
 }
 
 UNKNOWN = {"", "unknown", "unknown license", "none", "null", "unspecified"}
