@@ -27,7 +27,6 @@ spec:
           type: RuntimeDefault
       containers:
       - name: gpmidi-web
-        
         # Reviewed immutable digest, built from commit
         # 1485ed928d1363ada70b0e5c3f9067d638475dea by PipelineRun
         # gpmidi-ci-manual-6svjg. `kubectl apply -k infra/ailab` therefore
