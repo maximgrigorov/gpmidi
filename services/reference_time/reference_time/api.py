@@ -147,9 +147,9 @@ def _fetch_asset_info(project_id: str, link_id: str) -> dict:
         resp.raise_for_status()
         assets = resp.json().get("assets", [])
         for a in assets:
-            if a.get("link_id") == link_id:
+            if a.get("id") == link_id:
                 return a
-    raise ValueError(f"Asset link {link_id} not found in project {project_id}")
+    raise ValueError(f"Asset {link_id} not found in project {project_id}")
 
 
 def _validate_project_assets(
@@ -163,7 +163,7 @@ def _validate_project_assets(
         resp.raise_for_status()
         assets = resp.json().get("assets", [])
 
-    asset_map = {a["link_id"]: a for a in assets}
+    asset_map = {a["id"]: a for a in assets}
     for lid in link_ids:
         if lid not in asset_map:
             raise ValueError(
