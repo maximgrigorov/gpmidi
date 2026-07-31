@@ -255,7 +255,7 @@ def _count_notes_in_range(
     import io
     try:
         midi_file = mido.MidiFile(file=io.BytesIO(midi_bytes))
-    except Exception:
+    except (OSError, EOFError, ValueError, KeyError):
         return 0
     count = 0
     for track in midi_file.tracks:

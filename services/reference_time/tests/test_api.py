@@ -139,6 +139,7 @@ def client(tmp_path):
     os.environ["ASSET_API_URL"] = "http://mock-asset-api:8000"
 
     from importlib import reload
+
     import reference_time.config
     reload(reference_time.config)
     import reference_time.api as api_mod
