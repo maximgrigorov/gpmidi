@@ -93,8 +93,8 @@ spec:
     image: $(params.ci-image)
     workingDir: /workspace/source
     computeResources:
-      requests: {cpu: 100m, memory: 256Mi}
-      limits: {cpu: "1", memory: 1Gi}
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
     script: |
       #!/bin/bash
       set -euxo pipefail
@@ -119,8 +119,8 @@ spec:
     workingDir: /workspace/source
     timeout: 20m
     computeResources:
-      requests: {cpu: 500m, memory: 512Mi}
-      limits: {cpu: "3", memory: 3Gi}
+      requests: {cpu: 200m, memory: 384Mi}
+      limits: {cpu: "1500m", memory: 2Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -133,8 +133,8 @@ spec:
     workingDir: /workspace/source/services/reference_time
     timeout: 20m
     computeResources:
-      requests: {cpu: 500m, memory: 512Mi}
-      limits: {cpu: "3", memory: 3Gi}
+      requests: {cpu: 200m, memory: 384Mi}
+      limits: {cpu: "1500m", memory: 2Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -147,8 +147,8 @@ spec:
     workingDir: /workspace/source/services/asset_api
     timeout: 20m
     computeResources:
-      requests: {cpu: 500m, memory: 512Mi}
-      limits: {cpu: "3", memory: 3Gi}
+      requests: {cpu: 200m, memory: 384Mi}
+      limits: {cpu: "1500m", memory: 2Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -194,6 +194,9 @@ spec:
   - name: manifest-gates
     image: $(params.ci-image)
     workingDir: /workspace/source
+    computeResources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 800m, memory: 1Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -223,6 +226,9 @@ spec:
   - name: secret-scan
     image: $(params.ci-image)
     workingDir: /workspace/source
+    computeResources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 800m, memory: 1Gi}
     script: |
       #!/bin/bash
       set -euo pipefail
@@ -386,7 +392,7 @@ spec:
     image: $(params.ci-image)
     computeResources:
       requests: {cpu: 500m, memory: 1Gi}
-      limits: {cpu: "3", memory: 4Gi, ephemeral-storage: 8Gi}
+      limits: {cpu: "2", memory: 4Gi, ephemeral-storage: 8Gi}
     timeout: 25m
     env:
     - name: DOCKER_CONFIG
