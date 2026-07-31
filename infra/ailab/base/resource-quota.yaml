@@ -5,9 +5,14 @@ metadata:
   namespace: gpmidi-ml
 spec:
   hard:
+    # Requests are what the scheduler reserves and stay conservative on a 16-core
+    # node. Limits are burst ceilings: a CI gate pod's limits are summed with the
+    # application pods', and at 12 a single gate pod could not be admitted beside
+    # the three running services plus a Pending one. Raised to 16 so delivery is
+    # not blocked by its own accounting, while requests still cap real reservation.
     requests.cpu: "8"
     requests.memory: 16Gi
-    limits.cpu: "12"
+    limits.cpu: "16"
     limits.memory: 24Gi
     nvidia.com/gpu: "1"
     persistentvolumeclaims: "20"
