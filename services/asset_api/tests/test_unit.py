@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
 from asset_api.cache_key import cache_key, canonical_json
 from asset_api.roles import (
     AssetRole,

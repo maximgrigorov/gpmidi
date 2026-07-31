@@ -8,7 +8,6 @@ GP tempo is destination-only evidence, NOT WAV timing truth.
 
 from __future__ import annotations
 
-
 import guitarpro
 
 from .models import GPMeasure, Warning, WarningCode

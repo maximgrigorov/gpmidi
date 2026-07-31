@@ -161,8 +161,8 @@ def extract_audio_evidence(
     warnings: list[Warning] = []
 
     try:
-        import soundfile as sf
         import numpy as np
+        import soundfile as sf
     except ImportError as e:
         return AudioEvidence(
             duration_seconds=0.0,
