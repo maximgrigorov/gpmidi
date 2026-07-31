@@ -323,6 +323,39 @@ def _deserialize_source_bundle(payload: str) -> tuple:
 # Worker
 # --------------------------------------------------------------------------
 
+def _build_summary(analysis: ReferenceTimeAnalysis) -> dict:
+    """Compact, listing-sized view of one analysis.
+
+    Persisted alongside the full report so the Project page can show confidence,
+    warnings, trusted input hashes and reuse provenance without any client
+    parsing a full report document.
+    """
+    mapping_types: dict[str, int] = {}
+    for m in analysis.mappings:
+        key = m.mapping_type.value
+        mapping_types[key] = mapping_types.get(key, 0) + 1
+    return {
+        "schema_version": analysis.schema_version,
+        "gp_revision_sha256": analysis.gp_revision_sha256,
+        "gp_revision_number": analysis.gp_revision_number,
+        "global_confidence": round(analysis.global_confidence, 4),
+        "source_measure_count": len(analysis.source_measures),
+        "gp_measure_count": len(analysis.gp_measures),
+        "mapping_count": len(analysis.mappings),
+        "mapping_type_counts": mapping_types,
+        "warning_codes": sorted({w.code.value for w in analysis.global_warnings}),
+        "consensus_decision": (
+            analysis.midi_consensus.decision.value if analysis.midi_consensus else None
+        ),
+        "input_identities": analysis.input_identities,
+        "source_evidence_reused": analysis.provenance.source_evidence_reused,
+        "source_evidence_key": analysis.provenance.source_evidence_key,
+        "audio_asset_count": len(analysis.audio_evidence),
+        "structure_version": analysis.structure_version,
+        "anchored_source_indices": list(analysis.anchored_source_indices),
+    }
+
+
 def _abandon_if_terminal(job_id: str, phase: str) -> bool:
     """True when the job is no longer ours to finish."""
     if db is None or db.is_job_active(job_id):
@@ -618,6 +651,7 @@ def _run_analysis(job_id, analysis_id, project_id, resolved, cache_key, source_k
                 cache_key,
                 generate_json_report(analysis),
                 owning_job_id=job_id,
+                summary_json=canonical_json(_build_summary(analysis)),
             )
             if not published:
                 logger.warning(

@@ -974,15 +974,35 @@ def project_detail(project_id: str):
         return redirect(url_for("projects_list"))
 
     analyses_data = {"analyses": [], "jobs": []}
+    rt_error = None
     try:
         analyses_data = client.list_analyses(project_id)
-    except Exception:
-        pass
+    except AssetAPIError as e:
+        rt_error = e.message
+    except Exception as e:
+        rt_error = f"Reference-time недоступен: {e}"
 
     all_assets = data["assets"]
-    rt_gp = [a for a in all_assets if a.get("role") == "guitar-pro"]
+    # Only a GP asset registered as a GP revision is an eligible analysis input;
+    # the reference-time service rejects anything else with gp_revision_not_found.
+    # `GET /v1/projects/{id}` reports the column name `asset_sha256`; only the
+    # manifest endpoint renames it to `sha256`. Accept either.
+    revision_by_sha = {}
+    for r in data.get("gp_revisions", []):
+        sha = r.get("asset_sha256") or r.get("sha256")
+        if sha:
+            revision_by_sha[sha] = r.get("revision")
+    rt_gp = [
+        dict(a, revision=revision_by_sha[a["asset_sha256"]])
+        for a in all_assets
+        if a.get("role") == "guitar-pro" and a.get("asset_sha256") in revision_by_sha
+    ]
+    rt_gp.sort(key=lambda a: -a["revision"])
     rt_midi = [a for a in all_assets if (a.get("role") or "").startswith("suno-midi")]
-    rt_audio = [a for a in all_assets if a.get("role") in ("mix",) or (a.get("role") or "").startswith("stem.")]
+    rt_audio = [
+        a for a in all_assets
+        if a.get("role") == "mix" or (a.get("role") or "").startswith("stem.")
+    ]
     rt_struct = [a for a in all_assets if a.get("role") == "structure"]
 
     return render_template("project_detail.html",
@@ -991,6 +1011,7 @@ def project_detail(project_id: str):
                            gp_revisions=data["gp_revisions"],
                            analyses=analyses_data.get("analyses", []),
                            analysis_jobs=analyses_data.get("jobs", []),
+                           rt_error=rt_error,
                            rt_gp_assets=rt_gp,
                            rt_midi_assets=rt_midi,
                            rt_audio_assets=rt_audio,
@@ -1118,17 +1139,23 @@ def project_analysis_report_json(project_id: str, analysis_id: str):
 
 @app.get("/projects/<project_id>/analyses/<job_id>/status")
 def project_analysis_status(project_id: str, job_id: str):
+    """Single non-blocking job poll.
+
+    One upstream request per call with the client's normal timeout: the browser
+    drives the polling interval, so a long-running analysis never pins a Flask
+    worker waiting for it.
+    """
+    from flask import jsonify
     try:
         client = get_client()
         job = client.get_analysis_job(job_id)
-        from flask import jsonify
+        if job.get("project_id") and job["project_id"] != project_id:
+            return jsonify({"error": "job does not belong to this project"}), 404
         return jsonify(job)
     except AssetAPIError as e:
-        from flask import jsonify as jf
-        return jf({"error": e.message}), e.status_code
+        return jsonify({"error": e.message, "code": e.code}), e.status_code
     except Exception as e:
-        from flask import jsonify as jf
-        return jf({"error": str(e)}), 502
+        return jsonify({"error": str(e)}), 502
 
 
 if __name__ == "__main__":

@@ -126,16 +126,20 @@
 
         {# Filtered assets are passed from the route as rt_gp_assets, rt_midi_assets, etc. #}
 
+        {% if rt_error %}
+        <p class="muted">Reference-time сервис не ответил: {{ rt_error }}</p>
+        {% endif %}
+
         {% if rt_gp_assets and rt_midi_assets %}
         <form action="{{ url_for('project_analyze', project_id=project.id) }}" method="post" class="form-stack" style="max-width: 640px; margin-bottom: 1.5rem">
           <div>
-            <label>Guitar Pro</label>
+            <label>Guitar Pro ревизия</label>
             <select name="gp_link_id" required class="input" onchange="this.form.gp_sha.value=this.options[this.selectedIndex].dataset.sha">
               {% for a in rt_gp_assets %}
-              <option value="{{ a.id }}" data-sha="{{ a.asset_sha256 }}">{{ a.original_filename }} (rev {{ a.get('revision', '?') }}, {{ a.asset_sha256[:8] }}…)</option>
+              <option value="{{ a.id }}" data-sha="{{ a.asset_sha256 }}">rev {{ a.revision }} — {{ a.original_filename }} ({{ a.asset_sha256[:12] }}…)</option>
               {% endfor %}
             </select>
-            <input type="hidden" name="gp_sha" value="{{ rt_gp_assets[0].asset_sha256 if rt_gp_assets else '' }}">
+            <input type="hidden" name="gp_sha" value="{{ rt_gp_assets[0].asset_sha256 }}">
           </div>
 
           <div>
@@ -174,29 +178,32 @@
 
           <button type="submit" class="btn primary">Запустить анализ</button>
         </form>
-        {% else %}
-        <p class="muted">Для запуска анализа нужен Guitar Pro и хотя бы один Suno MIDI.</p>
+        {% elif not rt_error %}
+        <p class="muted">Для запуска анализа нужна зарегистрированная Guitar Pro ревизия и хотя бы один Suno MIDI.</p>
         {% endif %}
 
         {% if analysis_jobs %}
         <h3>Задания</h3>
-        <table class="data-table">
-          <thead><tr><th>ID</th><th>Статус</th><th>Фаза</th><th>Создано</th><th></th></tr></thead>
+        <table class="data-table" id="analysis-jobs">
+          <thead><tr><th>ID</th><th>Статус</th><th>Фаза</th><th>Ошибка</th><th>Создано</th><th></th></tr></thead>
           <tbody>
             {% for j in analysis_jobs %}
-            <tr>
+            <tr data-job-id="{{ j.job_id }}"
+                data-analysis-id="{{ j.analysis_id }}"
+                {% if j.status in ('queued', 'running') %}data-poll="1"{% endif %}>
               <td><code>{{ j.job_id[:8] }}…</code></td>
-              <td>
-                <span class="badge {{ 'success' if j.status == 'succeeded' else 'error' if j.status == 'failed' else '' }}">{{ j.status }}</span>
+              <td class="job-status">
+                <span class="badge {{ 'success' if j.status == 'succeeded' else 'error' if j.status in ('failed', 'interrupted', 'cancelled') else '' }}">{{ j.status }}</span>
               </td>
-              <td>{{ j.progress_phase }}</td>
+              <td class="job-phase">{{ j.progress_phase }}</td>
+              <td class="job-error"><code>{{ j.error_code or '' }}</code></td>
               <td>{{ j.created_at[:19] }}</td>
-              <td>
+              <td class="job-links">
                 {% if j.status == 'succeeded' %}
                 <a href="{{ url_for('project_analysis_report', project_id=project.id, analysis_id=j.analysis_id) }}" class="btn ghost small" target="_blank">HTML</a>
                 <a href="{{ url_for('project_analysis_report_json', project_id=project.id, analysis_id=j.analysis_id) }}" class="btn ghost small" target="_blank">JSON</a>
                 {% elif j.status in ('queued', 'running') %}
-                <span class="muted">⏳</span>
+                <span class="muted job-spinner">⏳</span>
                 {% endif %}
               </td>
             </tr>
@@ -208,11 +215,38 @@
         {% if analyses %}
         <h3>Результаты</h3>
         <table class="data-table">
-          <thead><tr><th>ID</th><th>Cache key</th><th>Дата</th><th></th></tr></thead>
+          <thead><tr>
+            <th>ID</th><th>GP rev</th><th>Confidence</th><th>Измерения</th>
+            <th>Маппинги</th><th>Consensus</th><th>Warnings</th>
+            <th>Source evidence</th><th>Cache key</th><th>Дата</th><th></th>
+          </tr></thead>
           <tbody>
             {% for a in analyses %}
+            {% set s = a.summary or {} %}
             <tr>
               <td><code>{{ a.analysis_id[:8] }}…</code></td>
+              <td>{{ s.gp_revision_number if s.gp_revision_number is not none else '—' }}</td>
+              <td>
+                {% if s.global_confidence is not none %}
+                <span class="badge {{ 'success' if s.global_confidence >= 0.7 else 'error' if s.global_confidence < 0.4 else '' }}">{{ '%.2f'|format(s.global_confidence) }}</span>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ s.source_measure_count if s.source_measure_count is not none else '—' }} → {{ s.gp_measure_count if s.gp_measure_count is not none else '—' }}</td>
+              <td>
+                {{ s.mapping_count if s.mapping_count is not none else '—' }}
+                {% if s.mapping_type_counts %}
+                <br><span class="muted" style="font-size:0.8em">
+                {%- for t, n in s.mapping_type_counts.items()|sort %}{{ t }}:{{ n }} {% endfor -%}
+                </span>
+                {% endif %}
+              </td>
+              <td>{{ s.consensus_decision or '—' }}</td>
+              <td>
+                {% if s.warning_codes %}
+                <span class="muted" style="font-size:0.8em">{{ s.warning_codes|join(', ') }}</span>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ 'reused' if s.source_evidence_reused else 'computed' }}</td>
               <td><code>{{ a.cache_key[:12] }}…</code></td>
               <td>{{ a.created_at[:19] }}</td>
               <td>
@@ -220,11 +254,87 @@
                 <a href="{{ url_for('project_analysis_report_json', project_id=project.id, analysis_id=a.analysis_id) }}" class="btn ghost small" target="_blank">JSON</a>
               </td>
             </tr>
+            {% if s.input_identities %}
+            <tr>
+              <td colspan="11" class="muted" style="font-size:0.8em">
+                Точные хеши входов:
+                {% for k, v in s.input_identities.items()|sort %}<code>{{ k }}={{ v[:12] }}…</code> {% endfor %}
+                {% if s.anchored_source_indices %}| anchors: <code>{{ s.anchored_source_indices|join(',') }}</code>{% endif %}
+                {% if s.structure_version %}| structure v<code>{{ s.structure_version }}</code>{% endif %}
+              </td>
+            </tr>
+            {% endif %}
             {% endfor %}
           </tbody>
         </table>
         {% endif %}
       </section>
+
+      <script>
+      // Poll only the jobs that are still active, with a bounded number of
+      // attempts. Each tick is one short request per job, so neither the browser
+      // nor a Flask worker is blocked waiting for a long analysis.
+      (function () {
+        var table = document.getElementById('analysis-jobs');
+        if (!table) return;
+        var statusUrl = {{ url_for('project_analysis_status', project_id=project.id, job_id='JOB_ID')|tojson }};
+        var htmlUrl = {{ url_for('project_analysis_report', project_id=project.id, analysis_id='ANALYSIS_ID')|tojson }};
+        var jsonUrl = {{ url_for('project_analysis_report_json', project_id=project.id, analysis_id='ANALYSIS_ID')|tojson }};
+        var TERMINAL = ['succeeded', 'failed', 'interrupted', 'cancelled'];
+        var MAX_TICKS = 240;   // 240 * 5s = 20 minutes, then stop polling
+        var ticks = 0;
+
+        function badge(status) {
+          var cls = status === 'succeeded' ? 'success'
+                  : (TERMINAL.indexOf(status) >= 0 ? 'error' : '');
+          return '<span class="badge ' + cls + '">' + status + '</span>';
+        }
+
+        function reportLinks(analysisId) {
+          return '<a class="btn ghost small" target="_blank" href="'
+               + htmlUrl.replace('ANALYSIS_ID', analysisId) + '">HTML</a> '
+               + '<a class="btn ghost small" target="_blank" href="'
+               + jsonUrl.replace('ANALYSIS_ID', analysisId) + '">JSON</a>';
+        }
+
+        function tick() {
+          var rows = table.querySelectorAll('tr[data-poll="1"]');
+          if (!rows.length || ticks >= MAX_TICKS) return;
+          ticks += 1;
+          rows.forEach(function (row) {
+            fetch(statusUrl.replace('JOB_ID', row.dataset.jobId), {
+              headers: { 'Accept': 'application/json' }
+            })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (job) {
+                if (!job || !job.status) return;
+                row.querySelector('.job-status').innerHTML = badge(job.status);
+                row.querySelector('.job-phase').textContent = job.progress_phase || '';
+                row.querySelector('.job-error').innerHTML =
+                  '<code>' + (job.error_code || '') + '</code>';
+                if (TERMINAL.indexOf(job.status) >= 0) {
+                  row.removeAttribute('data-poll');
+                  row.querySelector('.job-links').innerHTML =
+                    job.status === 'succeeded'
+                      ? reportLinks(row.dataset.analysisId)
+                      : '';
+                  if (job.status === 'succeeded') {
+                    // Reload once so the results table picks up confidence,
+                    // warnings and the exact input hashes.
+                    window.setTimeout(function () { window.location.reload(); }, 800);
+                  }
+                }
+              })
+              .catch(function () { /* transient: the next tick retries */ });
+          });
+          window.setTimeout(tick, 5000);
+        }
+
+        if (table.querySelectorAll('tr[data-poll="1"]').length) {
+          window.setTimeout(tick, 1500);
+        }
+      })();
+      </script>
     </main>
   </div>
 </body>

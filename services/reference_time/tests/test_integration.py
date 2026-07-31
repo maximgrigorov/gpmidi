@@ -37,10 +37,10 @@ class TestDatabase:
 
     def test_schema_is_migrated_to_current_version(self, tmp_db_path):
         db = AnalysisDB(tmp_db_path)
-        assert db.schema_version() == 2
+        assert db.schema_version() == 3
         # Re-opening the same file must be idempotent.
         again = AnalysisDB(tmp_db_path)
-        assert again.schema_version() == 2
+        assert again.schema_version() == 3
         db.close()
 
     def test_update_job_status(self, tmp_db_path):

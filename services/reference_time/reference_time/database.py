@@ -25,12 +25,13 @@ single-replica analyzer.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 TERMINAL_STATUSES = ("succeeded", "failed", "cancelled", "interrupted")
 ACTIVE_STATUSES = ("queued", "running")
@@ -87,6 +88,10 @@ MIGRATIONS = [
 
     CREATE INDEX IF NOT EXISTS idx_source_evidence_project
         ON source_evidence(project_id);
+    """,
+    # Version 3: compact per-result summary so listings never parse full reports
+    """
+    ALTER TABLE analysis_results ADD COLUMN summary_json TEXT NOT NULL DEFAULT '{}';
     """,
 ]
 
@@ -434,6 +439,7 @@ class AnalysisDB:
         cache_key: str,
         result_json: str,
         owning_job_id: str,
+        summary_json: str = "{}",
     ) -> bool:
         """Publish a result only while its owning job is still active.
 
@@ -455,10 +461,18 @@ class AnalysisDB:
                     return False
                 conn.execute(
                     """INSERT INTO analysis_results
-                       (analysis_id, project_id, cache_key, result_json, created_at)
-                       VALUES (?, ?, ?, ?, ?)
+                       (analysis_id, project_id, cache_key, result_json,
+                        summary_json, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)
                        ON CONFLICT(cache_key) DO NOTHING""",
-                    (analysis_id, project_id, cache_key, result_json, now),
+                    (
+                        analysis_id,
+                        project_id,
+                        cache_key,
+                        result_json,
+                        summary_json,
+                        now,
+                    ),
                 )
                 conn.commit()
                 return True
@@ -482,12 +496,21 @@ class AnalysisDB:
         conn = self._connect()
         try:
             rows = conn.execute(
-                """SELECT analysis_id, project_id, cache_key, created_at
+                """SELECT analysis_id, project_id, cache_key, summary_json, created_at
                    FROM analysis_results WHERE project_id = ?
                    ORDER BY created_at DESC, analysis_id DESC LIMIT ?""",
                 (project_id, limit),
             ).fetchall()
-            return [dict(r) for r in rows]
+            out = []
+            for row in rows:
+                record = dict(row)
+                raw = record.pop("summary_json", "{}")
+                try:
+                    record["summary"] = json.loads(raw) if raw else {}
+                except ValueError:
+                    record["summary"] = {}
+                out.append(record)
+            return out
         finally:
             conn.close()
 
