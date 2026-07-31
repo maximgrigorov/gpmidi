@@ -35,6 +35,10 @@ spec:
         value: $(tt.params.revision)
       taskRunTemplate:
         serviceAccountName: tekton-build
+        podTemplate:
+          hostAliases:
+          - ip: 192.168.30.2
+            hostnames: [server]
       taskRunSpecs:
       - pipelineTaskName: deploy-asset-api
         serviceAccountName: tekton-deploy
