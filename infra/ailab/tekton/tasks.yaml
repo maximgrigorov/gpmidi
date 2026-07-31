@@ -179,7 +179,7 @@ spec:
       SVC="$(params.service-name).gpmidi-ml.svc.cluster.local:8000"
       echo "Checking $SVC$(params.healthz-path)"
       for i in $(seq 1 15); do
-        CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://$SVC$(params.healthz-path)" 2>/dev/null || echo 000)
+        CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://$SVC$(params.healthz-path)" 2>/dev/null) || CODE=000
         if [ "$CODE" = "200" ]; then
           echo "Health check passed (HTTP 200)"
           exit 0

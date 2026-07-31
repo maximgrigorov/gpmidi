@@ -24,3 +24,10 @@ spec:
     ports:
     - port: 8000
       protocol: TCP
+  - from:
+    - podSelector:
+        matchLabels:
+          tekton.dev/memberOf: tasks
+    ports:
+    - port: 8000
+      protocol: TCP
