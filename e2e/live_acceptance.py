@@ -1288,13 +1288,22 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
         slow_links.append(up["link_id"])
     check.equal(len(slow_links), 6, "slow audio fixtures uploaded")
 
+    # A long source MIDI is what actually makes an analysis slow: per-measure note
+    # density re-reads the file, so a thousand-measure source keeps a worker busy
+    # for tens of seconds. Six ten-minute click tracks alone were not enough — the
+    # whole scenario ran in twenty seconds and a running job finished inside the
+    # deletion window.
     slow_midis = []
     for i in range(4):
         up = api.upload(
             pid,
             "suno-midi.other",
             f"e2e-{RUN_ID}-slow-{i}.mid",
-            make_midi(n_measures=8, tag=f"slow-{i}-{uuid.uuid4().hex[:6]}", pitch=64 + i),
+            make_midi(
+                n_measures=1000,
+                tag=f"slow-{i}-{uuid.uuid4().hex[:6]}",
+                pitch=64 + i,
+            ),
         )
         slow_midis.append(up["link_id"])
 
@@ -1370,16 +1379,46 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     check.require(ready, "the restarted service reports ready")
 
     recovered = {j: api.job(j) for j in submitted}
-    for job_id, prior in (
-        [(j, "running") for j in running_at_snapshot]
-        + [(j, "queued") for j in queued_at_snapshot]
-    ):
+
+    # A queued job had no worker, so it cannot have completed: it must be recovered.
+    for job_id in queued_at_snapshot:
         job = recovered[job_id]
         check.equal(
             (job["status"], job["error_code"]),
             ("interrupted", "process_restart"),
-            f"the {prior} job {job_id[:8]} was terminally recovered",
+            f"the queued job {job_id[:8]} was terminally recovered",
         )
+
+    # A running job may legitimately have finished in the instant between the
+    # snapshot and the delete. That is a published success, not a recovery failure —
+    # but at least one running job must actually be recovered, or nothing has been
+    # proven about running recovery.
+    running_recovered, running_completed = [], []
+    for job_id in running_at_snapshot:
+        job = recovered[job_id]
+        if job["status"] == "interrupted" and job["error_code"] == "process_restart":
+            running_recovered.append(job_id)
+        elif job["status"] == "succeeded":
+            running_completed.append(job_id)
+            report = api.report_json(pid, job["analysis_id"])
+            check.require(
+                report.get("analysis_id") == job["analysis_id"],
+                f"the running job {job_id[:8]} finished before the delete and its "
+                f"result is retrievable after the restart",
+            )
+        else:
+            check.equal(
+                (job["status"], job["error_code"]),
+                ("interrupted", "process_restart"),
+                f"the running job {job_id[:8]} reached a valid terminal state",
+            )
+    check.require(
+        running_recovered,
+        "at least one job that was running was terminally recovered",
+        f"recovered={[j[:8] for j in running_recovered]} "
+        f"completed_first={[j[:8] for j in running_completed]}",
+    )
+
     interrupted = [
         j for j in recovered.values()
         if j["status"] == "interrupted" and j["error_code"] == "process_restart"
@@ -1407,6 +1446,8 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     check.fact("interrupted_jobs", [j["job_id"] for j in interrupted])
     check.fact("queued_at_disruption", queued_at_snapshot)
     check.fact("running_at_disruption", running_at_snapshot)
+    check.fact("running_recovered", running_recovered)
+    check.fact("running_completed_before_disruption", running_completed)
 
 
 def scenario_11_determinism(check: Check, shared: dict) -> None:
