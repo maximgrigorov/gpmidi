@@ -420,12 +420,21 @@ spec:
       # material or test fixture may be.
       crane export --insecure "$BY_DIGEST" - | tar -tf - > "$OUT/files.txt" || true
       wc -l < "$OUT/files.txt"
-      # Anchored to real credential filenames: a *script* whose name merely
-      # contains "kubeconfig" is not a leaked credential.
-      LEAK_RE='(^|/)\.git/|(^|/)\.env$|(^|/)id_rsa(\.pub)?$|(^|/)\.kube/config$|(^|/)kubeconfig$|(^|/)\.netrc$|(^|/)\.npmrc$|(^|/)\.pypirc$|\.pem$|\.key$'
+      # Anchored to real credential filenames anywhere in the image. A *script*
+      # whose name merely contains "kubeconfig" is not a leaked credential.
+      LEAK_RE='(^|/)\.git/|(^|/)\.env$|(^|/)id_rsa(\.pub)?$|(^|/)\.kube/config$|(^|/)kubeconfig$|(^|/)\.netrc$|(^|/)\.npmrc$|(^|/)\.pypirc$'
       if grep -Eq "$LEAK_RE" "$OUT/files.txt"; then
         echo "ERROR: image contains secret or VCS material" >&2
         grep -E "$LEAK_RE" "$OUT/files.txt" >&2
+        exit 1
+      fi
+      # Key material is only a finding inside the application directory: every
+      # TLS-capable base image legitimately ships the public CA bundle as
+      # /etc/ssl/certs/*.pem, and flagging that is noise, not a leak.
+      KEY_RE='^app/.*\.(pem|key|p12|pfx|jks|keystore)$'
+      if grep -Eq "$KEY_RE" "$OUT/files.txt"; then
+        echo "ERROR: image ships key material in app/" >&2
+        grep -E "$KEY_RE" "$OUT/files.txt" >&2
         exit 1
       fi
       # Test suites and infrastructure definitions have no business in the
