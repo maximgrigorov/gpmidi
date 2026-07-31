@@ -703,26 +703,36 @@ Project `8fc8e47c-483a-4ac1-b744-8a7ec2328b01`, run id `9d5589d13c`.
 
 ### Negative-gate proof
 
-`gpmidi-ci-negative-h4h2l` — **Failed** at `test-gates` with
-`AssertionError: deliberate failure injected by inject-gate-failure`
-(`1 failed, 112 passed, 27 skipped`). `static-gates` and `security-gates` were
-skipped; the pipeline contains no build or deploy task at all.
+Run twice, breaking a different gate each time. Both proved the same thing.
 
-State before and after are byte-identical: Deployment generation 24/24/12,
-revision 20/20/8, digests unchanged, pod UIDs
-`155f82b6…`/`0cb4a7ea…`/`5c329099…` unchanged, PVC UIDs `385cd0c7…`,
-`ee6ceb47…`, `ff222482…` unchanged, 14 projects. The injected failure existed only
-in the ephemeral workspace.
+| Run | Broken gate | Failed at | Skipped after |
+|---|---|---|---|
+| `gpmidi-ci-negative-h4h2l` | injected failing root test | `test-gates` — `AssertionError: deliberate failure injected by inject-gate-failure` (`1 failed, 112 passed, 27 skipped`) | `static-gates`, `security-gates` |
+| `gpmidi-ci-negative-9sgqd` | injected lint violation | `static-gates` (`test-gates` passed first) | `security-gates` |
+
+The pipeline contains no build or deploy task at all, so there is nothing after the
+gate chain that could publish or deploy.
+
+State before and after each run is byte-identical: Deployment generation, revision
+and digest unchanged, pod UIDs unchanged, PVC UIDs `385cd0c7…`, `ee6ceb47…` and
+`ff222482…` unchanged, project count unchanged. The injected failure existed only in
+the ephemeral workspace and was never committed to the branch.
 
 ### Rollback
 
-Rollback target `reference-time:30138db3…`, confirmed present in the durable
-registry and resolved to `sha256:ce2398f506b8bc8e94ab716dc7ae3ad08a732cd4db9a843a3a6c5dbacb8bdefe`.
+Rollback target `reference-time:1485ed92…` — the `previous-image` the deploy task
+recorded — confirmed present in the durable registry and resolved to
+`sha256:9bb4347eea5a69473d64a6b8834d1bf4458e1fcd72494b8045920131b038cf2b`.
 
-1. Rolled back by digest → pod `reference-time-7784ffbf9d-55cch`, `imageID` equal
-   to the rollback digest, `readyz` 200, **14 projects and 12 analyses intact**.
-2. Restored the candidate digest → pod `reference-time-599f9bfc68-4rwpf`, `imageID`
-   equal to the candidate digest, 14 projects and 12 analyses still intact.
+1. Rolled back by digest → live pod `imageID` equal to the rollback digest,
+   `readyz` 200, **16 projects and 12 analyses intact**.
+2. Restored the candidate digest
+   `sha256:20b5ced49d6e586ec7e611f8031aa94ab8fb92c999528aa5a48e17792c174def` →
+   live pod `imageID` equal to it, 16 projects and 12 analyses still intact.
+
+The registry holds every SHA-tagged build, so any of them is a usable rollback
+target: `09081b1f`, `0d57fa4e`, `1485ed92`, `18f20be8`, `30138db3`, `65fcc60c`,
+`7eebd1a5`, `8ab9124d`, `9ebe854f`, `b4bc7854`.
 
 PVC UIDs and PersistentVolumes were unchanged throughout. The `tekton-deploy` Role
 has no delete verb, so no rollback can remove Project or analysis data.
