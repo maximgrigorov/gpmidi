@@ -11,6 +11,13 @@
 7. **PVCs** in `gpmidi-ml`: `project-assets`, `smoke-pvc`
 8. **Traefik HelmChartConfig** — disables port 80, keeps 443 only
 9. **nginx `openclaw.conf`** removed (port 443 freed for k3s Traefik)
+10. **Helm client** `v3.21.3` at `/usr/local/bin/helm`
+11. **Headlamp** chart `0.44.0` — Helm release `headlamp` in namespace `headlamp`,
+    plus repository-owned `headlamp-admin` RBAC and Ingress. Removing it is
+    independent of everything above: see
+    [`apps/headlamp/README.md`](apps/headlamp/README.md#rollback).
+    Note that `ailab-tls` was reissued to add the `*.home.arpa` SANs and is now
+    replicated into both `gpmidi-ml` and `headlamp`.
 
 ## Directories created
 

@@ -16,6 +16,9 @@ for the Reference-Guided MIDI Restoration pipeline.
 | Namespace | gpmidi-ml |
 | Tekton Pipelines | v1.14.1 |
 | Tekton Triggers | v0.36.0 |
+| Traefik | 3.7.4 (chart traefik-40.1.3_up40.1.0) |
+| Helm client | v3.21.3 |
+| Headlamp | chart 0.44.0 / app 0.44.0 |
 | Registry | Gitea OCI, `192.168.30.2:3300` |
 
 ## Directory structure
@@ -37,6 +40,7 @@ infra/ailab/
 ├── apps/asset-api/        # Phase 1 asset storage service
 ├── apps/reference-time/   # Phase 2 reference-time analysis service
 ├── apps/gpmidi-web/       # Flask converter + Projects UI (Phase 2)
+├── apps/headlamp/         # Headlamp cluster dashboard (Helm release + repo Ingress/RBAC)
 ├── clusters/ailab/        # Flux-generated files after bootstrap
 ├── apps/gpmidi-ml/        # Future application layer
 └── reports/               # Verification reports
@@ -97,11 +101,79 @@ smoke run stopped llama.cpp because this lifecycle was not followed.
 
 | Port | Service | Notes |
 |------|---------|-------|
-| 80 | nginx homepage | unchanged |
+| 80 | nginx homepage | unchanged — host/server management page |
 | 443 | k3s Traefik HTTPS | new |
 | 3300 | Gitea | unchanged |
 | 6443 | k3s API | new |
 | 8080 | llama.cpp | unchanged |
+
+Port 80 belongs to the host's nginx machine dashboard and Kubernetes must never
+take it: `traefik-config.yaml` sets `ports.web.expose.default: false`, so Traefik
+binds 443 only. Traefik reaches 443 through the klipper-lb `svclb-traefik` pod's
+hostPort, which is a DNAT rule rather than a userspace listener — so `ss -tlnp`
+shows nothing on 443 even though it is served. That is expected.
+
+## Routing
+
+One entrypoint (`websecure`, 443) serves the dashboard, the PoC UI and the two
+APIs. Traefik orders overlapping routers by rule length, longest first, which is
+what lets a hostless `/` coexist with hostless longer path prefixes.
+
+| Request | Goes to | Rule owner |
+|---|---|---|
+| `https://192.168.30.2/` (no DNS needed) | Headlamp | `apps/headlamp/ingress.yaml` |
+| `https://k8s.ailab.home.arpa/` | Headlamp | `apps/headlamp/ingress.yaml` |
+| `https://gpmidi.ailab.home.arpa/` | gpmidi-web | `apps/gpmidi-web/ingress.yaml` |
+| `https://gpmidi.ailab.local/` | gpmidi-web | legacy alias, same file |
+| `<any host>/asset-api/…` | asset-api | `apps/asset-api/ingress.yaml` |
+| `<any host>/reference-time/…` | reference-time | `apps/reference-time/ingress.yaml` |
+| `https://ailab.local/`, `https://gpmidi-ml.ailab.local/` | smoke-app | `smoke-app/ingress.yaml` |
+
+**There must be exactly one hostless `/` rule in the cluster**, and it belongs to
+Headlamp. Both the Phase 0 smoke-app and a short-lived gpmidi-web PoC fallback
+previously claimed it; two hostless `PathPrefix(/)` routers of equal length are an
+unresolvable tie in Traefik, so whichever won was luck. Check with:
+
+```bash
+sudo k3s kubectl get ingress -A -o json \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(sum(1 for i in d["items"] for r in i["spec"].get("rules",[]) if not r.get("host") for p in r["http"]["paths"] if p["path"]=="/"))'
+# must print 1
+```
+
+### DNS
+
+Static A records on the MikroTik — no wildcard needed:
+
+```
+k8s.ailab.home.arpa     -> 192.168.30.2
+gpmidi.ailab.home.arpa  -> 192.168.30.2
+```
+
+`home.arpa` (RFC 8375) is the documented primary domain. The `*.ailab.local`
+names are legacy aliases kept so existing bookmarks keep working: `.local` is
+reserved for mDNS by RFC 6762 and must not be used as a primary name. Do not add
+new `.local` hosts.
+
+### TLS
+
+All hosts share the self-signed `ailab-tls` certificate, reissued and replicated
+into every namespace that needs it by `scripts/ensure-ailab-tls.sh` (an Ingress
+can only reference a Secret in its own namespace). Browsers warn on first visit;
+that is accepted for this LAN-only PoC. Private keys are generated on AILab and
+are never committed.
+
+## Cluster dashboard
+
+Headlamp (kubernetes-sigs), one replica in the `headlamp` namespace, installed
+from the official chart pinned in `versions.env`. Login is by Kubernetes bearer
+token — the pod's own ServiceAccount deliberately has no permissions at all. See
+[`apps/headlamp/README.md`](apps/headlamp/README.md).
+
+```bash
+bash infra/ailab/scripts/install-helm.sh        # once
+bash infra/ailab/scripts/install-headlamp.sh    # idempotent
+sudo k3s kubectl -n headlamp create token headlamp-admin --duration=24h
+```
 
 
 ## Delivery
