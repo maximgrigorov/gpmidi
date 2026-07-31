@@ -566,15 +566,30 @@ class Cluster:
             self._run("delete", "pod", name, "--wait=false")
         return names
 
-    def wait_ready(self, app: str, timeout: float = 240) -> str:
+    def wait_ready(self, app: str, timeout: float = 240, exclude: tuple = ()) -> str:
+        """Wait until a pod that is *not* in `exclude` is ready.
+
+        Deletion is issued with `--wait=false`, so the old pod lingers in
+        Terminating while still reporting Ready. Without excluding it, this would
+        return the pod that is going away.
+        """
         deadline = time.time() + timeout
+        last = ""
         while time.time() < deadline:
-            ready = self.pod_field(app, "{.items[*].status.containerStatuses[*].ready}")
-            names = self.pod_names(app)
-            if names and ready and "false" not in ready.split():
-                return names[0]
+            for name in self.pod_names(app):
+                if name in exclude:
+                    continue
+                ready = self._run(
+                    "get", "pod", name,
+                    "-o", "jsonpath={.status.containerStatuses[*].ready}",
+                )
+                last = f"{name}={ready}"
+                if ready and "false" not in ready.split():
+                    return name
             time.sleep(3)
-        raise AcceptanceFailure(f"pods for app={app} did not become ready in {timeout}s")
+        raise AcceptanceFailure(
+            f"no new pod for app={app} became ready in {timeout}s (last: {last})"
+        )
 
     def exec_in(self, app: str, command: list[str], timeout: float = 60) -> str:
         names = self.pod_names(app)
@@ -1360,7 +1375,7 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
         "a job was queued at the instant the pod was disrupted",
         f"{[j[:8] for j in queued_at_snapshot]}",
     )
-    new_pod = cluster.wait_ready("reference-time")
+    new_pod = cluster.wait_ready("reference-time", exclude=tuple(old_pods))
     check.require(
         new_pod not in old_pods, "a new pod replaced it", f"{old_pods} -> {new_pod}"
     )
