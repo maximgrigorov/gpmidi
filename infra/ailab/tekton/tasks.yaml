@@ -282,10 +282,11 @@ spec:
         > /workspace/evidence/licenses-root.md
       /opt/venv-svc/bin/pip-licenses --from=mixed --format=markdown --with-urls \
         > /workspace/evidence/licenses-svc.md
-      /opt/venv-root/bin/pip-licenses --from=mixed --format=json > /tmp/licenses-root.json
-      /opt/venv-svc/bin/pip-licenses --from=mixed --format=json > /tmp/licenses-svc.json
+      # The gate resolves licenses from each environment's own metadata rather
+      # than from pip-licenses' interpretation of it; the markdown tables above are
+      # human-readable evidence only.
       /opt/venv-svc/bin/python infra/ailab/scripts/check_licenses.py \
-        /tmp/licenses-root.json /tmp/licenses-svc.json 2>&1 \
+        /opt/venv-root/bin/python /opt/venv-svc/bin/python 2>&1 \
         | tee /workspace/evidence/license-review.txt
       exit "${PIPESTATUS[0]}"
 ---
