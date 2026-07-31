@@ -382,7 +382,8 @@ spec:
       OUT=/workspace/evidence/image-$(params.name)
       mkdir -p "$OUT"
       REF="$(params.image)"
-      BY_DIGEST="${REF%%:*}@$(params.digest)"
+      # ${REF%:*} strips only the tag; ${REF%%:*} would cut at the registry port.
+      BY_DIGEST="${REF%:*}@$(params.digest)"
       # The tag and the digest must name the same image.
       TAG_DIGEST=$(crane digest --insecure "$REF")
       echo "tag digest : $TAG_DIGEST"
@@ -461,7 +462,8 @@ spec:
       #!/bin/bash
       set -euo pipefail
       OUT=/workspace/evidence/image-$(params.name)
-      BY_DIGEST="$(printf '%s' '$(params.image)' | cut -d: -f1)@$(params.digest)"
+      REF='$(params.image)'
+      BY_DIGEST="${REF%:*}@$(params.digest)"
       # The registry speaks plain HTTP, so the image is exported with crane and
       # scanned as a tarball instead of making the scanner negotiate TLS.
       TAR=/tmp/image-$(params.name).tar
@@ -517,8 +519,9 @@ spec:
       set -euo pipefail
       NS=gpmidi-ml
       DEP='$(params.deployment)'
-      REPO=$(printf '%s' '$(params.image)' | cut -d: -f1)
-      BY_DIGEST="${REPO}@$(params.digest)"
+      REF='$(params.image)'
+      # Strip only the tag: cutting at the first colon would yield the registry host.
+      BY_DIGEST="${REF%:*}@$(params.digest)"
 
       PREV=$(kubectl -n "$NS" get deploy "$DEP" \
         -o jsonpath="{.spec.template.spec.containers[?(@.name=='$(params.container)')].image}")
