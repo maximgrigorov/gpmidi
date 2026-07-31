@@ -199,7 +199,13 @@ code {{ background: #f5f5f5; padding: 1px 4px; border-radius: 3px; font-size: 0.
 
 {_render_warnings(analysis.global_warnings)}
 
+{_render_provenance(analysis)}
+
 {consensus_html}
+
+{_render_audio_evidence(analysis)}
+
+{_render_sections(analysis)}
 
 <div class="section">
 <h2>Source Measures</h2>
@@ -273,4 +279,103 @@ def _render_conflicts(conflict_regions: list[dict]) -> str:
     <thead><tr><th>Type</th><th>Sources</th><th>Detail</th></tr></thead>
     <tbody>{rows}</tbody>
     </table>
+    """
+
+
+def _render_provenance(analysis: ReferenceTimeAnalysis) -> str:
+    """Deterministic provenance, including whether source evidence was reused."""
+    p = analysis.provenance
+    reused = "yes" if p.source_evidence_reused else "no"
+    deps = "".join(
+        f"<tr><td>{_escape(k)}</td><td><code>{_escape(v)}</code></td></tr>"
+        for k, v in sorted(p.dependency_versions.items())
+    )
+    return f"""
+    <div class="section">
+        <h2>Provenance</h2>
+        <table>
+            <tr><td>Source evidence key</td><td><code>{_escape(p.source_evidence_key[:16])}</code></td></tr>
+            <tr><td>Source evidence reused</td><td><strong>{reused}</strong></td></tr>
+            <tr><td>Source evidence first computed</td><td>{_escape(p.source_evidence_created_at or 'n/a')}</td></tr>
+            <tr><td>Source MIDI extractions this run</td><td>{p.source_midi_extractions}</td></tr>
+            <tr><td>Audio extractions this run</td><td>{p.audio_extractions}</td></tr>
+            <tr><td>GP extractions this run</td><td>{p.gp_extractions}</td></tr>
+            <tr><td>GP revision number</td><td>{analysis.gp_revision_number if analysis.gp_revision_number is not None else 'n/a'}</td></tr>
+            <tr><td>Cache key</td><td><code>{_escape(analysis.cache_key[:16])}</code></td></tr>
+        </table>
+        <h3>Dependency identity</h3>
+        <table>
+        <thead><tr><th>Component</th><th>Version</th></tr></thead>
+        <tbody>{deps}</tbody>
+        </table>
+    </div>
+    """
+
+
+def _render_audio_evidence(analysis: ReferenceTimeAnalysis) -> str:
+    if not analysis.audio_evidence:
+        return (
+            "<div class='section'><h2>Audio Evidence</h2>"
+            "<p>No audio asset was analysed; mapping confidence is reduced.</p></div>"
+        )
+    rows = ""
+    for ev in analysis.audio_evidence:
+        rows += (
+            f"<tr><td><code>{_escape(ev.asset_link_id)}</code></td>"
+            f"<td>{_escape(ev.role)}</td>"
+            f"<td><code>{_escape(ev.sha256[:12])}</code></td>"
+            f"<td>{ev.duration_seconds:.3f}</td>"
+            f"<td>{ev.decoded_seconds:.3f}</td>"
+            f"<td>{ev.sample_rate}</td>"
+            f"<td>{ev.channels}</td>"
+            f"<td>{ev.onset_count}</td>"
+            f"<td>{len(ev.downbeat_candidates)}</td>"
+            f"<td>{'yes' if ev.truncated else 'no'}</td>"
+            f"<td>{_render_warnings(ev.warnings)}</td></tr>"
+        )
+    return f"""
+    <div class="section">
+    <h2>Audio Evidence</h2>
+    <table>
+    <thead><tr><th>Link</th><th>Role</th><th>SHA-256</th><th>Duration (s)</th>
+    <th>Decoded (s)</th><th>Rate</th><th>Ch</th><th>Onsets</th>
+    <th>Downbeats</th><th>Truncated</th><th>Warnings</th></tr></thead>
+    <tbody>{rows}</tbody>
+    </table>
+    </div>
+    """
+
+
+def _render_sections(analysis: ReferenceTimeAnalysis) -> str:
+    if not analysis.structure_sections and not analysis.anchored_source_indices:
+        return ""
+    section_rows = "".join(
+        f"<tr><td>{_escape(s.label)}</td>"
+        f"<td>{s.source_measure_index if s.source_measure_index is not None else '—'}</td>"
+        f"<td>{s.gp_measure_index if s.gp_measure_index is not None else '—'}</td></tr>"
+        for s in analysis.structure_sections
+    )
+    anchors = ", ".join(str(i) for i in analysis.anchored_source_indices) or "none"
+    marker_rows = "".join(
+        f"<tr><td>{m.measure_number}</td><td>{_escape(m.marker_text or '')}</td>"
+        f"<td>{_escape(m.section_text or '')}</td></tr>"
+        for m in analysis.gp_measures
+        if m.marker_text or m.section_text
+    )
+    return f"""
+    <div class="section">
+    <h2>Structure and Markers</h2>
+    <p>Structure document version: <code>{_escape(analysis.structure_version or 'none')}</code></p>
+    <p>Hard-anchored source measures: <code>{_escape(anchors)}</code></p>
+    <h3>Declared sections</h3>
+    <table>
+    <thead><tr><th>Label</th><th>Source measure</th><th>GP measure</th></tr></thead>
+    <tbody>{section_rows or '<tr><td colspan="3">none</td></tr>'}</tbody>
+    </table>
+    <h3>GP markers / section text</h3>
+    <table>
+    <thead><tr><th>GP measure</th><th>Marker</th><th>Section</th></tr></thead>
+    <tbody>{marker_rows or '<tr><td colspan="3">none</td></tr>'}</tbody>
+    </table>
+    </div>
     """
