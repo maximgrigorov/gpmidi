@@ -616,6 +616,119 @@ per-run evidence for this branch is recorded below and archived on the
 `tekton-evidence` PVC.
 
 <!-- EVIDENCE-START -->
-*Pending: filled from the authoritative PipelineRun, the negative run and the
-rollback test.*
+### Authoritative PipelineRun
+
+| | |
+|---|---|
+| PipelineRun | `gpmidi-ci-manual-6svjg` — **Succeeded**, 20/20 tasks |
+| Source commit | `1485ed928d1363ada70b0e5c3f9067d638475dea` (checkout verified against the requested SHA) |
+| Trigger label | `gpmidi.ailab/trigger=manual-candidate` — a controlled candidate validation, not a main push |
+| CI gate image | `gpmidi-ci@sha256:e9055e085be25635dd1ea88d753fa1eee38f78d7ee2e6581182c710d30f03363` (built by `gpmidi-ci-image-t2l9b`) |
+
+TaskRuns, in execution order, all `True/Succeeded`:
+
+`clone`, `pvc-before`, `test-gates`, `static-gates`, `security-gates`,
+`build-asset-api`, `audit-asset-api`, `deploy-asset-api`, `build-reference-time`,
+`audit-reference-time`, `deploy-reference-time`, `build-gpmidi-web`,
+`audit-gpmidi-web`, `deploy-gpmidi-web`, `pvc-after`, `smoke-asset-api`,
+`smoke-reference-time`, `smoke-gpmidi-web`, `live-e2e`, `publish-evidence`.
+
+### Gate output
+
+| Gate | Result |
+|---|---|
+| `python -m pytest -q` (root) | **112 passed, 27 skipped** |
+| `services/reference_time` | **198 passed** |
+| `services/asset_api` | **81 passed** |
+| `python -m ruff check .` | **All checks passed!** |
+| `git diff --check origin/main...HEAD` | clean |
+| `bash -n infra/ailab/scripts/*.sh` | 9 scripts, clean |
+| ShellCheck 0.11.0 | clean |
+| `kubectl kustomize infra/ailab` | rendered |
+| Kubeconform 0.7.0 `-strict` | **69 resources — Valid 51, Invalid 0, Errors 0, Skipped 18** (unpublished CRD schemas) |
+| Manifest policy | 4 workloads, 1 CronJob, 9 NetworkPolicies — all pass |
+| gitleaks 8.24.3 | 84 commits scanned, **no leaks found** |
+| Dependency + license review | **72 dependencies**, all permissive or explicitly excepted |
+| trivy 0.72.0 | full report archived per image; **no fixable CRITICAL** |
+
+The 27 skips are `test_regression.py` cases needing private `.gp` samples that are
+not in the repository. The root count is 112 in CI versus 109 on the ARM64
+workstation: the three `tuttut` tests pass in the CI image and fail locally only
+because tuttut is not installed there.
+
+### Images, digests and live pods
+
+| Service | Immutable tag | Pushed digest | Live pod `imageID` |
+|---|---|---|---|
+| asset-api | `asset-api:1485ed92…` | `sha256:9e7c10a66c11e1996d9e94d2146df77e36b3b308bee65ef75351596736cd8127` | identical |
+| reference-time | `reference-time:1485ed92…` | `sha256:9bb4347eea5a69473d64a6b8834d1bf4458e1fcd72494b8045920131b038cf2b` | identical |
+| gpmidi-web | `gpmidi-web:1485ed92…` | `sha256:a33b33b69491ca59998d0b1fe79d9e300dd0fae20217cb3ed665b0c3773f9002` | identical |
+
+Every `deploy-by-digest` task verified `imageID` against the published digest and
+would have failed otherwise. Deployment generation/revision after the run:
+asset-api 24/20, reference-time 24/20, gpmidi-web 12/8, each annotated with
+`gpmidi.ailab/source-commit` and `gpmidi.ailab/image-digest`.
+
+Per-image audit: tag digest equals build digest; `linux/amd64`; effective user
+`appuser` (services) and `gpmidi` (converter), never root; no VCS or credential
+material; no test or infrastructure content under `app/`.
+
+Provenance and full reports are archived at
+`/data/k3s-storage/pvc-ff222482-…_tekton-evidence/manual-candidate-1485ed92…/`
+with `SHA256SUMS`, alongside `provenance-<service>.txt`, `image-<service>/`
+(config, manifest, file list, trivy JSON and table), every gate log, `pvc-*.json`
+and `e2e-evidence.json`.
+
+### Live acceptance — 14/14, 206 recorded observations
+
+Project `fc207cd7-72d5-4dfe-95dc-01cd78b4b6aa`, run id `cc409d0b9b`.
+
+| # | Decisive evidence |
+|---|---|
+| 1 | 8 GP measures, all 4/4 with notes, marker `Chorus` at index 4, repeat-open at 2, repeat-close ×2 at 5 |
+| 2 | `agreed` on two sources whose raw tempo-event counts differ; measure boundaries and pre-roll aligned; reversed request order is an idempotent hit on the same analysis |
+| 3 | `conflict` with **4 conflict regions**, at least one time-localized; global confidence **0.125 vs 0.451**; per-mapping confidence reduced with `consensus_conflict_region` |
+| 4 | in-phase clicks corroborate **7** source measures, clicks shifted half a bar corroborate **0**; confidence **0.4925 vs 0.4513** |
+| 5 | source 1 locked to GP 5 and the section-derived anchor 0→0 honoured, `anchored_source_indices=[0,1]`; unanchored mapping differs; `source_seconds=5.0` resolves to measure 2; sections and markers present in JSON and HTML |
+| 6 | `structure_non_monotonic_anchors`, no report published; wrong claimed digest → `gp_revision_mismatch`; wrong role → `asset_role_invalid`, both before admission |
+| 7 | **5 source-gap** records (8 source vs 3 GP) and **6 gp-gap** records (2 source vs 8 GP), no repeat emitted without repeat evidence |
+| 8 | 8 simultaneous requests on a fresh identity → **1 admitted job**, all 8 resolved to one analysis, exactly one new result row, then a warm hit |
+| 9 | identical `source_evidence_key` `93bf571d…` across cache keys `7fd02287…` and `77afa992…`; **0** source-MIDI and **0** audio re-extractions, 1 GP extraction; source measures byte-identical, mapping recomputed, 6-measure grid |
+| 10 | 2 queued and 2 running jobs at the instant of deletion; **all 4** recovered `interrupted`/`process_restart`; new pod `reference-time-599f9bfc68-2f9hr`; a previously published report survived byte-identically |
+| 11 | canonical content `sha256:6913db3686fd9d708d47d397f4c011116ac2b21985d9800ecc69ff8edb50b0ff`, HTML `sha256:efb3755891939ed6…` excluding its render timestamp; no NaN/Infinity, no path or trace leakage |
+| 12 | `https://192.168.30.2/` with `Host: gpmidi.ailab.local` — health, home, Projects list, Project page rendered directly, real form submit, UI status endpoint, both proxied reports; analysis `1d3a5355-4fcd-41bc-b4c5-ce7c5c643be9` |
+| 13 | every source asset re-downloaded and re-hashed to its upload digest; no audio/MIDI/GP file and no leftover download scope on UI or analyzer storage |
+| 14 | active GPU profile `['llama-server']` before and after; llama.cpp `/health` 200; homepage 200; Gitea 200; 14 projects intact |
+
+### Negative-gate proof
+
+`gpmidi-ci-negative-h4h2l` — **Failed** at `test-gates` with
+`AssertionError: deliberate failure injected by inject-gate-failure`
+(`1 failed, 112 passed, 27 skipped`). `static-gates` and `security-gates` were
+skipped; the pipeline contains no build or deploy task at all.
+
+State before and after are byte-identical: Deployment generation 24/24/12,
+revision 20/20/8, digests unchanged, pod UIDs
+`155f82b6…`/`0cb4a7ea…`/`5c329099…` unchanged, PVC UIDs `385cd0c7…`,
+`ee6ceb47…`, `ff222482…` unchanged, 14 projects. The injected failure existed only
+in the ephemeral workspace.
+
+### Rollback
+
+Rollback target `reference-time:30138db3…`, confirmed present in the durable
+registry and resolved to `sha256:ce2398f506b8bc8e94ab716dc7ae3ad08a732cd4db9a843a3a6c5dbacb8bdefe`.
+
+1. Rolled back by digest → pod `reference-time-7784ffbf9d-55cch`, `imageID` equal
+   to the rollback digest, `readyz` 200, **14 projects and 12 analyses intact**.
+2. Restored the candidate digest → pod `reference-time-599f9bfc68-4rwpf`, `imageID`
+   equal to the candidate digest, 14 projects and 12 analyses still intact.
+
+PVC UIDs and PersistentVolumes were unchanged throughout. The `tekton-deploy` Role
+has no delete verb, so no rollback can remove Project or analysis data.
+
+### Declared state reproduces the live state
+
+`infra/ailab/apps/*/deployment.yaml` now pin the three reviewed digests, so
+`kubectl apply -k infra/ailab` reproduces exactly the verified deployment.
+
 <!-- EVIDENCE-END -->

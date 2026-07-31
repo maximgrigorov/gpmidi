@@ -1,7 +1,7 @@
 # Project status — Reference-Guided MIDI Restoration
 
 **Last independent review:** 2026-07-31
-**Current milestone:** Phase 1 accepted; Phase 2 is the next implementation phase.
+**Current milestone:** Phase 1 accepted. Phase 2 implemented and re-verified on its feature branch after a clean-context audit; **not merged**. Phase 3 not started.
 
 ## Completed
 
@@ -99,13 +99,51 @@ Full detail, including the pinned toolchain, scoring model and cache contract:
 `docs/Phase_2_Reference_Time_Vertical_Slice.md`.
 
 <!-- PHASE2-EVIDENCE-START -->
-*Verified delivery evidence pending: filled from the authoritative PipelineRun,
-the negative run and the rollback test.*
+**Authoritative run:** PipelineRun `gpmidi-ci-manual-6svjg`, **Succeeded**, 20/20
+tasks, from commit `1485ed928d1363ada70b0e5c3f9067d638475dea` with the checkout
+verified against the requested SHA.
+
+| Gate | Result |
+|---|---|
+| root `python -m pytest -q` | 112 passed, 27 skipped |
+| `services/reference_time` | 198 passed |
+| `services/asset_api` | 81 passed |
+| `python -m ruff check .` | All checks passed |
+| `git diff --check origin/main...HEAD` | clean |
+| `bash -n` + ShellCheck 0.11.0 | clean |
+| Kubeconform 0.7.0 `-strict` | 69 resources, 51 valid, 0 invalid, 0 errors, 18 skipped |
+| Manifest policy | 4 workloads, 1 CronJob, 9 NetworkPolicies — pass |
+| gitleaks 8.24.3 | 84 commits, no leaks |
+| Dependency + license review | 72 dependencies, all permissive or declared |
+| trivy 0.72.0 | no fixable CRITICAL in any image |
+| Live acceptance | **14/14 scenarios, 206 recorded observations** |
+
+Deployed by immutable digest, each verified equal to the live pod `imageID`:
+
+- `asset-api@sha256:9e7c10a66c11e1996d9e94d2146df77e36b3b308bee65ef75351596736cd8127`
+- `reference-time@sha256:9bb4347eea5a69473d64a6b8834d1bf4458e1fcd72494b8045920131b038cf2b`
+- `gpmidi-web@sha256:a33b33b69491ca59998d0b1fe79d9e300dd0fae20217cb3ed665b0c3773f9002`
+
+**Negative proof:** `gpmidi-ci-negative-h4h2l` failed at `test-gates`; downstream
+gates skipped; Deployment generation, revision, digest, pod UIDs, PVC identities
+and project count all unchanged.
+
+**Rollback:** rolled `reference-time` back to
+`sha256:ce2398f506b8bc8e94ab716dc7ae3ad08a732cd4db9a843a3a6c5dbacb8bdefe` and
+forward again, each time proving the live pod `imageID` and that 14 projects and 12
+analyses survived. PVC UIDs unchanged.
+
+**GPU/LLM:** active profile `['llama-server']` before and after; llama.cpp
+`/health` 200; homepage and Gitea 200.
+
+Full evidence, including per-scenario observations and archived gate logs:
+`docs/Phase_2_Reference_Time_Vertical_Slice.md` section 15, and the
+`tekton-evidence` PVC bundle `manual-candidate-1485ed92…` with `SHA256SUMS`.
 <!-- PHASE2-EVIDENCE-END -->
 
 ## Next
 
-Phase 2 acceptance review pending. Phase 3 (MIDI restoration using measure mappings) not started.
+Phase 2 acceptance review. Phase 3 (MIDI restoration using the measure mappings) not started.
 
 ## Operational state
 
