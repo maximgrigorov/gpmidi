@@ -61,7 +61,7 @@ class AnalysisDB:
     def __init__(self, db_path: str):
         self._db_path = db_path
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        self._conn = sqlite3.connect(db_path, timeout=30)
+        self._conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=30000")
         self._conn.execute("PRAGMA foreign_keys=ON")
