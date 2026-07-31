@@ -36,22 +36,13 @@ spec:
   workspaces:
   - name: source
   steps:
-  - name: install-deps
-    image: python:3.12-slim
-    workingDir: /workspace/source
-    script: |
-      #!/bin/bash
-      set -eu
-      pip install --quiet -r requirements.txt
-      pip install --quiet ruff pytest
-      cd services/reference_time && pip install --quiet -r requirements.txt
-      cd ../asset_api && pip install --quiet -r requirements.txt
   - name: root-tests
     image: python:3.12-slim
     workingDir: /workspace/source
     script: |
       #!/bin/bash
       set -eu
+      pip install --quiet setuptools wheel 2>/dev/null
       pip install --quiet -r requirements.txt ruff pytest 2>/dev/null
       python -m pytest -q --tb=short 2>&1
   - name: service-tests
@@ -60,6 +51,7 @@ spec:
     script: |
       #!/bin/bash
       set -eu
+      pip install --quiet setuptools wheel 2>/dev/null
       pip install --quiet -r requirements.txt 2>/dev/null
       pip install --quiet -r services/reference_time/requirements.txt 2>/dev/null
       pip install --quiet pytest ruff 2>/dev/null
@@ -163,7 +155,7 @@ spec:
   workspaces: []
   steps:
   - name: patch-and-rollout
-    image: bitnami/kubectl:1.32
+    image: bitnami/kubectl:1.32.4
     script: |
       #!/bin/bash
       set -eu
@@ -223,7 +215,7 @@ spec:
   - name: source
   steps:
   - name: render
-    image: bitnami/kubectl:1.32
+    image: bitnami/kubectl:1.32.4
     workingDir: /workspace/source
     script: |
       #!/bin/bash
