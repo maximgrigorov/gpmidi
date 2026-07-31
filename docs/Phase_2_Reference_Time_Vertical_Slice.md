@@ -1,8 +1,7 @@
 # Phase 2 — Reference-Time Vertical Slice
 
 **Branch:** `feat/reference-time-vertical-slice`
-**Source SHA:** `86f46b5a5f18` (tip at time of writing)
-**Status:** Feature-complete on branch; **do not merge to main; Phase 3 not started.**
+**Status:** Acceptance fixes applied on branch; **do not merge to main; Phase 3 not started.**
 
 ## 1. Architecture and deviations
 
@@ -21,22 +20,23 @@ Both services run in the `gpmidi-ml` namespace on AILab (single node, k3s
 v1.36.2+k3s1). The reference-time service is an additive, independently
 testable microservice with no changes to existing conversion logic.
 
-### Deviations from task specification
+### Implementation status
 
 | Requirement | Status | Notes |
 |---|---|---|
-| Tekton CI/CD pipeline | **Not implemented** | AILab lacks Tekton. Images are built with `docker build` on AILab, imported via `k3s ctr images import`. |
-| Durable OCI registry | **Not implemented** | No registry server; images are locally imported to containerd. |
-| Gitea webhook trigger | **Not implemented** | Build is manual (script-driven). |
-| GitOps / Flux CD | **Not implemented** | Placeholder exists; not bootstrapped. |
-| ARM64 prohibition | **Complied** | All images built natively on AILab (linux/amd64). |
-| Audio evidence module | Implemented | Lightweight onset/downbeat extraction (bounded, no ML). |
-| Structure JSON input | Implemented | Optional `structure_link_id` in API. |
+| Tekton CI/CD pipeline | **Implemented** | Tekton Pipelines v0.76.1 + Triggers v0.30.1; fail-closed 9-task pipeline (clone, test-lint, kustomize-validate, build×2, deploy×2, smoke×2). |
+| Durable OCI registry | **Implemented** | Gitea OCI registry at `192.168.30.2:3300`; images tagged by commit SHA + `:latest`. |
+| Gitea webhook trigger | **Implemented** | EventListener with CEL interceptor filtering `refs/heads/main` pushes. |
+| Negative gate proof | **Verified** | `negative-gate-xlk95`: test-lint failed → 6 downstream tasks skipped. |
+| ARM64 prohibition | **Complied** | All images built by Kaniko on AILab (linux/amd64). |
+| Audio evidence module | **Implemented** | Onset/downbeat extraction via spectral flux; integrated into alignment scoring. |
+| Structure JSON input | **Implemented** | Anchor constraints with monotonicity enforcement, integrated into DP alignment. |
+| Note density scoring | **Implemented** | Per-measure note density computed and used in alignment confidence. |
+| Flask Project UI | **Implemented** | GP/MIDI/audio/structure selection, analysis launch, job/result display, HTML/JSON report links. |
+| Rollback instructions | **Documented** | `infra/ailab/tekton/ROLLBACK.md` with SHA-tagged registry images. |
+| Workspace pruning | **Implemented** | CronJob (`tekton-prune`) prunes old PipelineRuns and orphaned PVCs daily. |
 
-The task specification required Tekton-based CI/CD as a prerequisite. This was
-not feasible because AILab does not have Tekton installed and bootstrapping it
-was not in scope. The manual build-import-deploy workflow is documented and
-reproducible via `infra/ailab/scripts/build-import-reference-time.sh`.
+The deprecated manual build-import scripts (`infra/ailab/scripts/build-import-*.sh`) are retained only for emergency offline recovery.
 
 ## 2. Source/GP time-grid model
 
@@ -131,13 +131,14 @@ Confidence components (sum to 1.0):
 
 | Component | Weight |
 |---|---|
-| Time-signature match | 0.3 |
-| Duration similarity | 0.2 |
-| Marker alignment | 0.2 |
-| Monotonicity | 0.2 |
-| Note density | 0.1 |
+| Time-signature match | 0.25 |
+| Duration similarity | 0.25 |
+| Marker alignment | 0.15 |
+| Monotonicity | 0.15 |
+| Note density | 0.10 |
+| Audio corroboration | 0.10 |
 
-Mapping types: `matched`, `gap_source`, `gap_gp`, `ambiguous`.
+Mapping types: `one_to_one`, `source_gap`, `gp_gap`, `repeat`, `ambiguous`.
 
 Monotonicity is enforced: if source measure `i` maps to GP measure `j`, then
 source measure `i+1` maps to GP measure `≥ j`. User anchors override DP scoring.

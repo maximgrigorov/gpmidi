@@ -64,37 +64,46 @@ Therefore the **first prerequisite in the next Cursor task** is to establish AIL
 ### Phase 2 — Reference-Time Vertical Slice (feature branch)
 
 **Branch:** `feat/reference-time-vertical-slice`
-**Status:** Feature-complete on branch, not merged to main.
+**Status:** Acceptance fixes applied on branch; not merged to main.
 
 Implemented on branch:
 
-- reference-time analysis service (`services/reference_time/`);
-- MIDI tempo-map extraction, multi-MIDI consensus, GP grid extraction;
-- dynamic-programming measure alignment with configurable scoring;
+- reference-time analysis service (`services/reference_time/`, version 0.3.0);
+- MIDI tempo-map extraction with note-density computation per measure;
+- multi-MIDI PPQ/time-normalized consensus with regional conflict detection;
+- GP grid extraction with markers, repeats, alternate endings;
+- DP measure alignment with duration, density, audio, repeat, marker, anchor scoring;
+- audio evidence extraction (onset/downbeat via spectral flux);
+- structure JSON parsing with monotonic anchor constraints;
 - JSON and HTML report generation (XSS-safe);
-- SQLite persistence with WAL mode, cache-key invalidation;
+- SQLite persistence with WAL mode, thread-safe writes, cache-key invalidation;
 - FastAPI with background job processing (ThreadPoolExecutor);
+- startup recovery for orphaned queued/running jobs;
+- Flask Project UI: GP/MIDI/audio/structure selection, analyze, job/result display;
 - K8s deployment, service, ingress, NetworkPolicy, PVC;
-- 54 unit/integration tests passing;
-- live E2E test on AILab confirmed: analysis, reports, cache hit.
+- Tekton CI/CD: 9-task pipeline (clone, test-lint, kustomize-validate, build×2, deploy×2, smoke×2);
+- Gitea OCI registry for durable image storage;
+- Gitea webhook → EventListener with CEL interceptor;
+- fail-closed negative gate proof (negative-gate-xlk95);
+- workspace pruning CronJob;
+- rollback instructions with SHA-tagged registry images;
+- 99 service tests + 255 root tests passing; ruff clean.
 
-Not implemented (deviations from task spec):
-
-- Tekton CI/CD pipeline (AILab lacks Tekton);
-- durable OCI registry (local containerd import);
-- Gitea webhook trigger (manual build);
-- GitOps / Flux CD (placeholder only).
-
-Deployed images:
-- `asset-api:a87e8fc914ef` (includes GP5 signature fix)
-- `reference-time:86f46b5a5f18`
+Deployed images (from Tekton pipeline, SHA `65fcc60c`):
+- `asset-api@sha256:dc3343e7ea3cd15d74cea5b3f90da5c4398e62686440a40586cd5f2a6a62ff85`
+- `reference-time@sha256:67e3fcc8388919f19673814469ec6f40032df8ac3062bb97866fd7e8af68ed96`
 
 Report: `docs/Phase_2_Reference_Time_Vertical_Slice.md`
 
 ## Next
 
-Phase 3 — MIDI restoration using Phase 2 measure mappings.
+Phase 2 acceptance review pending. Phase 3 (MIDI restoration using measure mappings) not started.
 
 ## Operational state
 
-AILab was intentionally powered off after all checks so it would not make noise overnight. Wake it before the next live task. Never assume SSH or services are ready immediately after Wake-on-LAN; wait for homepage, Gitea, k3s ingress, and required API health.
+AILab services are running. Tekton CI/CD pipeline is active; pushes to `main` on Gitea trigger automated build/test/deploy.
+
+Tekton versions:
+- Tekton Pipelines: v0.76.1
+- Tekton Triggers: v0.30.1
+- Kaniko: v1.23.2

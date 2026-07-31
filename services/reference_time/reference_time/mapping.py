@@ -117,7 +117,7 @@ def _density_score(
     params: dict,
 ) -> float:
     """Score nudge based on note density — denser measures get a small bonus."""
-    density = getattr(src, "note_density", 0.0) or 0.0
+    density = src.note_density or 0.0
     if density <= 0:
         return 0.0
     weight = params.get("density_weight", 1.0)
@@ -267,7 +267,7 @@ def _compute_confidence(
     confidence += params["confidence_monotonic"]
 
     # Density component
-    density = getattr(src, "note_density", 0.0) or 0.0
+    density = src.note_density or 0.0
     if density > 0:
         confidence += params["confidence_density"]
 
@@ -495,7 +495,7 @@ def align_measures(
                 reason_codes.append("audio_confirmed")
 
             # Density evidence
-            density = getattr(src, "note_density", 0.0) or 0.0
+            density = src.note_density or 0.0
             if density > 0:
                 evidence.append(f"density:{density:.1f}")
 

@@ -6,3 +6,4 @@ resources:
 - pipeline.yaml
 - triggers.yaml
 - networkpolicy.yaml
+- pruning.yaml

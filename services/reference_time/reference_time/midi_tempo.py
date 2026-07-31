@@ -246,13 +246,38 @@ def extract_tempo_evidence(
     )
 
 
+def _count_notes_in_range(
+    midi_bytes: bytes,
+    start_tick: int,
+    end_tick: int,
+) -> int:
+    """Count note_on events in [start_tick, end_tick) across all tracks."""
+    import io
+    try:
+        midi_file = mido.MidiFile(file=io.BytesIO(midi_bytes))
+    except Exception:
+        return 0
+    count = 0
+    for track in midi_file.tracks:
+        abs_tick = 0
+        for msg in track:
+            abs_tick += msg.time
+            if abs_tick >= end_tick:
+                break
+            if abs_tick >= start_tick and msg.type == "note_on" and msg.velocity > 0:
+                count += 1
+    return count
+
+
 def build_source_measures(
     evidence: SourceTempoEvidence,
+    midi_bytes: bytes | None = None,
 ) -> list[SourceMeasure]:
     """Build measure boundaries from tempo/time-signature evidence.
 
     Handles time-signature changes on measure boundaries. For mid-measure
     changes, marks the affected measure as ambiguous.
+    If midi_bytes is provided, note_density is computed per measure.
     """
     ppq = evidence.midi_ppq
     duration_ticks = evidence.duration_ticks
@@ -324,6 +349,12 @@ def build_source_measures(
         if measure_warnings:
             confidence = 0.5
 
+        measure_duration = secs_end - secs_start
+        note_density = 0.0
+        if midi_bytes is not None and measure_duration > 0:
+            note_count = _count_notes_in_range(midi_bytes, current_tick, end_tick)
+            note_density = note_count / measure_duration
+
         measures.append(SourceMeasure(
             index=measure_idx,
             tick_start=current_tick,
@@ -333,6 +364,7 @@ def build_source_measures(
             numerator=num,
             denominator=den,
             tempo_bpm=current_bpm,
+            note_density=note_density,
             confidence=confidence,
             warnings=measure_warnings,
         ))

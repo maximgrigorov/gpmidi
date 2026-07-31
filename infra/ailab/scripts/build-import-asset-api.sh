@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build the asset-api container image and import it into k3s containerd.
-# Run on AILab host. Uses git SHA as tag; no registry push needed.
+# DEPRECATED: This manual build-import workflow is superseded by the Tekton
+# CI/CD pipeline (infra/ailab/tekton/). Images are now built by Kaniko inside
+# the pipeline and pushed to the Gitea OCI registry. Use this script only for
+# emergency offline recovery when the pipeline is unavailable.
+#
+# Original purpose: build the asset-api container image and import it into
+# k3s containerd. Run on AILab host.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"

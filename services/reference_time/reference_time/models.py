@@ -150,13 +150,14 @@ class SourceMeasure(BaseModel):
     numerator: int
     denominator: int
     tempo_bpm: float
+    note_density: float = 0.0
     audio_downbeat_evidence: float | None = None
     confidence: float
     warnings: list[Warning] = []
 
     @field_validator(
         "seconds_start", "seconds_end", "tempo_bpm",
-        "audio_downbeat_evidence", "confidence",
+        "note_density", "audio_downbeat_evidence", "confidence",
     )
     @classmethod
     def _finite(cls, v: float | None) -> float | None:

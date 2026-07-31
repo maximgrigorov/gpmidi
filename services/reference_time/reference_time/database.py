@@ -346,14 +346,18 @@ class AnalysisDB:
         cache_key: str,
         result_json: str,
     ):
+        """Store analysis result. If cache_key already exists, keep the
+        existing row (first-writer-wins) to avoid identity corruption.
+        """
         now = datetime.now(timezone.utc).isoformat()
         with self._write_lock:
             conn = self._connect()
             try:
                 conn.execute(
-                    """INSERT OR REPLACE INTO analysis_results
+                    """INSERT INTO analysis_results
                        (analysis_id, project_id, cache_key, result_json, created_at)
-                       VALUES (?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(cache_key) DO NOTHING""",
                     (analysis_id, project_id, cache_key, result_json, now),
                 )
                 conn.commit()

@@ -220,9 +220,11 @@ def _run_analysis(
         db.update_job_status(job_id, "running", "midi_extract", "Extracting MIDI tempo maps")
 
         source_evidence_list = []
+        midi_bytes_by_link: dict[str, bytes] = {}
         for mid_link_id in request.source_midi_link_ids:
             mid_info = asset_map[mid_link_id]
             mid_bytes = _fetch_asset_bytes(project_id, mid_link_id)
+            midi_bytes_by_link[mid_link_id] = mid_bytes
             try:
                 evidence = extract_tempo_evidence(
                     mid_bytes,
@@ -259,7 +261,8 @@ def _run_analysis(
             primary_evidence = source_evidence_list[0]
 
         db.update_job_status(job_id, "running", "measures", "Building source measures")
-        source_measures = build_source_measures(primary_evidence)
+        primary_midi_bytes = midi_bytes_by_link.get(primary_evidence.asset_link_id)
+        source_measures = build_source_measures(primary_evidence, midi_bytes=primary_midi_bytes)
 
         # --- Audio evidence (optional, degrades safely) ---
         audio_evidence_list = []
