@@ -38,9 +38,11 @@ spec:
       REV='$(params.revision)'
       EXPECTED='$(params.expected-sha)'
 
-      # A dirty workspace from a previous run must never influence a build.
-      rm -rf /workspace/source
+      # A dirty workspace from a previous run must never influence a build. The
+      # directory itself is the workspace mount point, so clear its contents
+      # rather than removing it.
       mkdir -p /workspace/source
+      find /workspace/source -mindepth 1 -maxdepth 1 -exec rm -rf {} +
       cd /workspace/source
 
       git init -q
