@@ -11,5 +11,7 @@ numpy==1.23.2
 fpdf2>=2.7
 pypdf>=4.0
 pytest>=8.0
-setuptools>=68  # provides pkg_resources for tuttut 0.0.6 (installed --no-deps)
+# pretty_midi 0.2.9 (required by tuttut 0.0.6) still imports pkg_resources;
+# setuptools 81+ removed it. Keep the compatibility provider reproducible.
+setuptools>=68,<81
 requests>=2.31
