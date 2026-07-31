@@ -418,11 +418,13 @@ spec:
         grep -E "$LEAK_RE" "$OUT/files.txt" >&2
         exit 1
       fi
-      # Test suites and infrastructure definitions have no business in a runtime
-      # image; catching them here keeps the delivered surface small.
-      STRAY_RE='(^|/)tests?/|(^|/)test_[^/]*\.py$|(^|/)e2e/|(^|/)infra/|(^|/)docs/'
+      # Test suites and infrastructure definitions have no business in the
+      # application directory. Scoped to app/ on purpose: third-party packages
+      # under site-packages legitimately ship their own tests/ and docs/, and
+      # policing those would be a false positive, not a finding.
+      STRAY_RE='^app/(tests?/|e2e/|infra/|docs/|test_[^/]*\.py$)'
       if grep -Eq "$STRAY_RE" "$OUT/files.txt"; then
-        echo "ERROR: image contains test or infrastructure content" >&2
+        echo "ERROR: image ships test or infrastructure content in app/" >&2
         grep -E "$STRAY_RE" "$OUT/files.txt" | head -20 >&2
         exit 1
       fi
