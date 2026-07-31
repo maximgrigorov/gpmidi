@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: reference-time
-        image: reference-time:f8c69ef8e2a4
+        image: reference-time:9bcfb71dbca7
         imagePullPolicy: Never
         ports:
         - containerPort: 8000
