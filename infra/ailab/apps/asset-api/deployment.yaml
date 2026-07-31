@@ -28,12 +28,12 @@ spec:
       containers:
       - name: asset-api
         # Reviewed immutable digest, built from commit
-        # 1485ed928d1363ada70b0e5c3f9067d638475dea by PipelineRun
-        # gpmidi-ci-manual-6svjg. `kubectl apply -k infra/ailab` therefore
+        # 9ebe854f353b16b7d37e7f246f49dff17e443dc7 by PipelineRun
+        # gpmidi-ci-manual-bmc96. `kubectl apply -k infra/ailab` therefore
         # reproduces exactly the state that was verified. The pipeline
         # patches this to the digest it builds and then fails unless the
         # live pod imageID matches.
-        image: 192.168.30.2:3300/mgrigorov/asset-api@sha256:9e7c10a66c11e1996d9e94d2146df77e36b3b308bee65ef75351596736cd8127
+        image: 192.168.30.2:3300/mgrigorov/asset-api@sha256:f61d50d0156fce087ee9d0a57397cbcc60bee839b7da9212f3d37cabb4e2fc80
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000

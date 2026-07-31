@@ -28,12 +28,12 @@ spec:
       containers:
       - name: reference-time
         # Reviewed immutable digest, built from commit
-        # 1485ed928d1363ada70b0e5c3f9067d638475dea by PipelineRun
-        # gpmidi-ci-manual-6svjg. `kubectl apply -k infra/ailab` therefore
+        # 9ebe854f353b16b7d37e7f246f49dff17e443dc7 by PipelineRun
+        # gpmidi-ci-manual-bmc96. `kubectl apply -k infra/ailab` therefore
         # reproduces exactly the state that was verified. The pipeline
         # patches this to the digest it builds and then fails unless the
         # live pod imageID matches.
-        image: 192.168.30.2:3300/mgrigorov/reference-time@sha256:9bb4347eea5a69473d64a6b8834d1bf4458e1fcd72494b8045920131b038cf2b
+        image: 192.168.30.2:3300/mgrigorov/reference-time@sha256:20b5ced49d6e586ec7e611f8031aa94ab8fb92c999528aa5a48e17792c174def
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000

@@ -620,8 +620,8 @@ per-run evidence for this branch is recorded below and archived on the
 
 | | |
 |---|---|
-| PipelineRun | `gpmidi-ci-manual-6svjg` — **Succeeded**, 20/20 tasks |
-| Source commit | `1485ed928d1363ada70b0e5c3f9067d638475dea` (checkout verified against the requested SHA) |
+| PipelineRun | `gpmidi-ci-manual-bmc96` — **Succeeded**, 20/20 tasks |
+| Source commit | `9ebe854f353b16b7d37e7f246f49dff17e443dc7` (checkout verified against the requested SHA) |
 | Trigger label | `gpmidi.ailab/trigger=manual-candidate` — a controlled candidate validation, not a main push |
 | CI gate image | `gpmidi-ci@sha256:e9055e085be25635dd1ea88d753fa1eee38f78d7ee2e6581182c710d30f03363` (built by `gpmidi-ci-image-t2l9b`) |
 
@@ -650,6 +650,7 @@ TaskRuns, in execution order, all `True/Succeeded`:
 | gitleaks 8.24.3 | 84 commits scanned, **no leaks found** |
 | Dependency + license review | **72 dependencies**, all permissive or explicitly excepted |
 | trivy 0.72.0 | full report archived per image; **no fixable CRITICAL** |
+| PVC persistence | 2 claims — UID, PersistentVolume and capacity unchanged |
 
 The 27 skips are `test_regression.py` cases needing private `.gp` samples that are
 not in the repository. The root count is 112 in CI versus 109 on the ARM64
@@ -660,13 +661,13 @@ because tuttut is not installed there.
 
 | Service | Immutable tag | Pushed digest | Live pod `imageID` |
 |---|---|---|---|
-| asset-api | `asset-api:1485ed92…` | `sha256:9e7c10a66c11e1996d9e94d2146df77e36b3b308bee65ef75351596736cd8127` | identical |
-| reference-time | `reference-time:1485ed92…` | `sha256:9bb4347eea5a69473d64a6b8834d1bf4458e1fcd72494b8045920131b038cf2b` | identical |
-| gpmidi-web | `gpmidi-web:1485ed92…` | `sha256:a33b33b69491ca59998d0b1fe79d9e300dd0fae20217cb3ed665b0c3773f9002` | identical |
+| asset-api | `asset-api:9ebe854f…` | `sha256:f61d50d0156fce087ee9d0a57397cbcc60bee839b7da9212f3d37cabb4e2fc80` | identical |
+| reference-time | `reference-time:9ebe854f…` | `sha256:20b5ced49d6e586ec7e611f8031aa94ab8fb92c999528aa5a48e17792c174def` | identical |
+| gpmidi-web | `gpmidi-web:9ebe854f…` | `sha256:a82d05dc6ec25ad5add00a52ab142e811f0a90c18de2506a9aa8cf0b6855fc22` | identical |
 
 Every `deploy-by-digest` task verified `imageID` against the published digest and
 would have failed otherwise. Deployment generation/revision after the run:
-asset-api 24/20, reference-time 24/20, gpmidi-web 12/8, each annotated with
+asset-api 26/22, reference-time 28/24, gpmidi-web 14/10, each annotated with
 `gpmidi.ailab/source-commit` and `gpmidi.ailab/image-digest`.
 
 Per-image audit: tag digest equals build digest; `linux/amd64`; effective user
@@ -674,14 +675,14 @@ Per-image audit: tag digest equals build digest; `linux/amd64`; effective user
 material; no test or infrastructure content under `app/`.
 
 Provenance and full reports are archived at
-`/data/k3s-storage/pvc-ff222482-…_tekton-evidence/manual-candidate-1485ed92…/`
+`/data/k3s-storage/pvc-ff222482-…_tekton-evidence/manual-candidate-9ebe854f…/`
 with `SHA256SUMS`, alongside `provenance-<service>.txt`, `image-<service>/`
 (config, manifest, file list, trivy JSON and table), every gate log, `pvc-*.json`
 and `e2e-evidence.json`.
 
 ### Live acceptance — 14/14, 206 recorded observations
 
-Project `fc207cd7-72d5-4dfe-95dc-01cd78b4b6aa`, run id `cc409d0b9b`.
+Project `8fc8e47c-483a-4ac1-b744-8a7ec2328b01`, run id `9d5589d13c`.
 
 | # | Decisive evidence |
 |---|---|
@@ -692,11 +693,11 @@ Project `fc207cd7-72d5-4dfe-95dc-01cd78b4b6aa`, run id `cc409d0b9b`.
 | 5 | source 1 locked to GP 5 and the section-derived anchor 0→0 honoured, `anchored_source_indices=[0,1]`; unanchored mapping differs; `source_seconds=5.0` resolves to measure 2; sections and markers present in JSON and HTML |
 | 6 | `structure_non_monotonic_anchors`, no report published; wrong claimed digest → `gp_revision_mismatch`; wrong role → `asset_role_invalid`, both before admission |
 | 7 | **5 source-gap** records (8 source vs 3 GP) and **6 gp-gap** records (2 source vs 8 GP), no repeat emitted without repeat evidence |
-| 8 | 8 simultaneous requests on a fresh identity → **1 admitted job**, all 8 resolved to one analysis, exactly one new result row, then a warm hit |
-| 9 | identical `source_evidence_key` `93bf571d…` across cache keys `7fd02287…` and `77afa992…`; **0** source-MIDI and **0** audio re-extractions, 1 GP extraction; source measures byte-identical, mapping recomputed, 6-measure grid |
-| 10 | 2 queued and 2 running jobs at the instant of deletion; **all 4** recovered `interrupted`/`process_restart`; new pod `reference-time-599f9bfc68-2f9hr`; a previously published report survived byte-identically |
-| 11 | canonical content `sha256:6913db3686fd9d708d47d397f4c011116ac2b21985d9800ecc69ff8edb50b0ff`, HTML `sha256:efb3755891939ed6…` excluding its render timestamp; no NaN/Infinity, no path or trace leakage |
-| 12 | `https://192.168.30.2/` with `Host: gpmidi.ailab.local` — health, home, Projects list, Project page rendered directly, real form submit, UI status endpoint, both proxied reports; analysis `1d3a5355-4fcd-41bc-b4c5-ce7c5c643be9` |
+| 8 | 8 simultaneous requests on a fresh identity → **1 admitted job**, all 8 resolved to one analysis (2 followers legitimately hit the warm result), exactly one new result row |
+| 9 | identical `source_evidence_key` `b111df4347242ea1…` across cache keys `bb9e58275b4d…` and `1886c77aa610…`; **0** source-MIDI and **0** audio re-extractions, 1 GP extraction; source measures byte-identical, mapping recomputed, 6-measure grid |
+| 10 | 2 queued and 2 running jobs at the instant of deletion; **all 4** recovered `interrupted`/`process_restart`, none finished first; new pod `reference-time-f949d449d-lkqfq`; a previously published report survived byte-identically |
+| 11 | canonical content `sha256:432a00cf2b1f97309c09c056c95a9e05…`, HTML digest recorded in the bundle excluding its render timestamp; no NaN/Infinity, no path or trace leakage |
+| 12 | `https://192.168.30.2/` with `Host: gpmidi.ailab.local` — health, home, Projects list, Project page rendered directly, real form submit, UI status endpoint, both proxied reports; analysis `47ab0ce1-7692-487c-b1f0-bea6db26f7af` |
 | 13 | every source asset re-downloaded and re-hashed to its upload digest; no audio/MIDI/GP file and no leftover download scope on UI or analyzer storage |
 | 14 | active GPU profile `['llama-server']` before and after; llama.cpp `/health` 200; homepage 200; Gitea 200; 14 projects intact |
 

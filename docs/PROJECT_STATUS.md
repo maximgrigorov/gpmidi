@@ -99,8 +99,8 @@ Full detail, including the pinned toolchain, scoring model and cache contract:
 `docs/Phase_2_Reference_Time_Vertical_Slice.md`.
 
 <!-- PHASE2-EVIDENCE-START -->
-**Authoritative run:** PipelineRun `gpmidi-ci-manual-6svjg`, **Succeeded**, 20/20
-tasks, from commit `1485ed928d1363ada70b0e5c3f9067d638475dea` with the checkout
+**Authoritative run:** PipelineRun `gpmidi-ci-manual-bmc96`, **Succeeded**, 20/20
+tasks, from commit `9ebe854f353b16b7d37e7f246f49dff17e443dc7` with the checkout
 verified against the requested SHA.
 
 | Gate | Result |
@@ -120,9 +120,9 @@ verified against the requested SHA.
 
 Deployed by immutable digest, each verified equal to the live pod `imageID`:
 
-- `asset-api@sha256:9e7c10a66c11e1996d9e94d2146df77e36b3b308bee65ef75351596736cd8127`
-- `reference-time@sha256:9bb4347eea5a69473d64a6b8834d1bf4458e1fcd72494b8045920131b038cf2b`
-- `gpmidi-web@sha256:a33b33b69491ca59998d0b1fe79d9e300dd0fae20217cb3ed665b0c3773f9002`
+- `asset-api@sha256:f61d50d0156fce087ee9d0a57397cbcc60bee839b7da9212f3d37cabb4e2fc80`
+- `reference-time@sha256:20b5ced49d6e586ec7e611f8031aa94ab8fb92c999528aa5a48e17792c174def`
+- `gpmidi-web@sha256:a82d05dc6ec25ad5add00a52ab142e811f0a90c18de2506a9aa8cf0b6855fc22`
 
 **Negative proof:** `gpmidi-ci-negative-h4h2l` failed at `test-gates`; downstream
 gates skipped; Deployment generation, revision, digest, pod UIDs, PVC identities
@@ -138,7 +138,7 @@ analyses survived. PVC UIDs unchanged.
 
 Full evidence, including per-scenario observations and archived gate logs:
 `docs/Phase_2_Reference_Time_Vertical_Slice.md` section 15, and the
-`tekton-evidence` PVC bundle `manual-candidate-1485ed92…` with `SHA256SUMS`.
+`tekton-evidence` PVC bundle `manual-candidate-9ebe854f…` with `SHA256SUMS`.
 <!-- PHASE2-EVIDENCE-END -->
 
 ## Next
