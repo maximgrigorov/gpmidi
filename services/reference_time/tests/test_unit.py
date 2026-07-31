@@ -314,8 +314,10 @@ class TestAlignment:
             AnchorConstraint(source_measure_index=0, gp_measure_index=2),
             AnchorConstraint(source_measure_index=1, gp_measure_index=1),
         ]
-        with pytest.raises(ValueError, match="Non-monotonic"):
+        from reference_time.structure import StructureError
+        with pytest.raises(StructureError) as exc:
             align_measures(src, gp, anchors=anchors)
+        assert exc.value.code == "structure_non_monotonic_anchors"
 
     def test_empty_source(self):
         gp = self._gp_measures(4)
@@ -326,7 +328,9 @@ class TestAlignment:
     def test_empty_gp(self):
         src = self._src_measures(4)
         result = align_measures(src, [])
-        assert all(m.mapping_type == MappingType.GP_GAP for m in result.mappings)
+        # A source measure with no GP counterpart is a source_gap by contract.
+        assert all(m.mapping_type == MappingType.SOURCE_GAP for m in result.mappings)
+        assert len(result.mappings) == 4
 
     def test_confidence_bounds(self):
         src = self._src_measures(4)
@@ -549,6 +553,17 @@ class TestConsensusDeep:
         assert c.decision.value == "agreed"
 
 
+def _structure_src_measures(n: int) -> list[SourceMeasure]:
+    return [
+        SourceMeasure(
+            index=i, tick_start=i * 1920, tick_end=(i + 1) * 1920,
+            seconds_start=i * 2.0, seconds_end=(i + 1) * 2.0,
+            numerator=4, denominator=4, tempo_bpm=120.0, confidence=1.0,
+        )
+        for i in range(n)
+    ]
+
+
 class TestStructure:
     """Tests for structure JSON parsing and anchor constraints."""
 
@@ -561,7 +576,7 @@ class TestStructure:
                 {"source_measure": 3, "gp_measure": 3, "label": "Chorus"},
             ],
         })
-        result = parse_structure_json(doc.encode(), 8, 8)
+        result = parse_structure_json(doc.encode(), _structure_src_measures(8), 8)
         assert len(result.anchors) == 2
         assert result.anchors[0].source_measure_index == 0
         assert result.anchors[1].label == "Chorus"
@@ -569,13 +584,13 @@ class TestStructure:
     def test_malformed_json(self):
         from reference_time.structure import parse_structure_json
         with pytest.raises(ValueError, match="Malformed"):
-            parse_structure_json(b"not json", 4, 4)
+            parse_structure_json(b"not json", _structure_src_measures(4), 4)
 
     def test_unsupported_version(self):
         from reference_time.structure import parse_structure_json
         doc = json.dumps({"version": "99.0", "anchors": []})
         with pytest.raises(ValueError, match="Unsupported"):
-            parse_structure_json(doc.encode(), 4, 4)
+            parse_structure_json(doc.encode(), _structure_src_measures(4), 4)
 
     def test_out_of_range_anchor(self):
         from reference_time.structure import parse_structure_json
@@ -584,7 +599,7 @@ class TestStructure:
             "anchors": [{"source_measure": 100, "gp_measure": 0}],
         })
         with pytest.raises(ValueError, match="out of range"):
-            parse_structure_json(doc.encode(), 4, 4)
+            parse_structure_json(doc.encode(), _structure_src_measures(4), 4)
 
     def test_conflicting_anchors(self):
         from reference_time.structure import parse_structure_json
@@ -596,7 +611,7 @@ class TestStructure:
             ],
         })
         with pytest.raises(ValueError, match="Conflicting"):
-            parse_structure_json(doc.encode(), 4, 4)
+            parse_structure_json(doc.encode(), _structure_src_measures(4), 4)
 
     def test_non_monotonic_anchors(self):
         from reference_time.structure import parse_structure_json
@@ -608,7 +623,7 @@ class TestStructure:
             ],
         })
         with pytest.raises(ValueError, match="Non-monotonic"):
-            parse_structure_json(doc.encode(), 4, 4)
+            parse_structure_json(doc.encode(), _structure_src_measures(4), 4)
 
     def test_sections_produce_labels(self):
         from reference_time.structure import parse_structure_json
@@ -619,9 +634,10 @@ class TestStructure:
                 {"label": "Verse", "source_measure": 4},
             ],
         })
-        result = parse_structure_json(doc.encode(), 8, 8)
-        assert result.section_labels[0] == "Intro"
-        assert result.section_labels[4] == "Verse"
+        result = parse_structure_json(doc.encode(), _structure_src_measures(8), 8)
+        labels = {s.source_measure_index: s.label for s in result.sections}
+        assert labels[0] == "Intro"
+        assert labels[4] == "Verse"
 
     def test_anchor_changes_mapping(self):
         src = [SourceMeasure(
@@ -646,26 +662,52 @@ class TestStructure:
         assert m_no.gp_measure_index != m_yes.gp_measure_index or m_no.confidence != 1.0
 
 
+def _key(project="p", gp="gp1", rev=1, midis=("m1",), audios=(), structure=None):
+    return compute_cache_key(
+        project_id=project,
+        gp_revision_sha256=gp,
+        gp_revision_number=rev,
+        source_midi_sha256s=list(midis),
+        audio_sha256s=list(audios),
+        structure_sha256=structure,
+        processor_versions={"v": "1"},
+        parameters={"p": 1},
+    )
+
+
 class TestCacheKey:
     def test_deterministic(self):
-        k1 = compute_cache_key("gp1", ["m1", "m2"], ["a1"], None, {"v": "1"}, {"p": 1})
-        k2 = compute_cache_key("gp1", ["m1", "m2"], ["a1"], None, {"v": "1"}, {"p": 1})
-        assert k1 == k2
+        assert _key(midis=("m1", "m2"), audios=("a1",)) == _key(
+            midis=("m1", "m2"), audios=("a1",)
+        )
 
     def test_different_gp_different_key(self):
-        k1 = compute_cache_key("gp1", ["m1"], [], None, {"v": "1"}, {"p": 1})
-        k2 = compute_cache_key("gp2", ["m1"], [], None, {"v": "1"}, {"p": 1})
-        assert k1 != k2
+        assert _key(gp="gp1") != _key(gp="gp2")
 
     def test_different_midi_different_key(self):
-        k1 = compute_cache_key("gp1", ["m1"], [], None, {"v": "1"}, {"p": 1})
-        k2 = compute_cache_key("gp1", ["m2"], [], None, {"v": "1"}, {"p": 1})
-        assert k1 != k2
+        assert _key(midis=("m1",)) != _key(midis=("m2",))
 
     def test_sorted_midi_order(self):
-        k1 = compute_cache_key("gp1", ["m2", "m1"], [], None, {"v": "1"}, {"p": 1})
-        k2 = compute_cache_key("gp1", ["m1", "m2"], [], None, {"v": "1"}, {"p": 1})
-        assert k1 == k2
+        assert _key(midis=("m2", "m1")) == _key(midis=("m1", "m2"))
+
+    def test_different_project_different_key(self):
+        assert _key(project="a") != _key(project="b")
+
+    def test_different_audio_different_key(self):
+        assert _key(audios=()) != _key(audios=("a1",))
+
+    def test_different_structure_different_key(self):
+        assert _key(structure=None) != _key(structure="s1")
+
+    def test_different_processor_version_different_key(self):
+        base = dict(
+            project_id="p", gp_revision_sha256="gp", gp_revision_number=1,
+            source_midi_sha256s=["m"], audio_sha256s=[], structure_sha256=None,
+            parameters={"p": 1},
+        )
+        assert compute_cache_key(processor_versions={"v": "1"}, **base) != compute_cache_key(
+            processor_versions={"v": "2"}, **base
+        )
 
     def test_nan_rejected(self):
         with pytest.raises(ValueError):
@@ -702,7 +744,7 @@ class TestModels:
             gp_revision_sha256="abc123",
             global_confidence=0.8,
         )
-        assert a.schema_version == "1.0.0"
+        assert a.schema_version == "2.0.0"
         assert a.created_at is not None
 
 

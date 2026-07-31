@@ -59,6 +59,9 @@ class WarningCode(str, Enum):
     MEASURE_DURATION_MISMATCH = "measure_duration_mismatch"
     GP_REPEAT_DETECTED = "gp_repeat_detected"
     GP_EMPTY_MEASURE = "gp_empty_measure"
+    AUDIO_TRUNCATED = "audio_truncated"
+    ASSET_TOO_LARGE = "asset_too_large"
+    DOWNLOAD_TIMEOUT = "download_timeout"
 
 
 class MappingType(str, Enum):
@@ -267,10 +270,62 @@ class MidiConsensus(BaseModel):
     selection_reason: str = ""
 
 
+class AudioEvidence(BaseModel):
+    """Bounded audio evidence for one audio asset.
+
+    Onset/downbeat lists are truncated to a documented maximum so a long asset
+    cannot inflate the persisted analysis document.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_link_id: str
+    sha256: str
+    role: str = ""
+    duration_seconds: float = 0.0
+    decoded_seconds: float = 0.0
+    sample_rate: int = 0
+    channels: int = 0
+    onset_count: int = 0
+    onset_times: list[float] = []
+    downbeat_candidates: list[float] = []
+    truncated: bool = False
+    warnings: list[Warning] = []
+
+    @field_validator("duration_seconds", "decoded_seconds")
+    @classmethod
+    def _finite(cls, v: float) -> float:
+        return _check_finite(v)
+
+
+class StructureSectionModel(BaseModel):
+    """Section evidence taken from the user-supplied structure document."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str
+    source_measure_index: int | None = None
+    gp_measure_index: int | None = None
+
+
+class AnalysisProvenance(BaseModel):
+    """Deterministic provenance of how this analysis was produced."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_evidence_key: str = ""
+    source_evidence_reused: bool = False
+    source_evidence_created_at: str | None = None
+    source_midi_extractions: int = 0
+    audio_extractions: int = 0
+    gp_extractions: int = 0
+    dependency_versions: dict[str, str] = {}
+
+
 class ReferenceTimeAnalysis(BaseModel):
     """Top-level analysis result document."""
 
-    schema_version: str = "1.0.0"
+    schema_version: str = "2.0.0"
     analysis_id: str
     project_id: str
     gp_revision_sha256: str
@@ -279,12 +334,17 @@ class ReferenceTimeAnalysis(BaseModel):
     parameters: dict = {}
     input_identities: dict[str, str] = {}
     source_evidence: list[SourceTempoEvidence] = []
+    audio_evidence: list[AudioEvidence] = []
+    structure_version: str | None = None
+    structure_sections: list[StructureSectionModel] = []
+    anchored_source_indices: list[int] = []
     midi_consensus: MidiConsensus | None = None
     source_measures: list[SourceMeasure] = []
     gp_measures: list[GPMeasure] = []
     mappings: list[MeasureMapping] = []
     global_confidence: float = 0.0
     global_warnings: list[Warning] = []
+    provenance: AnalysisProvenance = AnalysisProvenance()
     cache_key: str = ""
     created_at: datetime = None
     completed_at: datetime | None = None

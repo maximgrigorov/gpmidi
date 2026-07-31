@@ -157,6 +157,48 @@ def _compare_time_signatures(
     }
 
 
+def _measure_starts(evidence: SourceTempoEvidence) -> list[float]:
+    """Absolute measure/downbeat start times derived from tempo + time signature.
+
+    Computed from evidence only (no MIDI bytes needed) so consensus can compare
+    bar grids, not just tempo-change instants.
+    """
+    from .midi_tempo import build_source_measures
+
+    return [m.seconds_start for m in build_source_measures(evidence)]
+
+
+def _compare_measure_boundaries(
+    a: SourceTempoEvidence,
+    b: SourceTempoEvidence,
+) -> dict:
+    """Compare downbeat/measure boundaries over the overlapping prefix.
+
+    Different total lengths are expected and are not by themselves a conflict:
+    only boundaries that both sources claim are compared.
+    """
+    starts_a = _measure_starts(a)
+    starts_b = _measure_starts(b)
+    overlap = min(len(starts_a), len(starts_b))
+
+    max_diff = 0.0
+    mismatched: list[int] = []
+    for i in range(overlap):
+        diff = abs(starts_a[i] - starts_b[i])
+        max_diff = max(max_diff, diff)
+        if diff > BOUNDARY_TOLERANCE_SECONDS:
+            mismatched.append(i)
+
+    return {
+        "measure_count_a": len(starts_a),
+        "measure_count_b": len(starts_b),
+        "compared_boundaries": overlap,
+        "max_boundary_diff_seconds": round(max_diff, 3),
+        "mismatched_measure_indices": mismatched,
+        "aligned": not mismatched,
+    }
+
+
 def _compare_preroll_downbeat(
     a: SourceTempoEvidence,
     b: SourceTempoEvidence,
@@ -230,12 +272,14 @@ def build_consensus(
         )
         ts_cmp = _compare_time_signatures(reference, other)
         preroll_cmp = _compare_preroll_downbeat(reference, other)
+        measure_cmp = _compare_measure_boundaries(reference, other)
         duration_diff = abs(reference.duration_seconds - other.duration_seconds)
 
         agreement_metrics[pair_key] = {
             "tempo_comparison": tempo_cmp,
             "time_signature_comparison": ts_cmp,
             "preroll_comparison": preroll_cmp,
+            "measure_boundary_comparison": measure_cmp,
             "duration_diff_seconds": round(duration_diff, 3),
         }
 
@@ -265,6 +309,15 @@ def build_consensus(
                 "type": "time_signature_mismatch",
                 "sources": [reference.sha256, other.sha256],
                 "detail": ts_cmp,
+            })
+
+        # Measure/downbeat grid mismatch over the shared prefix
+        if not measure_cmp["aligned"]:
+            has_conflict = True
+            conflict_regions.append({
+                "type": "measure_boundary_mismatch",
+                "sources": [reference.sha256, other.sha256],
+                "detail": measure_cmp,
             })
 
         # Duration mismatch
@@ -308,3 +361,32 @@ def build_consensus(
         conflict_regions=conflict_regions,
         selection_reason=selection_reason,
     )
+
+
+def conflict_time_regions(
+    consensus: MidiConsensus, timeline_end_seconds: float
+) -> list[dict]:
+    """Time intervals, in source seconds, where the sources genuinely disagree.
+
+    Only region-bearing conflicts contribute a localized interval. Whole-file
+    conflicts (time signature, duration, pre-roll, measure grid) are not
+    localizable, so they cover the whole timeline. All values stay finite so
+    they can be serialized into canonical JSON.
+    """
+    end_cap = max(0.0, float(timeline_end_seconds))
+    regions: list[dict] = []
+    for entry in consensus.conflict_regions:
+        region = entry.get("region")
+        if isinstance(region, dict) and "start_seconds" in region:
+            regions.append({
+                "start_seconds": float(region["start_seconds"]),
+                "end_seconds": float(region["end_seconds"]),
+                "type": entry.get("type", "unknown"),
+            })
+        else:
+            regions.append({
+                "start_seconds": 0.0,
+                "end_seconds": end_cap,
+                "type": entry.get("type", "unknown"),
+            })
+    return regions
