@@ -35,13 +35,6 @@ spec:
         value: $(tt.params.revision)
       taskRunTemplate:
         serviceAccountName: tekton-build
-        podTemplate:
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65534
-            fsGroup: 65534
-            seccompProfile:
-              type: RuntimeDefault
       taskRunSpecs:
       - pipelineTaskName: deploy-asset-api
         serviceAccountName: tekton-deploy

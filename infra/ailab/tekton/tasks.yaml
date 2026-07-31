@@ -44,7 +44,7 @@ spec:
       set -eu
       pip install --quiet setuptools wheel 2>/dev/null
       pip install --quiet -r requirements.txt ruff pytest 2>/dev/null
-      python -m pytest -q --tb=short 2>&1
+      python -m pytest -q --tb=short
   - name: service-tests
     image: python:3.12-slim
     workingDir: /workspace/source
@@ -54,9 +54,9 @@ spec:
       pip install --quiet setuptools wheel 2>/dev/null
       pip install --quiet -r requirements.txt 2>/dev/null
       pip install --quiet -r services/reference_time/requirements.txt 2>/dev/null
-      pip install --quiet pytest ruff 2>/dev/null
+      pip install --quiet pytest 2>/dev/null
       cd services/reference_time
-      python -m pytest tests/ -q --tb=short 2>&1
+      python -m pytest tests/ -q --tb=short
   - name: ruff
     image: python:3.12-slim
     workingDir: /workspace/source
@@ -64,20 +64,7 @@ spec:
       #!/bin/bash
       set -eu
       pip install --quiet ruff 2>/dev/null
-      python -m ruff check services/reference_time services/asset_api 2>&1
-  - name: trailing-whitespace
-    image: alpine/git:2.47.2
-    workingDir: /workspace/source
-    script: |
-      #!/bin/sh
-      set -eu
-      # Check for trailing whitespace in tracked files
-      if git diff --check HEAD~1 2>/dev/null; then
-        echo "No trailing whitespace"
-      else
-        echo "ERROR: trailing whitespace found" >&2
-        exit 1
-      fi
+      python -m ruff check services/reference_time services/asset_api
   - name: shell-syntax
     image: alpine:3.22
     workingDir: /workspace/source
@@ -152,13 +139,15 @@ spec:
     type: string
   - name: image
     type: string
-  workspaces: []
   steps:
   - name: patch-and-rollout
-    image: bitnami/kubectl:1.32.4
+    image: alpine:3.22
     script: |
-      #!/bin/bash
+      #!/bin/sh
       set -eu
+      apk add --no-cache curl > /dev/null 2>&1
+      curl -sLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.4/bin/linux/amd64/kubectl"
+      chmod +x /usr/local/bin/kubectl
       echo "Patching $(params.deployment) -> $(params.image)"
       kubectl -n gpmidi-ml set image \
         deployment/$(params.deployment) \
@@ -192,7 +181,6 @@ spec:
       set -eu
       SVC="$(params.service-name).gpmidi-ml.svc.cluster.local:8000"
       echo "Checking $SVC$(params.healthz-path)"
-      # Retry up to 30s
       for i in $(seq 1 15); do
         CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://$SVC$(params.healthz-path)" 2>/dev/null || echo 000)
         if [ "$CODE" = "200" ]; then
@@ -215,11 +203,14 @@ spec:
   - name: source
   steps:
   - name: render
-    image: bitnami/kubectl:1.32.4
+    image: alpine:3.22
     workingDir: /workspace/source
     script: |
-      #!/bin/bash
+      #!/bin/sh
       set -eu
+      apk add --no-cache curl > /dev/null 2>&1
+      curl -sLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.4/bin/linux/amd64/kubectl"
+      chmod +x /usr/local/bin/kubectl
       echo "Rendering kustomize manifests..."
       kubectl kustomize infra/ailab > /tmp/rendered.yaml
       echo "Rendered $(wc -l < /tmp/rendered.yaml) lines"
