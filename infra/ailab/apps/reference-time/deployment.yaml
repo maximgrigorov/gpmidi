@@ -27,14 +27,18 @@ spec:
           type: RuntimeDefault
       containers:
       - name: reference-time
-        image: 192.168.30.2:3300/mgrigorov/reference-time:latest
-        imagePullPolicy: Always
+        image: 192.168.30.2:3300/mgrigorov/reference-time:30138db39267549090dc08eab92b830a61ef6e71
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
           protocol: TCP
         env:
         - name: RT_DATA_ROOT
           value: /var/lib/reference-time
+        # Bounded download scopes live on the service's own PVC, so a process
+        # restart leaves at most one directory behind and startup purges it.
+        - name: RT_TMP_ROOT
+          value: /var/lib/reference-time/tmp
         - name: ASSET_API_URL
           value: http://asset-api.gpmidi-ml.svc.cluster.local:8000
         - name: CORS_ORIGINS
@@ -52,6 +56,7 @@ spec:
           limits:
             cpu: "2"
             memory: 1Gi
+            ephemeral-storage: 1Gi
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

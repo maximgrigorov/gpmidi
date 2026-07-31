@@ -28,7 +28,7 @@ spec:
       containers:
       - name: gpmidi-web
         # Replaced with an immutable digest by the Tekton deploy task.
-        image: 192.168.30.2:3300/mgrigorov/gpmidi-web:latest
+        image: 192.168.30.2:3300/mgrigorov/gpmidi-web:30138db39267549090dc08eab92b830a61ef6e71
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080

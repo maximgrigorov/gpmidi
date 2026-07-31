@@ -12,7 +12,7 @@ spec:
       ttlSecondsAfterFinished: 3600
       template:
         spec:
-          serviceAccountName: tekton-deploy
+          serviceAccountName: tekton-prune
           restartPolicy: OnFailure
           containers:
           - name: prune

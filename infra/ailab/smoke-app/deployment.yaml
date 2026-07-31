@@ -75,6 +75,7 @@ spec:
       labels:
         app: smoke-app
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: gpmidi-app
       securityContext:
         runAsNonRoot: true

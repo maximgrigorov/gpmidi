@@ -1,0 +1,17 @@
+---
+# Durable evidence archive on /data via the local-path provisioner. Retention is
+# bounded by the publish-evidence task, which keeps the ten most recent bundles.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tekton-evidence
+  namespace: gpmidi-ml
+  labels:
+    app: tekton
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

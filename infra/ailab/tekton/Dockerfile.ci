@@ -1,10 +1,106 @@
+# CI gate image for the AILab Tekton pipeline.
+#
+# Every gate tool is installed and pinned here rather than downloaded per run:
+# "not installed on Cursor" is irrelevant, and a task that curls a binary at run
+# time is neither reproducible nor offline-safe.
+#
+# Two Python environments, because the converter and the services pin different
+# numpy versions and one interpreter cannot honestly hold both:
+#
+#   /opt/venv-root  mirrors the deployed converter image (requirements.txt)
+#   /opt/venv-svc   mirrors the two service images (their own requirements)
+#
+# Build context is the repository root:
+#   kaniko --dockerfile=infra/ailab/tekton/Dockerfile.ci --context=.
 FROM python:3.11-slim
-WORKDIR /ci
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-    Flask==3.1.2 mido==1.3.3 pyguitarpro==0.11 ApolloTab==1.3.1 \
-    gunicorn==23.0.0 "PyYAML>=6.0" tuttut==0.0.6 "pretty_midi>=0.2.9" \
-    networkx==2.8.6 numpy==1.23.2 "fpdf2>=2.7" "pypdf>=4.0" \
-    "pytest>=8.0" "requests>=2.31" ruff && \
-    pip install --no-cache-dir \
-    fastapi uvicorn httpx pydantic soundfile librosa
+
+ARG KUBECTL_VERSION=v1.32.4
+ARG KUBECONFORM_VERSION=v0.7.0
+ARG SHELLCHECK_VERSION=v0.11.0
+ARG GITLEAKS_VERSION=8.24.3
+ARG TRIVY_VERSION=0.61.0
+ARG CRANE_VERSION=v0.20.3
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VENV_ROOT=/opt/venv-root \
+    VENV_SVC=/opt/venv-svc
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl git jq xz-utils tar bash libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- pinned gate binaries -------------------------------------------------
+RUN set -eux; \
+    curl -fsSLo /usr/local/bin/kubectl \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"; \
+    chmod +x /usr/local/bin/kubectl; \
+    curl -fsSL \
+      "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+      | tar -xz -C /usr/local/bin kubeconform; \
+    chmod +x /usr/local/bin/kubeconform; \
+    curl -fsSL \
+      "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+      | tar -xJ --strip-components=1 -C /usr/local/bin "shellcheck-${SHELLCHECK_VERSION}/shellcheck"; \
+    chmod +x /usr/local/bin/shellcheck; \
+    curl -fsSL \
+      "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+      | tar -xz -C /usr/local/bin gitleaks; \
+    chmod +x /usr/local/bin/gitleaks; \
+    curl -fsSL \
+      "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+      | tar -xz -C /usr/local/bin trivy; \
+    chmod +x /usr/local/bin/trivy; \
+    curl -fsSL \
+      "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+      | tar -xz -C /usr/local/bin crane; \
+    chmod +x /usr/local/bin/crane; \
+    kubectl version --client=true --output=yaml | head -3; \
+    kubeconform -v; \
+    shellcheck --version | head -2; \
+    gitleaks version; \
+    trivy --version | head -1; \
+    crane version
+
+# --- converter environment (mirrors the deployed gpmidi-web image) --------
+COPY requirements.txt /tmp/requirements.txt
+RUN set -eux; \
+    python -m venv "$VENV_ROOT"; \
+    "$VENV_ROOT/bin/pip" install --upgrade pip; \
+    sed '/^tuttut==/d' /tmp/requirements.txt > /tmp/requirements-headless.txt; \
+    "$VENV_ROOT/bin/pip" install --default-timeout=120 --retries=5 \
+        -r /tmp/requirements-headless.txt; \
+    "$VENV_ROOT/bin/pip" install --default-timeout=120 --retries=5 'matplotlib==3.7.5'; \
+    "$VENV_ROOT/bin/pip" install --default-timeout=120 --retries=5 --no-deps tuttut==0.0.6; \
+    "$VENV_ROOT/bin/pip" install 'ruff==0.15.6' 'pip-licenses==5.0.0'; \
+    "$VENV_ROOT/bin/pip" freeze > /opt/pip-freeze-root.txt
+
+# --- service environment (mirrors asset-api and reference-time) -----------
+COPY services/reference_time/requirements.txt /tmp/rt-requirements.txt
+COPY services/asset_api/requirements.txt /tmp/asset-requirements.txt
+RUN set -eux; \
+    python -m venv "$VENV_SVC"; \
+    "$VENV_SVC/bin/pip" install --upgrade pip; \
+    "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
+        -r /tmp/rt-requirements.txt; \
+    "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
+        pytest==8.3.5 pytest-asyncio==0.25.3 httpx==0.28.1 PyGuitarPro==0.11; \
+    "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
+        -r /tmp/asset-requirements.txt; \
+    "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
+        python-multipart==0.0.20 aiosqlite==0.21.0 pytest-httpx==0.35.0 \
+        'requests>=2.31'; \
+    "$VENV_SVC/bin/pip" install 'ruff==0.15.6' 'pip-licenses==5.0.0'; \
+    "$VENV_SVC/bin/pip" freeze > /opt/pip-freeze-svc.txt
+
+# Default PATH points at the converter environment; gates that need the service
+# environment call /opt/venv-svc/bin/python explicitly.
+ENV PATH="/opt/venv-root/bin:${PATH}"
+
+WORKDIR /workspace/source
+
+RUN "$VENV_ROOT/bin/python" -c "import mido, guitarpro, flask; print('root env ok')" \
+    && "$VENV_SVC/bin/python" -c "import fastapi, mido, guitarpro, soundfile, numpy; print('svc env ok')" \
+    && "$VENV_ROOT/bin/python" -c "import pkg_resources; print('pkg_resources ok')"

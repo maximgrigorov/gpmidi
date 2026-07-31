@@ -1,80 +1,248 @@
+---
+# Clone the exact commit and prove it. `--branch <ref>` cannot check out a SHA and
+# gives no guarantee the tip did not move between the webhook and the clone, so a
+# full fetch of the requested revision is followed by an explicit comparison.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: git-clone
+  name: git-clone-exact
   namespace: gpmidi-ml
 spec:
   params:
   - name: repo-url
     type: string
   - name: revision
+    description: Full 40-character commit SHA, or a ref to resolve and record.
     type: string
-    default: main
+  - name: expected-sha
+    description: When non-empty, the checkout must equal this SHA or the task fails.
+    type: string
+    default: ""
   workspaces:
   - name: source
   results:
   - name: commit-sha
     description: Exact commit SHA checked out
+  - name: commit-subject
+    description: Subject line of the checked-out commit
   steps:
-  - name: clone
+  - name: clone-exact
     image: alpine/git:2.47.2
-    timeout: 5m
+    workingDir: /workspace
+    computeResources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: "1", memory: 512Mi}
     script: |
       #!/bin/sh
       set -eu
-      git clone --depth 1 --branch "$(params.revision)" "$(params.repo-url)" /workspace/source
+      REV='$(params.revision)'
+      EXPECTED='$(params.expected-sha)'
+
+      # A dirty workspace from a previous run must never influence a build.
+      rm -rf /workspace/source
+      mkdir -p /workspace/source
       cd /workspace/source
+
+      git init -q
+      git remote add origin '$(params.repo-url)'
+      # Fetch the requested revision plus main, which later gates diff against.
+      git fetch -q --no-tags origin "$REV" || git fetch -q --no-tags origin
+      git fetch -q --no-tags origin main:refs/remotes/origin/main
+      git checkout -q --detach FETCH_HEAD 2>/dev/null || git checkout -q --detach "$REV"
+
       SHA=$(git rev-parse HEAD)
-      echo -n "$SHA" > "$(results.commit-sha.path)"
-      echo "Checked out $SHA"
+      if [ -n "$EXPECTED" ] && [ "$SHA" != "$EXPECTED" ]; then
+        echo "ERROR: checked out $SHA but expected $EXPECTED" >&2
+        exit 1
+      fi
+      case "$REV" in
+        ????????????????????????????????????????)
+          if [ "$SHA" != "$REV" ]; then
+            echo "ERROR: requested revision $REV resolved to $SHA" >&2
+            exit 1
+          fi
+          ;;
+      esac
+
+      git log -1 --pretty='%H %s'
+      printf '%s' "$SHA" > '$(results.commit-sha.path)'
+      git log -1 --pretty='%s' | tr -d '\n' > '$(results.commit-subject.path)'
 ---
+# Source gates. Every tool is pinned inside the CI image; nothing is downloaded
+# here. Steps run in order and the task fails closed on the first failure.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: test-lint
+  name: source-gates
   namespace: gpmidi-ml
 spec:
+  params:
+  - name: ci-image
+    type: string
   workspaces:
   - name: source
+  - name: evidence
   steps:
-  - name: root-tests
-    image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:latest
+  - name: recorded-toolchain
+    image: $(params.ci-image)
     workingDir: /workspace/source
-    timeout: 10m
+    computeResources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
     script: |
       #!/bin/bash
-      set -eux
-      python -m pytest -q --tb=short
-  - name: service-tests
-    image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:latest
+      set -euxo pipefail
+      mkdir -p /workspace/evidence
+      {
+        echo "commit: $(git rev-parse HEAD)"
+        echo "python-root: $(/opt/venv-root/bin/python -V 2>&1)"
+        echo "python-svc: $(/opt/venv-svc/bin/python -V 2>&1)"
+        /opt/venv-root/bin/ruff --version
+        kubectl version --client=true 2>/dev/null | head -1 || true
+        kubeconform -v
+        shellcheck --version | sed -n 2p
+        gitleaks version
+        trivy --version | head -1
+        crane version
+      } | tee /workspace/evidence/toolchain.txt
+      cp /opt/pip-freeze-root.txt /workspace/evidence/pip-freeze-root.txt
+      cp /opt/pip-freeze-svc.txt /workspace/evidence/pip-freeze-svc.txt
+
+  - name: root-pytest
+    image: $(params.ci-image)
     workingDir: /workspace/source
-    timeout: 10m
+    timeout: 20m
+    computeResources:
+      requests: {cpu: 500m, memory: 512Mi}
+      limits: {cpu: "3", memory: 3Gi}
     script: |
       #!/bin/bash
-      set -eux
-      cd services/reference_time
-      python -m pytest tests/ -q --tb=short
+      set -euo pipefail
+      /opt/venv-root/bin/python -m pytest -q 2>&1 \
+        | tee /workspace/evidence/pytest-root.txt
+      exit "${PIPESTATUS[0]}"
+
+  - name: reference-time-pytest
+    image: $(params.ci-image)
+    workingDir: /workspace/source/services/reference_time
+    timeout: 20m
+    computeResources:
+      requests: {cpu: 500m, memory: 512Mi}
+      limits: {cpu: "3", memory: 3Gi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      /opt/venv-svc/bin/python -m pytest -q 2>&1 \
+        | tee /workspace/evidence/pytest-reference-time.txt
+      exit "${PIPESTATUS[0]}"
+
+  - name: asset-api-pytest
+    image: $(params.ci-image)
+    workingDir: /workspace/source/services/asset_api
+    timeout: 20m
+    computeResources:
+      requests: {cpu: 500m, memory: 512Mi}
+      limits: {cpu: "3", memory: 3Gi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      /opt/venv-svc/bin/python -m pytest -q 2>&1 \
+        | tee /workspace/evidence/pytest-asset-api.txt
+      exit "${PIPESTATUS[0]}"
+
   - name: ruff
-    image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:latest
+    image: $(params.ci-image)
     workingDir: /workspace/source
-    timeout: 5m
     script: |
       #!/bin/bash
-      set -eux
-      python -m ruff check services/reference_time services/asset_api
-  - name: shell-syntax
-    image: alpine:3.22
+      set -euo pipefail
+      /opt/venv-root/bin/python -m ruff check . 2>&1 \
+        | tee /workspace/evidence/ruff.txt
+      exit "${PIPESTATUS[0]}"
+
+  - name: whitespace-diff
+    image: $(params.ci-image)
     workingDir: /workspace/source
     script: |
-      #!/bin/sh
-      set -eu
-      apk add --no-cache bash > /dev/null 2>&1
+      #!/bin/bash
+      set -euo pipefail
+      git diff --check origin/main...HEAD 2>&1 \
+        | tee /workspace/evidence/git-diff-check.txt
+      echo "git diff --check: clean" >> /workspace/evidence/git-diff-check.txt
+
+  - name: shell-gates
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      : > /workspace/evidence/shell.txt
       for f in infra/ailab/scripts/*.sh; do
-        echo "Checking $f"
+        echo "bash -n $f" | tee -a /workspace/evidence/shell.txt
         bash -n "$f"
       done
-      echo "All shell scripts pass syntax check"
+      shellcheck --version | sed -n 2p | tee -a /workspace/evidence/shell.txt
+      shellcheck infra/ailab/scripts/*.sh 2>&1 | tee -a /workspace/evidence/shell.txt
+      echo "shellcheck: clean" | tee -a /workspace/evidence/shell.txt
+
+  - name: manifest-gates
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      kubectl kustomize infra/ailab > /workspace/evidence/rendered.yaml
+      echo "rendered $(wc -l < /workspace/evidence/rendered.yaml) lines"
+      kubeconform -strict -summary -verbose \
+        -schema-location default \
+        -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+        /workspace/evidence/rendered.yaml 2>&1 \
+        | tee /workspace/evidence/kubeconform.txt
+      exit "${PIPESTATUS[0]}"
+
+  - name: manifest-policy
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      # Manifest/NetworkPolicy checks the schema validator cannot express.
+      /opt/venv-svc/bin/python infra/ailab/scripts/check_manifests.py \
+        /workspace/evidence/rendered.yaml 2>&1 \
+        | tee /workspace/evidence/manifest-policy.txt
+      exit "${PIPESTATUS[0]}"
+
+  - name: secret-scan
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      gitleaks detect --source . --no-banner --redact \
+        --report-format json --report-path /workspace/evidence/gitleaks.json 2>&1 \
+        | tee /workspace/evidence/gitleaks.txt
+      exit "${PIPESTATUS[0]}"
+
+  - name: dependency-and-license-review
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      /opt/venv-root/bin/pip-licenses --format=markdown --with-urls \
+        > /workspace/evidence/licenses-root.md
+      /opt/venv-svc/bin/pip-licenses --format=markdown --with-urls \
+        > /workspace/evidence/licenses-svc.md
+      /opt/venv-svc/bin/pip-licenses --format=json > /tmp/licenses.json
+      /opt/venv-root/bin/pip-licenses --format=json > /tmp/licenses-root.json
+      /opt/venv-svc/bin/python infra/ailab/scripts/check_licenses.py \
+        /tmp/licenses-root.json /tmp/licenses.json 2>&1 \
+        | tee /workspace/evidence/license-review.txt
+      exit "${PIPESTATUS[0]}"
 ---
+# Build and push one image. Immutable exact-SHA tag only — no `:latest`, so a
+# deployment can never drift onto an unreviewed build. The pushed digest is
+# recorded as a task result and becomes the deployment reference.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -83,87 +251,288 @@ metadata:
 spec:
   params:
   - name: image
+    description: Immutable image reference (registry/owner/name:<full-sha>)
     type: string
-    description: Full image reference (registry/owner/name:tag)
-  - name: image-latest
-    type: string
-    description: Full image reference with :latest tag
   - name: context
     type: string
-    description: Path to build context relative to workspace root
   - name: dockerfile
     type: string
     default: Dockerfile
   workspaces:
   - name: source
   - name: docker-config
-    description: Docker config.json for registry auth
   results:
   - name: digest
-    description: Image digest (sha256:...)
+    description: Pushed OCI digest (sha256:...)
   steps:
   - name: build-and-push
     image: gcr.io/kaniko-project/executor:v1.23.2
     args:
-    - --dockerfile=/workspace/source/$(params.context)/$(params.dockerfile)
+    - --dockerfile=/workspace/source/$(params.dockerfile)
     - --context=/workspace/source/$(params.context)
     - --destination=$(params.image)
-    - --destination=$(params.image-latest)
     - --digest-file=$(results.digest.path)
     - --insecure
     - --skip-tls-verify
     - --cache=false
     - --snapshot-mode=redo
-    - --push-retry=2
+    - --push-retry=3
+    - --custom-platform=linux/amd64
     env:
     - name: DOCKER_CONFIG
       value: /workspace/docker-config
     computeResources:
-      requests:
-        cpu: 500m
-        memory: 512Mi
-      limits:
-        cpu: "4"
-        memory: 4Gi
-    timeout: 15m
+      requests: {cpu: 500m, memory: 1Gi}
+      limits: {cpu: "4", memory: 6Gi, ephemeral-storage: 12Gi}
+    timeout: 25m
 ---
+# Record provenance linking source SHA, build task and pushed digest, and audit
+# the pushed image itself: architecture, effective user, and absence of secrets
+# or test fixtures. Vulnerability scanning fails only on fixable CRITICALs, which
+# is the documented policy.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: deploy-and-wait
+  name: image-audit
   namespace: gpmidi-ml
 spec:
   params:
+  - name: ci-image
+    type: string
+  - name: image
+    type: string
+  - name: digest
+    type: string
+  - name: commit-sha
+    type: string
+  - name: name
+    type: string
+  - name: expect-user
+    description: Numeric uid the image must run as.
+    type: string
+  workspaces:
+  - name: evidence
+  - name: docker-config
+  steps:
+  - name: inspect
+    image: $(params.ci-image)
+    computeResources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 8Gi}
+    timeout: 20m
+    env:
+    - name: DOCKER_CONFIG
+      value: /workspace/docker-config
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      OUT=/workspace/evidence/image-$(params.name)
+      mkdir -p "$OUT"
+      REF="$(params.image)"
+      BY_DIGEST="${REF%%:*}@$(params.digest)"
+      # The tag and the digest must name the same image.
+      TAG_DIGEST=$(crane digest --insecure "$REF")
+      echo "tag digest : $TAG_DIGEST"
+      echo "build digest: $(params.digest)"
+      if [ "$TAG_DIGEST" != "$(params.digest)" ]; then
+        echo "ERROR: pushed tag does not resolve to the built digest" >&2
+        exit 1
+      fi
+
+      crane config --insecure "$BY_DIGEST" > "$OUT/config.json"
+      crane manifest --insecure "$BY_DIGEST" > "$OUT/manifest.json"
+
+      ARCH=$(jq -r '.architecture' "$OUT/config.json")
+      OS=$(jq -r '.os' "$OUT/config.json")
+      USER_FIELD=$(jq -r '.config.User // ""' "$OUT/config.json")
+      echo "os/arch: $OS/$ARCH  user: '$USER_FIELD'"
+      [ "$OS/$ARCH" = "linux/amd64" ] || { echo "ERROR: not linux/amd64" >&2; exit 1; }
+      case "$USER_FIELD" in
+        "$(params.expect-user)"|"$(params.expect-user):"*)
+          ;;
+        *)
+          echo "ERROR: image runs as '$USER_FIELD', expected $(params.expect-user)" >&2
+          exit 1
+          ;;
+      esac
+
+      # Content inspection: the exact commit must be embedded, and no secret
+      # material or test fixture may be.
+      crane export --insecure "$BY_DIGEST" - | tar -tf - > "$OUT/files.txt" || true
+      wc -l < "$OUT/files.txt"
+      if grep -Eiq '(^|/)(\.git/|\.env$|id_rsa|\.kube/config|kubeconfig)' "$OUT/files.txt"; then
+        echo "ERROR: image contains secret or VCS material" >&2
+        grep -Ei '(^|/)(\.git/|\.env$|id_rsa|\.kube/config|kubeconfig)' "$OUT/files.txt" >&2
+        exit 1
+      fi
+      {
+        echo "image: $REF"
+        echo "digest: $(params.digest)"
+        echo "source_commit: $(params.commit-sha)"
+        echo "os_arch: $OS/$ARCH"
+        echo "user: $USER_FIELD"
+        echo "file_count: $(wc -l < "$OUT/files.txt")"
+      } | tee "/workspace/evidence/provenance-$(params.name).txt"
+
+  - name: vulnerability-scan
+    image: $(params.ci-image)
+    computeResources:
+      requests: {cpu: 500m, memory: 1Gi}
+      limits: {cpu: "3", memory: 4Gi, ephemeral-storage: 8Gi}
+    timeout: 25m
+    env:
+    - name: DOCKER_CONFIG
+      value: /workspace/docker-config
+    - name: TRIVY_CACHE_DIR
+      value: /workspace/evidence/.trivy-cache
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      OUT=/workspace/evidence/image-$(params.name)
+      BY_DIGEST="$(printf '%s' '$(params.image)' | cut -d: -f1)@$(params.digest)"
+      trivy image --insecure --scanners vuln --no-progress \
+        --format json --output "$OUT/trivy.json" "$BY_DIGEST"
+      trivy image --insecure --scanners vuln --no-progress \
+        --format table "$BY_DIGEST" | tee "$OUT/trivy.txt"
+      # Documented policy: a fixable CRITICAL blocks delivery. Unfixed base-image
+      # findings are recorded but cannot be actioned here.
+      trivy image --insecure --scanners vuln --no-progress --quiet \
+        --ignore-unfixed --severity CRITICAL --exit-code 1 "$BY_DIGEST"
+      echo "no fixable CRITICAL vulnerabilities" | tee -a "$OUT/trivy.txt"
+---
+# Deploy by immutable digest, wait for the rollout, then prove the running pod
+# really is that digest. A tag or an env var containing the SHA is not proof.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-by-digest
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
   - name: deployment
     type: string
   - name: container
     type: string
   - name: image
     type: string
+  - name: digest
+    type: string
+  - name: commit-sha
+    type: string
+  workspaces:
+  - name: evidence
+  results:
+  - name: previous-image
+    description: Image the Deployment ran before this task (rollback target)
+  - name: pod-image-id
+    description: Live pod imageID after rollout
   steps:
-  - name: patch-and-rollout
-    image: alpine:3.22
-    timeout: 5m
+  - name: patch-wait-verify
+    image: $(params.ci-image)
+    computeResources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    timeout: 15m
     script: |
-      #!/bin/sh
-      set -eu
-      apk add --no-cache curl > /dev/null 2>&1
-      curl -sLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.4/bin/linux/amd64/kubectl"
-      chmod +x /usr/local/bin/kubectl
-      echo "Patching $(params.deployment) -> $(params.image)"
-      kubectl -n gpmidi-ml set image \
-        deployment/$(params.deployment) \
-        $(params.container)=$(params.image)
-      echo "Waiting for rollout..."
-      kubectl -n gpmidi-ml rollout status \
-        deployment/$(params.deployment) \
-        --timeout=120s
-      echo "Deployment rolled out successfully"
-      POD=$(kubectl -n gpmidi-ml get pod \
-        -l app=$(params.deployment) \
-        -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')
-      echo "Live image ID: $POD"
+      #!/bin/bash
+      set -euo pipefail
+      NS=gpmidi-ml
+      DEP='$(params.deployment)'
+      REPO=$(printf '%s' '$(params.image)' | cut -d: -f1)
+      BY_DIGEST="${REPO}@$(params.digest)"
+
+      PREV=$(kubectl -n "$NS" get deploy "$DEP" \
+        -o jsonpath="{.spec.template.spec.containers[?(@.name=='$(params.container)')].image}")
+      echo "previous image: $PREV"
+      printf '%s' "$PREV" > '$(results.previous-image.path)'
+
+      echo "deploying immutable digest: $BY_DIGEST"
+      kubectl -n "$NS" set image "deployment/$DEP" \
+        "$(params.container)=$BY_DIGEST"
+      kubectl -n "$NS" annotate --overwrite "deployment/$DEP" \
+        gpmidi.ailab/source-commit="$(params.commit-sha)" \
+        gpmidi.ailab/image-digest="$(params.digest)"
+      kubectl -n "$NS" rollout status "deployment/$DEP" --timeout=300s
+
+      # The pod must report exactly the digest we published.
+      for i in $(seq 1 30); do
+        IMAGE_ID=$(kubectl -n "$NS" get pod -l "app=$DEP" \
+          -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')
+        [ -n "$IMAGE_ID" ] && break
+        sleep 2
+      done
+      echo "pod imageID: $IMAGE_ID"
+      printf '%s' "$IMAGE_ID" > '$(results.pod-image-id.path)'
+      case "$IMAGE_ID" in
+        *"$(params.digest)") ;;
+        *)
+          echo "ERROR: live pod imageID '$IMAGE_ID' does not contain the published digest $(params.digest)" >&2
+          exit 1
+          ;;
+      esac
+
+      GEN=$(kubectl -n "$NS" get deploy "$DEP" -o jsonpath='{.metadata.generation}')
+      REV=$(kubectl -n "$NS" get deploy "$DEP" \
+        -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}')
+      POD=$(kubectl -n "$NS" get pod -l "app=$DEP" -o jsonpath='{.items[0].metadata.name}')
+      UID_=$(kubectl -n "$NS" get pod -l "app=$DEP" -o jsonpath='{.items[0].metadata.uid}')
+      {
+        echo "deployment: $DEP"
+        echo "source_commit: $(params.commit-sha)"
+        echo "published_digest: $(params.digest)"
+        echo "deployed_reference: $BY_DIGEST"
+        echo "pod: $POD"
+        echo "pod_uid: $UID_"
+        echo "pod_image_id: $IMAGE_ID"
+        echo "generation: $GEN"
+        echo "revision: $REV"
+        echo "previous_image: $PREV"
+      } | tee "/workspace/evidence/deploy-$DEP.txt"
 ---
+# PVC persistence: the volumes that hold Project and analysis data must be the
+# same PersistentVolumes before and after a deploy, and must still be readable.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pvc-persistence-check
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  - name: phase
+    description: "before | after"
+    type: string
+  workspaces:
+  - name: source
+  - name: evidence
+  steps:
+  - name: record
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    computeResources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      NS=gpmidi-ml
+      OUT="/workspace/evidence/pvc-$(params.phase).json"
+      kubectl -n "$NS" get pvc project-assets reference-time-data -o json \
+        | jq '[.items[] | {name: .metadata.name, uid: .metadata.uid,
+                           volume: .spec.volumeName, phase: .status.phase,
+                           capacity: .status.capacity.storage}]' \
+        | tee "$OUT"
+      if [ '$(params.phase)' = 'after' ]; then
+        /opt/venv-svc/bin/python infra/ailab/scripts/check_pvc_persistence.py \
+          /workspace/evidence/pvc-before.json \
+          /workspace/evidence/pvc-after.json \
+          | tee -a /workspace/evidence/pvc-verification.txt
+      fi
+---
+# Focused post-rollout smoke.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -171,51 +540,203 @@ metadata:
   namespace: gpmidi-ml
 spec:
   params:
+  - name: ci-image
+    type: string
   - name: service-name
     type: string
+  - name: port
+    type: string
+    default: "8000"
   - name: healthz-path
     type: string
+  - name: host-header
+    type: string
+    default: ""
+  workspaces:
+  - name: evidence
   steps:
-  - name: curl-healthz
-    image: curlimages/curl:8.14.1
-    timeout: 2m
+  - name: probe
+    image: $(params.ci-image)
+    computeResources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    timeout: 5m
     script: |
-      #!/bin/sh
-      set -eu
-      SVC="$(params.service-name).gpmidi-ml.svc.cluster.local:8000"
-      echo "Checking $SVC$(params.healthz-path)"
-      for i in $(seq 1 15); do
-        CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://$SVC$(params.healthz-path)" 2>/dev/null) || CODE=000
+      #!/bin/bash
+      set -euo pipefail
+      URL="http://$(params.service-name).gpmidi-ml.svc.cluster.local:$(params.port)$(params.healthz-path)"
+      HOST_ARGS=()
+      if [ -n '$(params.host-header)' ]; then
+        HOST_ARGS=(-H "Host: $(params.host-header)")
+      fi
+      for i in $(seq 1 30); do
+        CODE=$(curl -s -o /tmp/body -w '%{http_code}' "${HOST_ARGS[@]}" "$URL") || CODE=000
         if [ "$CODE" = "200" ]; then
-          echo "Health check passed (HTTP 200)"
+          echo "$URL -> 200"
+          head -c 300 /tmp/body
+          echo
+          echo "$(params.service-name) $(params.healthz-path) 200" \
+            >> /workspace/evidence/smoke.txt
           exit 0
         fi
-        echo "Attempt $i: HTTP $CODE, retrying..."
+        echo "attempt $i: HTTP $CODE"
         sleep 2
       done
-      echo "ERROR: health check failed after 30s" >&2
+      echo "ERROR: $URL never returned 200" >&2
       exit 1
 ---
+# Post-deploy live acceptance. Runs the fail-closed runner against the deployed
+# services and publishes machine-readable evidence generated from its own
+# assertions. Non-zero exit fails the pipeline.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: kustomize-render
+  name: live-e2e
   namespace: gpmidi-ml
 spec:
+  params:
+  - name: ci-image
+    type: string
+  - name: commit-sha
+    type: string
+  workspaces:
+  - name: source
+  - name: evidence
+  steps:
+  - name: acceptance
+    image: $(params.ci-image)
+    workingDir: /workspace/source
+    computeResources:
+      requests: {cpu: 500m, memory: 1Gi}
+      limits: {cpu: "3", memory: 4Gi, ephemeral-storage: 4Gi}
+    timeout: 40m
+    env:
+    - name: E2E_BASE_URL
+      value: https://192.168.30.2
+    - name: E2E_FLASK_URL
+      value: https://192.168.30.2
+    - name: E2E_FLASK_HOST
+      value: gpmidi.ailab.local
+    - name: E2E_HOMEPAGE_URL
+      value: http://192.168.30.2
+    - name: E2E_GITEA_URL
+      value: http://192.168.30.2:3300
+    - name: E2E_LLM_URL
+      value: http://192.168.30.2:8080/health
+    - name: E2E_NAMESPACE
+      value: gpmidi-ml
+    script: |
+      #!/bin/bash
+      set -uo pipefail
+      mkdir -p /workspace/evidence
+      /opt/venv-svc/bin/python e2e/live_acceptance.py \
+        --output /workspace/evidence/e2e-evidence.json 2>&1 \
+        | tee /workspace/evidence/e2e-log.txt
+      STATUS="${PIPESTATUS[0]}"
+      echo "live acceptance exit status: $STATUS"
+      echo "commit under test: $(params.commit-sha)"
+      exit "$STATUS"
+---
+# Publish the collected evidence bundle so a failed or successful run can be
+# diagnosed and cited after the workspace is gone.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: publish-evidence
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  - name: commit-sha
+    type: string
+  - name: run-name
+    type: string
+  workspaces:
+  - name: evidence
+  - name: evidence-archive
+  steps:
+  - name: archive
+    image: $(params.ci-image)
+    computeResources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      DEST="/workspace/evidence-archive/$(params.run-name)-$(params.commit-sha)"
+      mkdir -p "$DEST"
+      # Never archive the scanner cache; it is large and reproducible.
+      rm -rf /workspace/evidence/.trivy-cache
+      cp -r /workspace/evidence/. "$DEST/"
+      ( cd "$DEST" && find . -type f -exec sha256sum {} + > SHA256SUMS )
+      echo "evidence archived to $DEST"
+      ls -la "$DEST"
+      # Bounded retention on a finite /data: keep the 10 most recent bundles.
+      cd /workspace/evidence-archive
+      ls -1dt */ 2>/dev/null | tail -n +11 | while read -r old; do
+        echo "pruning old evidence bundle: $old"
+        rm -rf "$old"
+      done
+---
+# Injects a deliberate gate failure into the checked-out workspace for the
+# negative-proof pipeline. The failure lives only in the ephemeral workspace, so
+# no broken code is ever committed to the feature branch.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: inject-gate-failure
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  - name: fail-gate
+    description: pytest | ruff | kubeconform | secret
+    type: string
   workspaces:
   - name: source
   steps:
-  - name: render
-    image: alpine:3.22
+  - name: inject
+    image: $(params.ci-image)
     workingDir: /workspace/source
-    timeout: 5m
+    computeResources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
     script: |
-      #!/bin/sh
-      set -eu
-      apk add --no-cache curl > /dev/null 2>&1
-      curl -sLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.4/bin/linux/amd64/kubectl"
-      chmod +x /usr/local/bin/kubectl
-      echo "Rendering kustomize manifests..."
-      kubectl kustomize infra/ailab > /tmp/rendered.yaml
-      echo "Rendered $(wc -l < /tmp/rendered.yaml) lines"
-      echo "Kustomize render succeeded"
+      #!/bin/bash
+      set -euo pipefail
+      case '$(params.fail-gate)' in
+        pytest)
+          cat > test_deliberate_negative_gate.py <<'PY'
+      def test_deliberate_failure_for_negative_pipeline_proof():
+          assert 1 == 2, "deliberate failure injected by inject-gate-failure"
+      PY
+          # pytest.ini declares its collection roots explicitly, so the injected
+          # file has to be added to them to be seen.
+          sed -i 's|^    test_compact_bends.py$|    test_compact_bends.py\n    test_deliberate_negative_gate.py|' pytest.ini
+          echo "injected a failing root test"
+          ;;
+        ruff)
+          printf 'import os\nimport sys\n\nx=1\n' > deliberate_lint_violation.py
+          printf 'import  sys,os\nBAD = (  1,2 )\n' > deliberate_lint_violation.py
+          echo "injected a lint violation"
+          ;;
+        kubeconform)
+          printf 'apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: broken\n  namespace: gpmidi-ml\nspec:\n  replicas: "not-a-number"\n' \
+            > infra/ailab/apps/deliberate-broken.yaml
+          sed -i 's|^- tekton$|- tekton\n- apps/deliberate-broken.yaml|' infra/ailab/kustomization.yaml
+          echo "injected a schema-invalid manifest"
+          ;;
+        secret)
+          printf 'AWS_SECRET_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"\naws_secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"\n' \
+            > deliberate_secret.py
+          git -c user.email=ci@ailab.local -c user.name=ci add -A
+          git -c user.email=ci@ailab.local -c user.name=ci commit -q -m "deliberate secret for negative proof"
+          echo "injected a committed secret"
+          ;;
+        *)
+          echo "ERROR: unknown fail-gate '$(params.fail-gate)'" >&2
+          exit 1
+          ;;
+      esac

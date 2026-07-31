@@ -1,8 +1,23 @@
+---
+# Least-privilege ServiceAccounts with separated credentials.
+#
+#   tekton-build    clones and builds. Holds the registry push credential and no
+#                   Kubernetes permissions at all.
+#   tekton-deploy   patches Deployments and reads pods. Cannot delete anything,
+#                   and in particular cannot delete a PersistentVolumeClaim.
+#   tekton-e2e      may delete a reference-time pod and exec into pods, because
+#                   the restart and no-copy acceptance scenarios require it.
+#                   It cannot change any Deployment.
+#   tekton-prune    the only identity allowed to delete PipelineRuns and orphaned
+#                   workspace PVCs, and only from the retention CronJob.
+#   tekton-triggers-el  creates PipelineRuns from validated webhooks.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: tekton-build
   namespace: gpmidi-ml
+secrets:
+- name: gitea-registry-auth
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -10,6 +25,26 @@ metadata:
   name: tekton-deploy
   namespace: gpmidi-ml
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-e2e
+  namespace: gpmidi-ml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-prune
+  namespace: gpmidi-ml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-triggers-el
+  namespace: gpmidi-ml
+---
+# Deploy: patch images and observe the rollout. No delete verb anywhere, so a
+# deploy or a rollback cannot remove Project or analysis data.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -20,20 +55,18 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list", "watch", "patch", "update"]
 - apiGroups: ["apps"]
-  resources: ["deployments/status"]
-  verbs: ["get", "watch"]
+  resources: ["deployments/status", "replicasets"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["pods/log"]
   verbs: ["get"]
-- apiGroups: ["tekton.dev"]
-  resources: ["pipelineruns"]
-  verbs: ["get", "list", "delete"]
+# Read-only: the persistence gate compares claim identities, it never mutates them.
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
-  verbs: ["get", "list", "delete"]
+  verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -49,7 +82,75 @@ subjects:
   name: tekton-deploy
   namespace: gpmidi-ml
 ---
-# EventListener needs to create PipelineRuns and watch trigger resources
+# Live acceptance: may restart a pod and exec into pods, nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-e2e
+  namespace: gpmidi-ml
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create", "get"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/status"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-e2e
+  namespace: gpmidi-ml
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-e2e
+subjects:
+- kind: ServiceAccount
+  name: tekton-e2e
+  namespace: gpmidi-ml
+---
+# Retention only. This is the single identity that may delete PipelineRuns and
+# orphaned Tekton workspace PVCs, and it is used exclusively by the prune CronJob.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-prune
+  namespace: gpmidi-ml
+rules:
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns", "taskruns"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-prune
+  namespace: gpmidi-ml
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-prune
+subjects:
+- kind: ServiceAccount
+  name: tekton-prune
+  namespace: gpmidi-ml
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -62,6 +163,16 @@ rules:
 - apiGroups: ["triggers.tekton.dev"]
   resources: ["eventlisteners", "triggerbindings", "triggertemplates", "triggers", "interceptors"]
   verbs: ["get", "list", "watch"]
+# The signature-verifying interceptor reads the shared webhook secret.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -77,12 +188,7 @@ subjects:
   name: tekton-triggers-el
   namespace: gpmidi-ml
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: tekton-triggers-el
-  namespace: gpmidi-ml
----
+# Required by Tekton Triggers so the EventListener can resolve ClusterInterceptors.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

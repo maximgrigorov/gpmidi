@@ -1,3 +1,4 @@
+---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
 metadata:
@@ -9,6 +10,8 @@ spec:
     value: $(body.after)
   - name: ref
     value: $(body.ref)
+  - name: repository
+    value: $(body.repository.full_name)
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
@@ -19,12 +22,18 @@ spec:
   params:
   - name: revision
   - name: ref
+  - name: repository
   resourcetemplates:
   - apiVersion: tekton.dev/v1
     kind: PipelineRun
     metadata:
       generateName: gpmidi-ci-
       namespace: gpmidi-ml
+      labels:
+        gpmidi.ailab/trigger: gitea-push-main
+      annotations:
+        gpmidi.ailab/webhook-ref: $(tt.params.ref)
+        gpmidi.ailab/webhook-repository: $(tt.params.repository)
     spec:
       pipelineRef:
         name: gpmidi-ci
@@ -33,6 +42,15 @@ spec:
         value: http://192.168.30.2:3300/mgrigorov/gpmidi.git
       - name: revision
         value: $(tt.params.revision)
+      # The clone task must land on exactly the SHA the webhook announced. If the
+      # branch tip moved in between, the run fails instead of building something
+      # nobody reviewed.
+      - name: expected-sha
+        value: $(tt.params.revision)
+      - name: ci-image
+        value: 192.168.30.2:3300/mgrigorov/gpmidi-ci:pinned
+      - name: run-name
+        value: main-push
       taskRunTemplate:
         serviceAccountName: tekton-build
         podTemplate:
@@ -40,14 +58,20 @@ spec:
           - ip: 192.168.30.2
             hostnames: [server]
       taskRunSpecs:
+      # Separated credentials: only the deploy identity may patch a Deployment,
+      # and only the e2e identity may restart a pod or exec into one.
+      - pipelineTaskName: pvc-before
+        serviceAccountName: tekton-deploy
+      - pipelineTaskName: pvc-after
+        serviceAccountName: tekton-deploy
       - pipelineTaskName: deploy-asset-api
         serviceAccountName: tekton-deploy
       - pipelineTaskName: deploy-reference-time
         serviceAccountName: tekton-deploy
-      - pipelineTaskName: smoke-asset-api
+      - pipelineTaskName: deploy-gpmidi-web
         serviceAccountName: tekton-deploy
-      - pipelineTaskName: smoke-reference-time
-        serviceAccountName: tekton-deploy
+      - pipelineTaskName: live-e2e
+        serviceAccountName: tekton-e2e
       workspaces:
       - name: shared-workspace
         volumeClaimTemplate:
@@ -55,13 +79,23 @@ spec:
             accessModes: [ReadWriteOnce]
             resources:
               requests:
-                storage: 2Gi
+                storage: 4Gi
+      - name: evidence
+        volumeClaimTemplate:
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 4Gi
+      - name: evidence-archive
+        persistentVolumeClaim:
+          claimName: tekton-evidence
       - name: docker-config
         secret:
           secretName: gitea-registry-auth
       timeouts:
-        pipeline: 30m
-        tasks: 20m
+        pipeline: 2h
+        tasks: 1h30m
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: EventListener
@@ -72,26 +106,41 @@ spec:
   serviceAccountName: tekton-triggers-el
   triggers:
   - name: gitea-push-main
-    bindings:
-    - ref: gitea-push
-    template:
-      ref: gpmidi-ci
     interceptors:
+    # 1. Authenticate the payload. Gitea signs the body with the shared webhook
+    #    secret and sends it as X-Hub-Signature-256, which this interceptor
+    #    verifies. Without it an unauthenticated POST could start a build.
+    - ref:
+        name: github
+        kind: ClusterInterceptor
+      params:
+      - name: secretRef
+        value:
+          secretName: gitea-webhook-secret
+          secretKey: secret
+    # 2. Validate identity: exact repository, exact ref, real commit SHA, and
+    #    reject any delivery-style or explicitly skipped commit so a push made by
+    #    delivery itself can never re-trigger delivery.
     - ref:
         name: cel
         kind: ClusterInterceptor
       params:
       - name: filter
-        # Only trigger on pushes to refs/heads/main from the gpmidi repo
-        # Prevents trigger loops from tag pushes or other branches
         value: >-
-          body.ref == 'refs/heads/main' &&
           body.repository.full_name == 'mgrigorov/gpmidi' &&
-          body.after != '0000000000000000000000000000000000000000'
+          body.ref == 'refs/heads/main' &&
+          body.after.matches('^[0-9a-f]{40}$') &&
+          body.after != '0000000000000000000000000000000000000000' &&
+          !body.head_commit.message.startsWith('chore: image tag') &&
+          !body.head_commit.message.contains('[skip ci]')
       - name: overlays
         value:
         - key: short_sha
           expression: "body.after.truncate(12)"
+    bindings:
+    - ref: gitea-push
+    template:
+      ref: gpmidi-ci
 ---
 apiVersion: v1
 kind: Service

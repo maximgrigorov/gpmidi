@@ -26,8 +26,17 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # Accept webhook posts from Traefik ingress or host network
-  - ports:
+  # Gitea runs in Docker on the host and posts the webhook straight to this
+  # Service, so the source is the node address, not a pod. Naming it explicitly
+  # keeps the listener from being reachable by every pod in the cluster, and the
+  # github interceptor authenticates the payload regardless.
+  - from:
+    - ipBlock:
+        cidr: 192.168.30.2/32
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
     - protocol: TCP
       port: 8080
   egress:

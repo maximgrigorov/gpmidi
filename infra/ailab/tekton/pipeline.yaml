@@ -1,3 +1,21 @@
+---
+# Authoritative delivery pipeline. Ordering is fail-closed: nothing is built until
+# every source gate passes, nothing is deployed until the built image has been
+# audited and scanned, and nothing is declared live until the running pod's
+# imageID has been proven equal to the published digest.
+#
+#   clone(exact SHA, verified)
+#     -> source-gates .......... tests, lint, whitespace, shell, render, schema,
+#                                manifest policy, secrets, dependency+license
+#     -> pvc-before ............ record data-bearing volume identities
+#     -> build-* ............... kaniko, linux/amd64, immutable SHA tag only
+#     -> audit-* ............... digest match, arch, effective user, content,
+#                                vulnerability scan
+#     -> deploy-* .............. patch by digest, wait rollout, verify imageID
+#     -> pvc-after ............. prove volumes were not replaced
+#     -> smoke-* ............... focused readiness probes
+#     -> live-e2e .............. fourteen fail-closed acceptance scenarios
+#     -> publish-evidence ...... archive the bundle (always runs)
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -9,8 +27,392 @@ spec:
     type: string
     default: http://192.168.30.2:3300/mgrigorov/gpmidi.git
   - name: revision
+    description: Full commit SHA to build. A ref is resolved and recorded.
     type: string
-    default: main
+  - name: expected-sha
+    description: Optional guard; the checkout must equal this SHA when set.
+    type: string
+    default: ""
+  - name: registry
+    type: string
+    default: 192.168.30.2:3300
+  - name: registry-owner
+    type: string
+    default: mgrigorov
+  - name: ci-image
+    description: Pinned CI gate image built by the gpmidi-ci-image pipeline.
+    type: string
+  - name: run-name
+    description: Name used for the archived evidence bundle.
+    type: string
+    default: gpmidi-ci
+  workspaces:
+  - name: shared-workspace
+  - name: evidence
+  - name: evidence-archive
+  - name: docker-config
+
+  results:
+  - name: commit-sha
+    value: $(tasks.clone.results.commit-sha)
+  - name: asset-api-digest
+    value: $(tasks.build-asset-api.results.digest)
+  - name: reference-time-digest
+    value: $(tasks.build-reference-time.results.digest)
+  - name: gpmidi-web-digest
+    value: $(tasks.build-gpmidi-web.results.digest)
+  - name: asset-api-pod-image-id
+    value: $(tasks.deploy-asset-api.results.pod-image-id)
+  - name: reference-time-pod-image-id
+    value: $(tasks.deploy-reference-time.results.pod-image-id)
+  - name: gpmidi-web-pod-image-id
+    value: $(tasks.deploy-gpmidi-web.results.pod-image-id)
+  - name: asset-api-previous-image
+    value: $(tasks.deploy-asset-api.results.previous-image)
+  - name: reference-time-previous-image
+    value: $(tasks.deploy-reference-time.results.previous-image)
+  - name: gpmidi-web-previous-image
+    value: $(tasks.deploy-gpmidi-web.results.previous-image)
+
+  tasks:
+  - name: clone
+    taskRef:
+      name: git-clone-exact
+    params:
+    - name: repo-url
+      value: $(params.repo-url)
+    - name: revision
+      value: $(params.revision)
+    - name: expected-sha
+      value: $(params.expected-sha)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+
+  - name: source-gates
+    taskRef:
+      name: source-gates
+    runAfter: [clone]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+
+  # Recorded before anything is built or deployed, so the after-snapshot proves
+  # the deploy did not replace a data-bearing volume.
+  - name: pvc-before
+    taskRef:
+      name: pvc-persistence-check
+    runAfter: [clone]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: phase
+      value: before
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+
+  - name: build-asset-api
+    taskRef:
+      name: kaniko-build-push
+    runAfter: [source-gates]
+    params:
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
+    - name: context
+      value: services/asset_api
+    - name: dockerfile
+      value: services/asset_api/Dockerfile
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: docker-config
+      workspace: docker-config
+
+  - name: build-reference-time
+    taskRef:
+      name: kaniko-build-push
+    runAfter: [source-gates]
+    params:
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
+    - name: context
+      value: services/reference_time
+    - name: dockerfile
+      value: services/reference_time/Dockerfile
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: docker-config
+      workspace: docker-config
+
+  - name: build-gpmidi-web
+    taskRef:
+      name: kaniko-build-push
+    runAfter: [source-gates]
+    params:
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/gpmidi-web:$(tasks.clone.results.commit-sha)
+    - name: context
+      value: .
+    - name: dockerfile
+      value: Dockerfile
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: docker-config
+      workspace: docker-config
+
+  - name: audit-asset-api
+    taskRef:
+      name: image-audit
+    runAfter: [build-asset-api]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-asset-api.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    - name: name
+      value: asset-api
+    - name: expect-user
+      value: "1000"
+    workspaces:
+    - name: evidence
+      workspace: evidence
+    - name: docker-config
+      workspace: docker-config
+
+  - name: audit-reference-time
+    taskRef:
+      name: image-audit
+    runAfter: [build-reference-time]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-reference-time.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    - name: name
+      value: reference-time
+    - name: expect-user
+      value: "1000"
+    workspaces:
+    - name: evidence
+      workspace: evidence
+    - name: docker-config
+      workspace: docker-config
+
+  - name: audit-gpmidi-web
+    taskRef:
+      name: image-audit
+    runAfter: [build-gpmidi-web]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/gpmidi-web:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-gpmidi-web.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    - name: name
+      value: gpmidi-web
+    - name: expect-user
+      value: "10001"
+    workspaces:
+    - name: evidence
+      workspace: evidence
+    - name: docker-config
+      workspace: docker-config
+
+  # Deployment happens only after the source gates, the image audit and the
+  # vulnerability scan have all passed, and after the PVC baseline exists.
+  - name: deploy-asset-api
+    taskRef:
+      name: deploy-by-digest
+    runAfter: [audit-asset-api, pvc-before]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: deployment
+      value: asset-api
+    - name: container
+      value: asset-api
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-asset-api.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: deploy-reference-time
+    taskRef:
+      name: deploy-by-digest
+    runAfter: [audit-reference-time, deploy-asset-api]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: deployment
+      value: reference-time
+    - name: container
+      value: reference-time
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-reference-time.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: deploy-gpmidi-web
+    taskRef:
+      name: deploy-by-digest
+    runAfter: [audit-gpmidi-web, deploy-reference-time]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: deployment
+      value: gpmidi-web
+    - name: container
+      value: gpmidi-web
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/gpmidi-web:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-gpmidi-web.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: pvc-after
+    taskRef:
+      name: pvc-persistence-check
+    runAfter: [deploy-gpmidi-web]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: phase
+      value: after
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+
+  - name: smoke-asset-api
+    taskRef:
+      name: smoke-test
+    runAfter: [pvc-after]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: service-name
+      value: asset-api
+    - name: healthz-path
+      value: /asset-api/readyz
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: smoke-reference-time
+    taskRef:
+      name: smoke-test
+    runAfter: [pvc-after]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: service-name
+      value: reference-time
+    - name: healthz-path
+      value: /reference-time/readyz
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: smoke-gpmidi-web
+    taskRef:
+      name: smoke-test
+    runAfter: [pvc-after]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: service-name
+      value: gpmidi-web
+    - name: port
+      value: "8080"
+    - name: healthz-path
+      value: /healthz
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: live-e2e
+    taskRef:
+      name: live-e2e
+    runAfter: [smoke-asset-api, smoke-reference-time, smoke-gpmidi-web]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+
+  # Runs whatever happened above, so a failed run is still diagnosable.
+  finally:
+  - name: publish-evidence
+    taskRef:
+      name: publish-evidence
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    - name: run-name
+      value: $(params.run-name)
+    workspaces:
+    - name: evidence
+      workspace: evidence
+    - name: evidence-archive
+      workspace: evidence-archive
+---
+# Bootstrap pipeline for the CI gate image itself. Separate so the image the
+# gates run in is also built on AILab by Tekton, never on a workstation.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: gpmidi-ci-image
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: repo-url
+    type: string
+    default: http://192.168.30.2:3300/mgrigorov/gpmidi.git
+  - name: revision
+    type: string
   - name: registry
     type: string
     default: 192.168.30.2:3300
@@ -20,12 +422,15 @@ spec:
   workspaces:
   - name: shared-workspace
   - name: docker-config
-
+  results:
+  - name: commit-sha
+    value: $(tasks.clone.results.commit-sha)
+  - name: ci-image-digest
+    value: $(tasks.build-ci-image.results.digest)
   tasks:
-  # 1. Clone the repo at exact SHA
   - name: clone
     taskRef:
-      name: git-clone
+      name: git-clone-exact
     params:
     - name: repo-url
       value: $(params.repo-url)
@@ -34,112 +439,84 @@ spec:
     workspaces:
     - name: source
       workspace: shared-workspace
-
-  # 2. Tests and lint gates (fail-closed: all must pass before build)
-  - name: test-lint
-    taskRef:
-      name: test-lint
-    runAfter: [clone]
-    workspaces:
-    - name: source
-      workspace: shared-workspace
-
-  # 3. Kustomize render validation
-  - name: kustomize-validate
-    taskRef:
-      name: kustomize-render
-    runAfter: [clone]
-    workspaces:
-    - name: source
-      workspace: shared-workspace
-
-  # 4. Build and push asset-api image
-  - name: build-asset-api
+  - name: build-ci-image
     taskRef:
       name: kaniko-build-push
-    runAfter: [test-lint, kustomize-validate]
+    runAfter: [clone]
     params:
     - name: image
-      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
-    - name: image-latest
-      value: $(params.registry)/$(params.registry-owner)/asset-api:latest
+      value: $(params.registry)/$(params.registry-owner)/gpmidi-ci:$(tasks.clone.results.commit-sha)
     - name: context
-      value: services/asset_api
+      value: .
+    - name: dockerfile
+      value: infra/ailab/tekton/Dockerfile.ci
     workspaces:
     - name: source
       workspace: shared-workspace
     - name: docker-config
       workspace: docker-config
-
-  # 5. Build and push reference-time image
-  - name: build-reference-time
+---
+# Deliberate negative-gate pipeline. Proves a failing gate cannot reach any task
+# that publishes or deploys: this pipeline simply has no build or deploy task
+# after the gates, and the injected failure is a parameter rather than committed
+# code, so nothing broken is left on the feature branch.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: gpmidi-ci-negative
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: repo-url
+    type: string
+    default: http://192.168.30.2:3300/mgrigorov/gpmidi.git
+  - name: revision
+    type: string
+  - name: ci-image
+    type: string
+  - name: fail-gate
+    description: Which gate to break — one of pytest, ruff, kubeconform, secret.
+    type: string
+    default: pytest
+  workspaces:
+  - name: shared-workspace
+  - name: evidence
+  tasks:
+  - name: clone
     taskRef:
-      name: kaniko-build-push
-    runAfter: [test-lint, kustomize-validate]
+      name: git-clone-exact
     params:
-    - name: image
-      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
-    - name: image-latest
-      value: $(params.registry)/$(params.registry-owner)/reference-time:latest
-    - name: context
-      value: services/reference_time
+    - name: repo-url
+      value: $(params.repo-url)
+    - name: revision
+      value: $(params.revision)
     workspaces:
     - name: source
       workspace: shared-workspace
-    - name: docker-config
-      workspace: docker-config
-
-  # 6. Deploy asset-api
-  - name: deploy-asset-api
+  - name: inject-failure
     taskRef:
-      name: deploy-and-wait
-    runAfter: [build-asset-api]
+      name: inject-gate-failure
+    runAfter: [clone]
     params:
-    - name: deployment
-      value: asset-api
-    - name: container
-      value: asset-api
-    - name: image
-      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
-
-  # 7. Deploy reference-time
-  - name: deploy-reference-time
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: fail-gate
+      value: $(params.fail-gate)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  - name: source-gates
     taskRef:
-      name: deploy-and-wait
-    runAfter: [build-reference-time]
+      name: source-gates
+    runAfter: [inject-failure]
     params:
-    - name: deployment
-      value: reference-time
-    - name: container
-      value: reference-time
-    - name: image
-      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
-
-  # 8. Smoke tests (after both deploys)
-  - name: smoke-asset-api
-    taskRef:
-      name: smoke-test
-    runAfter: [deploy-asset-api]
-    params:
-    - name: service-name
-      value: asset-api
-    - name: healthz-path
-      value: /asset-api/healthz
-
-  - name: smoke-reference-time
-    taskRef:
-      name: smoke-test
-    runAfter: [deploy-reference-time]
-    params:
-    - name: service-name
-      value: reference-time
-    - name: healthz-path
-      value: /reference-time/healthz
-
-  results:
-  - name: commit-sha
-    value: $(tasks.clone.results.commit-sha)
-  - name: asset-api-digest
-    value: $(tasks.build-asset-api.results.digest)
-  - name: reference-time-digest
-    value: $(tasks.build-reference-time.results.digest)
+    - name: ci-image
+      value: $(params.ci-image)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: evidence
+      workspace: evidence
+  # There is deliberately NO build or deploy task here. The pipeline that can
+  # mutate a Deployment is `gpmidi-ci`, and in it every deploy task runs after
+  # `source-gates`, so a red gate stops delivery by construction.
