@@ -17,3 +17,10 @@ spec:
     ports:
     - port: 8000
       protocol: TCP
+  - from:
+    - podSelector:
+        matchLabels:
+          app: reference-time
+    ports:
+    - port: 8000
+      protocol: TCP
