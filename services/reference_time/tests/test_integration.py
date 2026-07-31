@@ -8,9 +8,8 @@ from __future__ import annotations
 import json
 import uuid
 
-
-from reference_time.database import AnalysisDB
 from reference_time.cache import compute_cache_key
+from reference_time.database import AnalysisDB
 from reference_time.models import ReferenceTimeAnalysis
 from reference_time.report import generate_json_report
 
@@ -171,7 +170,7 @@ class TestIdempotentQueue:
         db = AnalysisDB(tmp_db_path)
         j1 = str(uuid.uuid4())
         a1 = str(uuid.uuid4())
-        result1, is_new1 = db.find_or_create_job_for_cache(
+        _result1, is_new1 = db.find_or_create_job_for_cache(
             "cache_key_1", j1, a1, "proj1", 10
         )
         assert is_new1 is True
@@ -216,7 +215,7 @@ class TestIdempotentQueue:
         db.create_job(j1, str(uuid.uuid4()), "proj1", "ck1")
         db.update_job_status(j1, "failed")
 
-        result, is_new = db.find_or_create_job_for_cache(
+        _result, is_new = db.find_or_create_job_for_cache(
             "new_ck", str(uuid.uuid4()), str(uuid.uuid4()), "proj1", 1
         )
         assert is_new is True
@@ -237,7 +236,7 @@ class TestConcurrentThreads:
                     str(uuid.uuid4()), str(uuid.uuid4()),
                     "proj1", f"cache_{idx}"
                 )
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 errors.append(e)
 
         threads = [threading.Thread(target=create_job, args=(i,)) for i in range(10)]

@@ -10,7 +10,6 @@ Scoring constants live in a versioned parameters dict included in the cache key.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .models import (
     GPMeasure,
@@ -50,7 +49,7 @@ class AnchorConstraint:
     """User-provided anchor: source measure X must map to GP measure Y."""
     source_measure_index: int
     gp_measure_index: int
-    label: Optional[str] = None
+    label: str | None = None
 
 
 @dataclass
@@ -226,7 +225,7 @@ def _build_anchor_map(
 
 def _compute_confidence(
     src: SourceMeasure,
-    gp: Optional[GPMeasure],
+    gp: GPMeasure | None,
     mapping_type: MappingType,
     all_source: list[SourceMeasure],
     all_gp: list[GPMeasure],
@@ -284,7 +283,7 @@ def _compute_confidence(
 
 def _compute_normalized_positions(
     src: SourceMeasure,
-    gp: Optional[GPMeasure],
+    gp: GPMeasure | None,
     all_source: list[SourceMeasure],
     all_gp: list[GPMeasure],
 ) -> tuple[float, float]:

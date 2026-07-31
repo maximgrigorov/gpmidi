@@ -20,7 +20,6 @@ import json
 import math
 
 import pytest
-
 from reference_time.cache import canonical_json, compute_cache_key
 from reference_time.consensus import build_consensus
 from reference_time.mapping import (
@@ -126,6 +125,7 @@ class TestExtractTempoEvidence:
     def test_default_tempo_warning(self):
         """MIDI with no set_tempo should get default warning."""
         import io
+
         import mido
         mid = mido.MidiFile(type=0, ticks_per_beat=480)
         track = mido.MidiTrack()
@@ -183,7 +183,7 @@ class TestConsensus:
             tempo_events=[TempoEvent(tick=0, seconds=0.0, bpm=bpm)],
             first_event_tick=0,
             first_event_seconds=0.0,
-            duration_ticks=int(480 * 4 * 8),
+            duration_ticks=(480 * 4 * 8),
             duration_seconds=duration,
             source_type=0,
         )
@@ -492,7 +492,7 @@ class TestConsensusDeep:
             tempo_events=events,
             first_event_tick=0,
             first_event_seconds=first_event_seconds,
-            duration_ticks=int(480 * 4 * 8),
+            duration_ticks=(480 * 4 * 8),
             duration_seconds=duration,
             source_type=0,
         )

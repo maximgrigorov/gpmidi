@@ -6,9 +6,9 @@ All fixtures are tiny and generated — no copyrighted content.
 from __future__ import annotations
 
 import io
+import os
 import struct
 import sys
-import os
 
 # Ensure the service package is importable when tests are collected from root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

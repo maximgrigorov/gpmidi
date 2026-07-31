@@ -14,7 +14,6 @@ import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
-from typing import Optional
 
 SCHEMA_VERSION = 1
 
@@ -262,7 +261,7 @@ class AnalysisDB:
 
         return self.get_job(job_id), True
 
-    def get_job(self, job_id: str) -> Optional[dict]:
+    def get_job(self, job_id: str) -> dict | None:
         conn = self._connect()
         try:
             cur = conn.execute(
@@ -293,8 +292,8 @@ class AnalysisDB:
         status: str,
         progress_phase: str = "",
         progress_message: str = "",
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
     ):
         now = datetime.now(timezone.utc).isoformat()
         updates = {
@@ -324,7 +323,7 @@ class AnalysisDB:
             finally:
                 conn.close()
 
-    def find_cached_result(self, cache_key: str) -> Optional[dict]:
+    def find_cached_result(self, cache_key: str) -> dict | None:
         """Find existing successful analysis by cache key.
 
         Never returns failed/incomplete analyses.
@@ -361,7 +360,7 @@ class AnalysisDB:
             finally:
                 conn.close()
 
-    def get_result(self, analysis_id: str) -> Optional[dict]:
+    def get_result(self, analysis_id: str) -> dict | None:
         conn = self._connect()
         try:
             cur = conn.execute(

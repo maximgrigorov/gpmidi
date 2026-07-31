@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
+from asset_api.cache_key import cache_key, canonical_json
 from asset_api.roles import (
     AssetRole,
     allowed_extensions_for_role,
@@ -17,7 +17,6 @@ from asset_api.roles import (
     validate_signature,
 )
 from asset_api.storage import StreamingHashWriter, blob_relpath, cleanup_stale_temps
-from asset_api.cache_key import cache_key, canonical_json
 
 
 # --- Role / extension validation ---
@@ -250,7 +249,7 @@ class TestCacheKey:
 
 class TestGPRevisionNumbering:
     def test_monotonic_revisions(self):
-        from asset_api.database import init_db, get_db
+        from asset_api.database import get_db, init_db
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "test.db"
             init_db(db_path)
@@ -284,7 +283,7 @@ class TestGPRevisionNumbering:
 
     def test_idempotent_same_hash(self):
         """Same GP hash should not create a new revision unless force_new."""
-        from asset_api.database import init_db, get_db
+        from asset_api.database import get_db, init_db
         from asset_api.main import _create_gp_revision
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "test.db"

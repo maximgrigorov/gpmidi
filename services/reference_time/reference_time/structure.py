@@ -69,7 +69,7 @@ def parse_structure_json(
         raise ValueError(f"Malformed structure JSON: {e}") from e
 
     if not isinstance(doc, dict):
-        raise ValueError("Structure JSON root must be an object")
+        raise TypeError("Structure JSON root must be an object")
 
     version = doc.get("version", "")
     if version not in SUPPORTED_VERSIONS:

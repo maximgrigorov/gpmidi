@@ -45,7 +45,7 @@ class StreamingHashWriter:
         self._tmp_dir.mkdir(parents=True, exist_ok=True)
         self._hasher = hashlib.sha256()
         self._size = 0
-        self._fd = tempfile.NamedTemporaryFile(
+        self._fd = tempfile.NamedTemporaryFile(  # noqa: SIM115
             dir=str(self._tmp_dir), delete=False, prefix="upload_"
         )
         self._path = Path(self._fd.name)
@@ -104,8 +104,7 @@ def cleanup_stale_temps(tmp_dir: Path | None = None, max_age_seconds: int = 3600
     now = time.time()
     removed = 0
     for f in d.iterdir():
-        if f.is_file() and f.name.startswith("upload_"):
-            if now - f.stat().st_mtime > max_age_seconds:
-                f.unlink()
-                removed += 1
+        if f.is_file() and f.name.startswith("upload_") and now - f.stat().st_mtime > max_age_seconds:
+            f.unlink()
+            removed += 1
     return removed

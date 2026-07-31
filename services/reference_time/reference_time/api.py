@@ -11,7 +11,6 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -20,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import __version__
+from .audio_evidence import extract_audio_evidence
 from .cache import compute_cache_key
 from .config import (
     ASSET_API_URL,
@@ -30,7 +30,6 @@ from .config import (
     MAX_CONCURRENT_JOBS,
     MAX_QUEUE_LENGTH,
 )
-from .audio_evidence import extract_audio_evidence
 from .consensus import build_consensus
 from .database import AnalysisDB
 from .gp_grid import extract_gp_grid
@@ -42,8 +41,8 @@ from .structure import parse_structure_json
 
 logger = logging.getLogger(__name__)
 
-db: Optional[AnalysisDB] = None
-executor: Optional[ThreadPoolExecutor] = None
+db: AnalysisDB | None = None
+executor: ThreadPoolExecutor | None = None
 _running_jobs: set[str] = set()
 _lock = threading.Lock()
 
@@ -110,7 +109,7 @@ async def readyz():
         raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         db.count_active_jobs()
-    except Exception:
+    except (OSError, RuntimeError):
         raise HTTPException(status_code=503, detail="Database check failed")
     return {"status": "ready"}
 
@@ -120,7 +119,7 @@ class AnalysisRequest(BaseModel):
     gp_asset_link_id: str
     source_midi_link_ids: list[str]
     audio_link_ids: list[str] = []
-    structure_link_id: Optional[str] = None
+    structure_link_id: str | None = None
 
 
 class AnalysisResponse(BaseModel):
@@ -273,7 +272,7 @@ def _run_analysis(
                     ae = extract_audio_evidence(aud_bytes)
                     audio_evidence_list.append(ae)
                     audio_warnings.extend(ae.warnings)
-                except Exception as e:
+                except (OSError, ValueError, RuntimeError) as e:
                     logger.warning("Audio extraction failed for %s: %s", aud_link_id, e)
                     audio_warnings.append(Warning(
                         code=WarningCode.AUDIO_DECODE_FAILED,
@@ -383,8 +382,8 @@ def _run_analysis(
                 error_code="analysis_error",
                 error_message=f"Internal analysis error: {type(e).__name__}",
             )
-        except Exception:
-            pass
+        except (OSError, RuntimeError):
+            logger.debug("Failed to mark job %s as failed", job_id)
     finally:
         with _lock:
             _running_jobs.discard(job_id)

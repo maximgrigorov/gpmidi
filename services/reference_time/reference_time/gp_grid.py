@@ -8,7 +8,6 @@ GP tempo is destination-only evidence, NOT WAV timing truth.
 
 from __future__ import annotations
 
-from typing import Optional
 
 import guitarpro
 
@@ -65,7 +64,7 @@ def extract_gp_grid(
 
         m_ticks = _measure_ticks(num, den_value)
 
-        marker_text: Optional[str] = None
+        marker_text: str | None = None
         if header.marker and header.marker.title:
             marker_text = header.marker.title
 
@@ -82,7 +81,7 @@ def extract_gp_grid(
                 if alt_val & (1 << bit):
                     alt_numbers.append(bit + 1)
 
-        tempo_bpm: Optional[float] = None
+        tempo_bpm: float | None = None
         if hasattr(header, "tempo") and header.tempo:
             tempo_val = header.tempo
             if hasattr(tempo_val, "value"):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any
 
 
@@ -17,7 +18,7 @@ def canonical_json(obj: Any) -> str:
 
     def _check_value(v: Any) -> Any:
         if isinstance(v, float):
-            if v != v:  # NaN check
+            if math.isnan(v):
                 raise ValueError("NaN is not allowed in canonical JSON")
             if v == float("inf") or v == float("-inf"):
                 raise ValueError("Infinity is not allowed in canonical JSON")

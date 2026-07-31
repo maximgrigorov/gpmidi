@@ -9,7 +9,6 @@ and computing seconds only at serialization.
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import Optional
 
 import mido
 
@@ -98,9 +97,9 @@ def _build_time_sig_table(
     return events
 
 
-def _find_first_musical_event(midi_file: mido.MidiFile) -> Optional[int]:
+def _find_first_musical_event(midi_file: mido.MidiFile) -> int | None:
     """Find the tick of the first note_on with velocity > 0."""
-    first_tick: Optional[int] = None
+    first_tick: int | None = None
 
     for track in midi_file.tracks:
         abs_tick = 0
@@ -121,8 +120,7 @@ def _find_last_event_tick(midi_file: mido.MidiFile) -> int:
         abs_tick = 0
         for msg in track:
             abs_tick += msg.time
-        if abs_tick > last_tick:
-            last_tick = abs_tick
+        last_tick = max(last_tick, abs_tick)
     return last_tick
 
 
@@ -305,8 +303,7 @@ def build_source_measures(
                 ))
                 end_tick = next_ts_tick
 
-        if end_tick > duration_ticks:
-            end_tick = duration_ticks
+        end_tick = min(end_tick, duration_ticks)
 
         secs_start = float(
             _ticks_to_seconds_piecewise(current_tick, tempo_table, ppq)

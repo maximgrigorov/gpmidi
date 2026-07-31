@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import numpy as np
@@ -48,10 +48,10 @@ class AudioEvidence:
 
 
 def _compute_onset_envelope(
-    samples: "np.ndarray",
+    samples: np.ndarray,
     sr: int,
     hop_length: int = ONSET_HOP_LENGTH,
-) -> "np.ndarray":
+) -> np.ndarray:
     """Compute a spectral flux onset envelope."""
     import numpy as np
 
@@ -80,7 +80,7 @@ def _compute_onset_envelope(
 
 
 def _pick_peaks(
-    envelope: "np.ndarray",
+    envelope: np.ndarray,
     sr: int,
     hop_length: int,
     threshold_ratio: float = 0.3,
@@ -107,7 +107,7 @@ def _pick_peaks(
 
 def _estimate_downbeats(
     onset_times: list[float],
-    estimated_bpm: Optional[float] = None,
+    estimated_bpm: float | None = None,
     max_candidates: int = 200,
 ) -> list[float]:
     """Estimate downbeat candidates from onset times.
@@ -219,7 +219,7 @@ def extract_audio_evidence(
             warnings=warnings,
         )
 
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         warnings.append(Warning(
             code=WarningCode.AUDIO_DECODE_FAILED,
             message=f"Audio processing failed: {e}",

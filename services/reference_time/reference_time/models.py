@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -111,7 +110,7 @@ class Warning(BaseModel):
 
     code: WarningCode
     message: str
-    context: Optional[dict] = None
+    context: dict | None = None
 
 
 class SourceTempoEvidence(BaseModel):
@@ -125,8 +124,8 @@ class SourceTempoEvidence(BaseModel):
     midi_ppq: int
     time_signatures: list[TimeSignatureEvent]
     tempo_events: list[TempoEvent]
-    first_event_tick: Optional[int] = None
-    first_event_seconds: Optional[float] = None
+    first_event_tick: int | None = None
+    first_event_seconds: float | None = None
     duration_ticks: int
     duration_seconds: float
     source_type: int  # MIDI type 0 or 1
@@ -151,7 +150,7 @@ class SourceMeasure(BaseModel):
     numerator: int
     denominator: int
     tempo_bpm: float
-    audio_downbeat_evidence: Optional[float] = None
+    audio_downbeat_evidence: float | None = None
     confidence: float
     warnings: list[Warning] = []
 
@@ -181,15 +180,15 @@ class GPMeasure(BaseModel):
     tick_end: int
     numerator: int
     denominator: int
-    marker_text: Optional[str] = None
-    section_text: Optional[str] = None
+    marker_text: str | None = None
+    section_text: str | None = None
     has_repeat_open: bool = False
     has_repeat_close: bool = False
     repeat_close_count: int = 0
     has_alternate_ending: bool = False
     alternate_ending_numbers: list[int] = []
     is_empty: bool = False
-    tempo_bpm: Optional[float] = None
+    tempo_bpm: float | None = None
     warnings: list[Warning] = []
 
     @field_validator("tempo_bpm")
@@ -201,7 +200,7 @@ class GPMeasure(BaseModel):
 class MappingAlternative(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    gp_measure_index: Optional[int]
+    gp_measure_index: int | None
     score: float
     reason: str
 
@@ -216,13 +215,13 @@ class MeasureMapping(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     source_measure_index: int
-    gp_measure_index: Optional[int] = None
-    gp_measure_number: Optional[int] = None
+    gp_measure_index: int | None = None
+    gp_measure_number: int | None = None
     mapping_type: MappingType
     source_seconds_start: float
     source_seconds_end: float
-    gp_tick_start: Optional[int] = None
-    gp_tick_end: Optional[int] = None
+    gp_tick_start: int | None = None
+    gp_tick_end: int | None = None
     normalized_position_start: float = 0.0
     normalized_position_end: float = 1.0
     confidence: float
@@ -258,8 +257,8 @@ class MidiConsensus(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     decision: ConsensusDecision
-    primary_asset_link_id: Optional[str] = None
-    primary_sha256: Optional[str] = None
+    primary_asset_link_id: str | None = None
+    primary_sha256: str | None = None
     source_count: int
     agreement_metrics: dict = {}
     per_source_warnings: dict[str, list[Warning]] = {}
@@ -274,12 +273,12 @@ class ReferenceTimeAnalysis(BaseModel):
     analysis_id: str
     project_id: str
     gp_revision_sha256: str
-    gp_revision_number: Optional[int] = None
+    gp_revision_number: int | None = None
     processor_versions: dict[str, str] = {}
     parameters: dict = {}
     input_identities: dict[str, str] = {}
     source_evidence: list[SourceTempoEvidence] = []
-    midi_consensus: Optional[MidiConsensus] = None
+    midi_consensus: MidiConsensus | None = None
     source_measures: list[SourceMeasure] = []
     gp_measures: list[GPMeasure] = []
     mappings: list[MeasureMapping] = []
@@ -287,7 +286,7 @@ class ReferenceTimeAnalysis(BaseModel):
     global_warnings: list[Warning] = []
     cache_key: str = ""
     created_at: datetime = None
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     @field_validator("global_confidence")
     @classmethod
@@ -318,12 +317,12 @@ class AnalysisJob(BaseModel):
     status: JobStatus = JobStatus.QUEUED
     progress_phase: str = ""
     progress_message: str = ""
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: str | None = None
+    error_message: str | None = None
     cache_key: str = ""
     created_at: datetime = None
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
     @model_validator(mode="after")
     def _set_created_at(self):

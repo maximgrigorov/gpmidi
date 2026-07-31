@@ -10,8 +10,8 @@ import os
 import secrets
 import sqlite3
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -21,10 +21,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from .config import (
     CORS_ORIGINS,
-    PROJECT_NAME_MAX_LEN,
     PROJECT_DESC_MAX_LEN,
+    PROJECT_NAME_MAX_LEN,
 )
 from .database import get_db, init_db, recover_interrupted_uploads
+from .limiter import ConcurrencyLimiter, RateLimiter
 from .roles import (
     AssetRole,
     allowed_extensions_for_role,
@@ -33,7 +34,6 @@ from .roles import (
     validate_extension,
     validate_signature,
 )
-from .limiter import RateLimiter, ConcurrencyLimiter
 from .storage import (
     StreamingHashWriter,
     blob_relpath,
@@ -196,7 +196,7 @@ def healthz():
 
 @app.get("/readyz")
 def readyz():
-    from .config import DB_PATH, BLOBS_DIR
+    from .config import BLOBS_DIR, DB_PATH
     errors = []
     if not DB_PATH.parent.exists():
         errors.append("db directory missing")
@@ -422,11 +422,10 @@ async def upload_blob(ticket: str, request: Request):
             writer.abort()
             raise _error(422, "empty_upload", "No data received")
 
-        if not header_checked and writer.size > 0:
-            if not validate_signature(bytes(header_buf), ext or ""):
-                writer.abort()
-                raise _error(415, "invalid_signature",
-                             "File signature does not match expected format")
+        if not header_checked and writer.size > 0 and not validate_signature(bytes(header_buf), ext or ""):
+            writer.abort()
+            raise _error(415, "invalid_signature",
+                         "File signature does not match expected format")
 
         sha256_hex = writer.finalize()
         writer.commit(sha256_hex)
@@ -502,8 +501,8 @@ def _mark_ticket_failed(ticket_hash: str) -> None:
                 (ticket_hash,),
             )
             conn.commit()
-    except Exception:
-        pass
+    except (sqlite3.Error, OSError):
+        logger.debug("Failed to mark ticket %s as failed", ticket_hash)
 
 
 def _create_gp_revision(

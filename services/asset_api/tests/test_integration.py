@@ -14,6 +14,7 @@ def isolated_env(tmp_path, monkeypatch):
     """Each test gets its own fresh database and blob storage."""
     monkeypatch.setenv("ASSET_DATA_ROOT", str(tmp_path))
     import importlib
+
     import asset_api.config
     importlib.reload(asset_api.config)
     from asset_api.config import DATA_ROOT
@@ -52,9 +53,7 @@ def reset_limiters():
 
 def _wav_bytes(size: int = 100) -> bytes:
     """Generate a minimal valid WAV header + padding."""
-    data_size = size - 44
-    if data_size < 0:
-        data_size = 0
+    data_size = max(size - 44, 0)
     header = (
         b"RIFF"
         + struct.pack("<I", data_size + 36)
@@ -191,6 +190,7 @@ class TestUpload:
     def test_oversized_upload_rejected(self, client, monkeypatch):
         monkeypatch.setenv("MAX_TEXT_BYTES", "50")
         import importlib
+
         import asset_api.config
         importlib.reload(asset_api.config)
         cr = client.post("/v1/projects", json={"name": "P"})
@@ -232,6 +232,7 @@ class TestUpload:
     def test_expired_ticket(self, client, monkeypatch):
         monkeypatch.setenv("TICKET_TTL_SECONDS", "0")
         import importlib
+
         import asset_api.config
         importlib.reload(asset_api.config)
         cr = client.post("/v1/projects", json={"name": "P"})
@@ -377,8 +378,8 @@ class TestDeleteLink:
         r = client.delete(f"/v1/projects/{pid}/assets/{link_id}")
         assert r.status_code == 204
 
-        from asset_api.storage import blob_abspath
         from asset_api.config import BLOBS_DIR
+        from asset_api.storage import blob_abspath
         assert blob_abspath(sha, BLOBS_DIR).exists()
 
 
@@ -477,6 +478,7 @@ class TestPersistence:
         """Simulate pod restart: same DATA_ROOT, fresh app instance."""
         monkeypatch.setenv("ASSET_DATA_ROOT", str(tmp_path))
         import importlib
+
         import asset_api.config
         importlib.reload(asset_api.config)
         (tmp_path / "db").mkdir(exist_ok=True)
@@ -595,7 +597,6 @@ class TestRateLimiter:
         import threading
 
         import httpx
-
         from asset_api.main import app, upload_concurrency
 
         wav = _wav_bytes(200)
@@ -705,9 +706,8 @@ class TestRequestId:
         assert r.headers["X-Request-Id"] == body["detail"]["request_id"]
 
     def test_unexpected_error_is_sanitized_and_has_request_id(self, isolated_env):
-        from fastapi.testclient import TestClient
-
         from asset_api.main import app
+        from fastapi.testclient import TestClient
 
         path = f"/__test_unexpected_error_{id(self)}"
 

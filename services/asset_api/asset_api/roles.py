@@ -101,7 +101,7 @@ def sanitize_filename(name: str) -> str:
 
 
 def max_bytes_for_role(role: AssetRole) -> int:
-    from .config import MAX_AUDIO_BYTES, MAX_MIDI_BYTES, MAX_GP_BYTES, MAX_TEXT_BYTES
+    from .config import MAX_AUDIO_BYTES, MAX_GP_BYTES, MAX_MIDI_BYTES, MAX_TEXT_BYTES
     if role in AUDIO_ROLES:
         return MAX_AUDIO_BYTES
     if role in MIDI_ROLES:
