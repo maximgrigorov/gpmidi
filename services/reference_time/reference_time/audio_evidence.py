@@ -1,63 +1,48 @@
 """Audio evidence extraction — bounded Phase 2 scope.
 
-Validates timing from mix/drums stem when present.
-Uses soundfile for metadata and scipy for lightweight onset detection.
-Does NOT perform transcription, labeling, or GPU processing.
+Validates timing from a mix or stem when present. This is not transcription:
+no labels, no models, no GPU.
 
 Resource bounds:
-- Reads at most MAX_READ_SECONDS of audio (default 600s)
-- Downsamples to ANALYSIS_SR for processing
-- Uses temporary files only inside bounded pod storage
+
+* reads at most `max_seconds` of audio, never the whole asset;
+* works from a file already streamed to bounded pod storage, so the decoder
+  never sees an unbounded in-memory buffer;
+* downsamples to a fixed analysis rate before any spectral work;
+* truncates persisted onset/downbeat lists to documented maxima.
 """
 
 from __future__ import annotations
 
-import os
-import tempfile
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import numpy as np
 
-from .models import Warning, WarningCode
+from .models import AudioEvidence, Warning, WarningCode
 
-MAX_READ_SECONDS = 600
+logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_READ_SECONDS = 600.0
 ANALYSIS_SR = 22050
 ONSET_HOP_LENGTH = 512
 ONSET_FRAME_LENGTH = 2048
-
-
-class AudioEvidence:
-    """Lightweight audio evidence for phase/offset validation."""
-
-    def __init__(
-        self,
-        duration_seconds: float,
-        sample_rate: int,
-        channels: int,
-        onset_times: list[float],
-        downbeat_candidates: list[float],
-        warnings: list[Warning],
-    ):
-        self.duration_seconds = duration_seconds
-        self.sample_rate = sample_rate
-        self.channels = channels
-        self.onset_times = onset_times
-        self.downbeat_candidates = downbeat_candidates
-        self.warnings = warnings
+DEFAULT_MAX_ONSETS = 512
+DEFAULT_MAX_DOWNBEATS = 256
 
 
 def _compute_onset_envelope(
     samples: np.ndarray,
-    sr: int,
     hop_length: int = ONSET_HOP_LENGTH,
 ) -> np.ndarray:
-    """Compute a spectral flux onset envelope."""
+    """Spectral-flux onset envelope."""
     import numpy as np
 
     frame_length = ONSET_FRAME_LENGTH
+    if len(samples) < frame_length:
+        return np.array([0.0])
     n_frames = 1 + (len(samples) - frame_length) // hop_length
-
     if n_frames <= 1:
         return np.array([0.0])
 
@@ -69,11 +54,8 @@ def _compute_onset_envelope(
         start = i * hop_length
         frame = samples[start:start + frame_length] * window
         spectrum = np.abs(np.fft.rfft(frame))
-
         if prev_spectrum is not None:
-            diff = spectrum - prev_spectrum
-            envelope[i] = np.sum(np.maximum(0, diff))
-
+            envelope[i] = float(np.sum(np.maximum(0.0, spectrum - prev_spectrum)))
         prev_spectrum = spectrum
 
     return envelope
@@ -85,35 +67,35 @@ def _pick_peaks(
     hop_length: int,
     threshold_ratio: float = 0.3,
 ) -> list[float]:
-    """Simple peak-picking on onset envelope, returns times in seconds."""
+    """Peak-picking on the onset envelope; returns times in seconds."""
     import numpy as np
 
     if len(envelope) < 3:
         return []
+    peak_max = float(np.max(envelope))
+    if peak_max <= 0:
+        return []
+    threshold = threshold_ratio * peak_max
 
-    threshold = threshold_ratio * np.max(envelope)
     peaks: list[float] = []
-
     for i in range(1, len(envelope) - 1):
         if (
             envelope[i] > threshold
             and envelope[i] > envelope[i - 1]
             and envelope[i] >= envelope[i + 1]
         ):
-            peaks.append(i * hop_length / sr)
-
+            peaks.append(round(i * hop_length / sr, 6))
     return peaks
 
 
 def _estimate_downbeats(
     onset_times: list[float],
     estimated_bpm: float | None = None,
-    max_candidates: int = 200,
+    max_candidates: int = DEFAULT_MAX_DOWNBEATS,
 ) -> list[float]:
-    """Estimate downbeat candidates from onset times.
+    """Rough bar-boundary candidates from inter-onset intervals.
 
-    Uses inter-onset intervals to find periodicity suggesting bar boundaries.
-    This is a rough estimate for phase validation, not transcription.
+    Used only for phase/offset validation against the MIDI-derived grid.
     """
     if len(onset_times) < 4:
         return onset_times[:max_candidates]
@@ -128,113 +110,150 @@ def _estimate_downbeats(
     if median_ioi <= 0:
         return onset_times[:max_candidates]
 
-    if estimated_bpm and estimated_bpm > 0:
-        beat_period = 60.0 / estimated_bpm
-    else:
-        beat_period = median_ioi
-
+    beat_period = (
+        60.0 / estimated_bpm if estimated_bpm and estimated_bpm > 0 else median_ioi
+    )
     bar_period = beat_period * 4
 
-    candidates: list[float] = []
-    if onset_times:
-        candidates.append(onset_times[0])
-        last = onset_times[0]
-        for t in onset_times[1:]:
-            if t - last >= bar_period * 0.8:
-                candidates.append(t)
-                last = t
-                if len(candidates) >= max_candidates:
-                    break
-
+    candidates: list[float] = [onset_times[0]]
+    last = onset_times[0]
+    for t in onset_times[1:]:
+        if t - last >= bar_period * 0.8:
+            candidates.append(t)
+            last = t
+            if len(candidates) >= max_candidates:
+                break
     return candidates
 
 
-def extract_audio_evidence(
-    audio_bytes: bytes,
-    max_seconds: float = MAX_READ_SECONDS,
+def _degraded(
+    asset_link_id: str, sha256: str, role: str, code: WarningCode, message: str
 ) -> AudioEvidence:
-    """Extract audio evidence from WAV/FLAC bytes.
+    return AudioEvidence(
+        asset_link_id=asset_link_id,
+        sha256=sha256,
+        role=role,
+        warnings=[Warning(code=code, message=message)],
+    )
 
-    Returns AudioEvidence with onset times and downbeat candidates.
-    On failure, returns degraded evidence with warnings.
+
+def extract_audio_evidence(
+    path: str,
+    asset_link_id: str,
+    sha256: str,
+    role: str = "",
+    max_seconds: float = DEFAULT_MAX_READ_SECONDS,
+    max_onsets: int = DEFAULT_MAX_ONSETS,
+    max_downbeats: int = DEFAULT_MAX_DOWNBEATS,
+    estimated_bpm: float | None = None,
+) -> AudioEvidence:
+    """Extract bounded audio evidence from an already-downloaded WAV/FLAC file.
+
+    Never raises for audio problems: a decode failure degrades to evidence
+    carrying `audio_decode_failed`, because absent audio must reduce confidence
+    rather than fail the analysis.
     """
-    warnings: list[Warning] = []
-
     try:
         import numpy as np
         import soundfile as sf
-    except ImportError as e:
-        return AudioEvidence(
-            duration_seconds=0.0,
-            sample_rate=0,
-            channels=0,
-            onset_times=[],
-            downbeat_candidates=[],
-            warnings=[Warning(
-                code=WarningCode.AUDIO_DECODE_FAILED,
-                message=f"Audio dependencies not available: {e}",
-            )],
+    except ImportError as e:  # pragma: no cover - dependency is pinned in the image
+        return _degraded(
+            asset_link_id,
+            sha256,
+            role,
+            WarningCode.AUDIO_DECODE_FAILED,
+            f"Audio dependencies not available: {e}",
         )
 
-    tmp_path = None
+    warnings: list[Warning] = []
     try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".wav", delete=False, dir=os.environ.get("TMPDIR", "/tmp")
-        ) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-
-        info = sf.info(tmp_path)
-        duration = info.duration
-        sr = info.samplerate
-        channels = info.channels
+        info = sf.info(path)
+        duration = float(info.duration)
+        sr = int(info.samplerate)
+        channels = int(info.channels)
 
         max_frames = int(max_seconds * sr)
-        data, file_sr = sf.read(tmp_path, frames=max_frames, dtype="float32")
+        truncated = duration > max_seconds
+        if truncated:
+            warnings.append(
+                Warning(
+                    code=WarningCode.AUDIO_TRUNCATED,
+                    message=(
+                        f"Only the first {max_seconds:.0f}s of {duration:.1f}s were "
+                        f"analysed (bounded read)"
+                    ),
+                )
+            )
 
-        if data.ndim > 1:
-            mono = np.mean(data, axis=1)
-        else:
-            mono = data
+        data, file_sr = sf.read(path, frames=max_frames, dtype="float32")
+        mono = np.mean(data, axis=1) if data.ndim > 1 else data
+        decoded_seconds = float(len(mono) / file_sr) if file_sr else 0.0
 
-        if file_sr != ANALYSIS_SR:
-            ratio = ANALYSIS_SR / file_sr
-            new_length = int(len(mono) * ratio)
+        if file_sr != ANALYSIS_SR and len(mono) > 1:
+            new_length = max(1, int(len(mono) * ANALYSIS_SR / file_sr))
             indices = np.linspace(0, len(mono) - 1, new_length)
             mono = np.interp(indices, np.arange(len(mono)), mono)
             effective_sr = ANALYSIS_SR
         else:
             effective_sr = file_sr
 
-        envelope = _compute_onset_envelope(mono, effective_sr)
+        envelope = _compute_onset_envelope(mono)
         onset_times = _pick_peaks(envelope, effective_sr, ONSET_HOP_LENGTH)
-        downbeat_candidates = _estimate_downbeats(onset_times)
+        downbeats = _estimate_downbeats(
+            onset_times, estimated_bpm=estimated_bpm, max_candidates=max_downbeats
+        )
 
         return AudioEvidence(
+            asset_link_id=asset_link_id,
+            sha256=sha256,
+            role=role,
             duration_seconds=duration,
+            decoded_seconds=decoded_seconds,
             sample_rate=sr,
             channels=channels,
-            onset_times=onset_times,
-            downbeat_candidates=downbeat_candidates,
+            onset_count=len(onset_times),
+            onset_times=onset_times[:max_onsets],
+            downbeat_candidates=downbeats[:max_downbeats],
+            truncated=truncated,
             warnings=warnings,
         )
 
-    except (OSError, ValueError, RuntimeError) as e:
-        warnings.append(Warning(
-            code=WarningCode.AUDIO_DECODE_FAILED,
-            message=f"Audio processing failed: {e}",
-        ))
-        return AudioEvidence(
-            duration_seconds=0.0,
-            sample_rate=0,
-            channels=0,
-            onset_times=[],
-            downbeat_candidates=[],
-            warnings=warnings,
+    except (OSError, ValueError, RuntimeError, MemoryError) as e:
+        logger.warning("Audio decode failed for %s: %s", asset_link_id, e)
+        return _degraded(
+            asset_link_id,
+            sha256,
+            role,
+            WarningCode.AUDIO_DECODE_FAILED,
+            f"Audio processing failed: {type(e).__name__}",
         )
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+
+
+def apply_audio_evidence_to_measures(
+    source_measures: list,
+    audio_evidence: list[AudioEvidence],
+    window_seconds: float = 0.5,
+) -> list:
+    """Attach downbeat corroboration to each source measure.
+
+    Each measure gets the proximity, in [0,1], of the nearest audio downbeat
+    candidate to its own start. A measure with no candidate within the window
+    keeps `None`, which the aligner reads as "no audio evidence" rather than
+    "audio contradicts".
+    """
+    candidates = sorted(t for ev in audio_evidence for t in ev.downbeat_candidates)
+    if not candidates:
+        return list(source_measures)
+
+    enriched = []
+    for sm in source_measures:
+        best: float | None = None
+        for t in candidates:
+            if t < sm.seconds_start - window_seconds:
+                continue
+            if t > sm.seconds_start + window_seconds:
+                break
+            proximity = 1.0 - abs(t - sm.seconds_start) / window_seconds
+            best = proximity if best is None else max(best, proximity)
+        enriched.append(sm.model_copy(update={"audio_downbeat_evidence": best}))
+    return enriched
