@@ -358,7 +358,10 @@ spec:
   - name: name
     type: string
   - name: expect-user
-    description: Numeric uid the image must run as.
+    description: >-
+      Pipe-separated list of acceptable values for the image's User field. A
+      Dockerfile may declare either a numeric uid or a username, and both are
+      legitimate as long as the image does not run as root.
     type: string
   workspaces:
   - name: evidence
@@ -397,14 +400,20 @@ spec:
       USER_FIELD=$(jq -r '.config.User // ""' "$OUT/config.json")
       echo "os/arch: $OS/$ARCH  user: '$USER_FIELD'"
       [ "$OS/$ARCH" = "linux/amd64" ] || { echo "ERROR: not linux/amd64" >&2; exit 1; }
+      # Root, or an unset User, is always a failure. Otherwise the value must be
+      # one of the declared acceptable spellings.
       case "$USER_FIELD" in
-        "$(params.expect-user)"|"$(params.expect-user):"*)
-          ;;
-        *)
-          echo "ERROR: image runs as '$USER_FIELD', expected $(params.expect-user)" >&2
+        ""|root|0|root:*|0:*)
+          echo "ERROR: image runs as root (User='$USER_FIELD')" >&2
           exit 1
           ;;
       esac
+      USER_NAME=${USER_FIELD%%:*}
+      if ! printf '%s' "$(params.expect-user)" | tr '|' '\n' | grep -qxF "$USER_NAME"; then
+        echo "ERROR: image runs as '$USER_FIELD', expected one of $(params.expect-user)" >&2
+        exit 1
+      fi
+      echo "image user '$USER_FIELD' is non-root and expected"
 
       # Content inspection: the exact commit must be embedded, and no secret
       # material or test fixture may be.

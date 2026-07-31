@@ -218,7 +218,7 @@ spec:
     - name: name
       value: asset-api
     - name: expect-user
-      value: "1000"
+      value: "appuser|1000"
     workspaces:
     - name: evidence
       workspace: evidence
@@ -241,7 +241,7 @@ spec:
     - name: name
       value: reference-time
     - name: expect-user
-      value: "1000"
+      value: "appuser|1000"
     workspaces:
     - name: evidence
       workspace: evidence
@@ -264,7 +264,7 @@ spec:
     - name: name
       value: gpmidi-web
     - name: expect-user
-      value: "10001"
+      value: "gpmidi|10001"
     workspaces:
     - name: evidence
       workspace: evidence
