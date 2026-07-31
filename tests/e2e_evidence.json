@@ -1,0 +1,91 @@
+{
+  "project_id": "01635213-6a55-4fef-8218-1daf083d692c",
+  "timestamp": "2026-07-31T19:32:46+0500",
+  "base_url": "https://192.168.30.2",
+  "scenarios": [
+    {
+      "scenario": 1,
+      "title": "GP parse to multi-measure grid",
+      "status": "PASS",
+      "detail": "8 measures, marker=True, repeat=True, notes=True"
+    },
+    {
+      "scenario": 2,
+      "title": "Agreeing MIDIs deterministic consensus",
+      "status": "PASS",
+      "detail": "decision=agreed, primary=1cf4f12deaf3"
+    },
+    {
+      "scenario": 3,
+      "title": "Conflicting MIDI regional conflict",
+      "status": "PASS",
+      "detail": "decision=conflict, regions=3"
+    },
+    {
+      "scenario": 4,
+      "title": "Audio corroborates MIDI phase",
+      "status": "PASS",
+      "detail": "audio_evidence_present=True, audio_error_warnings=0"
+    },
+    {
+      "scenario": 5,
+      "title": "Structure anchor changes mapping",
+      "status": "PASS",
+      "detail": "Different cache keys confirm anchor affects result"
+    },
+    {
+      "scenario": 6,
+      "title": "Conflicting anchors fail with stable error",
+      "status": "PASS",
+      "detail": "error_code=structure_parse_failed"
+    },
+    {
+      "scenario": 7,
+      "title": "Source/GP gaps create explicit mappings",
+      "status": "PASS",
+      "detail": "mapping_types={'gp_gap', 'one_to_one'}"
+    },
+    {
+      "scenario": 8,
+      "title": "Cache hit idempotent under concurrent requests",
+      "status": "PASS",
+      "detail": "analysis_ids=1, cache_hits=3, statuses={'succeeded'}"
+    },
+    {
+      "scenario": 9,
+      "title": "GP revision recomputes mapping with same source evidence",
+      "status": "PASS",
+      "detail": "gp_sha_different=True, source_sha_same=True"
+    },
+    {
+      "scenario": 10,
+      "title": "Pod restart preserves results",
+      "status": "PASS",
+      "detail": "Pre/post GP measures: 8=8"
+    },
+    {
+      "scenario": 11,
+      "title": "JSON/HTML deterministic",
+      "status": "PASS",
+      "detail": "json_sha=c2056f6c64f4, html_content_match=True (timestamp excluded)"
+    },
+    {
+      "scenario": 12,
+      "title": "Flask Project page workflow",
+      "status": "PASS",
+      "detail": "status=200, analysis_ui=True, assets_visible=True"
+    },
+    {
+      "scenario": 13,
+      "title": "No MIDI/GP modified, no permanent source copy",
+      "status": "PASS",
+      "detail": "gp_sha_match=True, midi_sha_match=True"
+    },
+    {
+      "scenario": 14,
+      "title": "All existing services healthy",
+      "status": "PASS",
+      "detail": "asset_api=ok, reference_time=ok, flask_homepage=ok, projects_list=ok, gitea=ok, gpu_profile_unchanged=ok"
+    }
+  ]
+}

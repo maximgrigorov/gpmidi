@@ -89,9 +89,21 @@ Implemented on branch:
 - rollback instructions with SHA-tagged registry images;
 - 99 service tests + 255 root tests passing; ruff clean.
 
-Deployed images (from Tekton pipeline, SHA `65fcc60c`):
-- `asset-api@sha256:dc3343e7ea3cd15d74cea5b3f90da5c4398e62686440a40586cd5f2a6a62ff85`
-- `reference-time@sha256:67e3fcc8388919f19673814469ec6f40032df8ac3062bb97866fd7e8af68ed96`
+Deployed images (from PipelineRun `ruff-fix-t5r6w`, commit `30138db`):
+- `asset-api@sha256:07d5f1f943c128ab365272241219bc9af590db88ad9056c79a9fab8668147355`
+- `reference-time@sha256:ce2398f506b8bc8e94ab716dc7ae3ad08a732cd4db9a843a3a6c5dbacb8bdefe`
+
+Pod image IDs match pipeline-produced digests exactly.
+
+Live E2E: 14/14 scenarios passed (`tests/test_e2e_live.py`, evidence in
+`tests/e2e_evidence.json`). Covers GP parse, consensus, conflict, audio,
+anchors, gaps, cache, restart, determinism, Flask UI, asset integrity, and
+service health.
+
+Test counts (from PipelineRun `ruff-fix-t5r6w`):
+- Root `python -m pytest -q`: 258 passed, 27 skipped
+- Service `python -m pytest tests/ -q`: 99 passed
+- `ruff check`: clean (0 errors)
 
 Report: `docs/Phase_2_Reference_Time_Vertical_Slice.md`
 

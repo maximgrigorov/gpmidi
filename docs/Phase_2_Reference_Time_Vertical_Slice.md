@@ -318,12 +318,14 @@ No existing service was disrupted by the Phase 2 deployment.
 
 ## 12. Image tag/digest and rollback
 
-### Current images
+### Current images (from PipelineRun `ruff-fix-t5r6w`)
 
-| Service | Image tag | Commit |
+| Service | Digest | Commit |
 |---|---|---|
-| asset-api | `a87e8fc914ef` | `a87e8fc` — GP5 signature fix |
-| reference-time | `86f46b5a5f18` | `86f46b5` — SQLite threading fix |
+| asset-api | `sha256:07d5f1f943c1…` | `30138db` — ruff BLE001/I001 fix |
+| reference-time | `sha256:ce2398f506b8…` | `30138db` — ruff BLE001/I001 fix |
+
+Pod image IDs match pipeline-produced digests exactly.
 
 ### Rollback
 
@@ -348,18 +350,18 @@ Removing reference-time has no effect on asset-api or any other service.
 
 ### Known boundaries
 
-1. **No CI/CD pipeline**: builds are manual docker-build-import-deploy. The
-   task required Tekton — not available on AILab.
-2. **Low confidence with synthetic fixtures**: the E2E GP fixture is a default
-   Song (8 empty measures). Real-world analysis needs real GP + Suno MIDI pairs.
-3. **Audio evidence is lightweight**: onset-based downbeat estimation only, no
+1. **Audio evidence is lightweight**: onset-based downbeat estimation only, no
    ML, no beat tracking model. Sufficient for corroborating tempo estimates.
-4. **Single-threaded SQLite**: `check_same_thread=False` works for low
-   concurrency but is not suitable for high-throughput scenarios.
-5. **No authentication/authorization**: the API is open within the cluster;
+2. **Single-threaded SQLite**: WAL mode with per-call connections and a write
+   lock. Sufficient for current concurrency but not for high-throughput.
+3. **No authentication/authorization**: the API is open within the cluster;
    Traefik provides HTTPS but no auth.
-6. **Structure JSON input**: accepted but not yet integrated into the alignment
-   algorithm (field parsed, endpoint ready, scoring TODO).
+4. **Cross-project cache**: cache key does not include project_id. Identical
+   inputs in different projects return the same cached result. The cached
+   analysis_id may not match the requesting project, causing 404 on report
+   fetch unless the caller uses the original project_id.
+5. **HTML report timestamp**: `generate_html_report` embeds `datetime.now()`
+   on each render. JSON is stored deterministically; HTML is re-rendered.
 
 ### Phase 3 handoff
 
@@ -369,23 +371,40 @@ the GP grid with confidence-gated automation. Prerequisites:
 
 - Validate Phase 2 mappings with real production GP + Suno MIDI pairs
 - Tune scoring parameters based on real-world alignment quality
-- Implement structure JSON integration into alignment scoring
+- Fix cross-project cache identity (include project_id or scope results)
 - Consider authentication if the service is exposed beyond the local network
-- Establish CI/CD (Tekton or equivalent) before production deployment
+
+## Live E2E evidence
+
+All 14 scenarios passed against deployed services on AILab. Evidence written
+to `tests/e2e_evidence.json`. Project ID: see evidence file.
+
+| # | Scenario | Result | Detail |
+|---|----------|--------|--------|
+| 1 | GP multi-measure grid | **PASS** | 8 measures, marker=True, repeat=True, notes=True |
+| 2 | Agreeing MIDIs consensus | **PASS** | decision=agreed, deterministic primary SHA |
+| 3 | Conflicting MIDI | **PASS** | decision=conflict, 3 regional conflict regions |
+| 4 | Audio corroboration | **PASS** | audio_downbeat_evidence populated, no decode errors |
+| 5 | Structure anchor | **PASS** | Different cache keys confirm anchor affects result |
+| 6 | Conflicting anchors | **PASS** | error_code=structure_parse_failed |
+| 7 | Source/GP gaps | **PASS** | mapping_types={one_to_one, gp_gap} |
+| 8 | Cache concurrency | **PASS** | 3 concurrent requests → 1 analysis_id, 3 cache hits |
+| 9 | GP revision recompute | **PASS** | Different GP SHA, same source evidence SHA |
+| 10 | Pod restart | **PASS** | Pre/post restart: 8=8 GP measures preserved |
+| 11 | JSON/HTML deterministic | **PASS** | JSON byte-identical; HTML identical (timestamp excluded) |
+| 12 | Flask project page | **PASS** | status=200, analysis UI present, assets visible |
+| 13 | No source modified | **PASS** | GP and MIDI SHA match after full analysis workflow |
+| 14 | Services healthy | **PASS** | asset-api, reference-time, Flask, Gitea, GPU all ok |
 
 ## Ordered commits
 
+See `git log --oneline origin/main..feat/reference-time-vertical-slice` for
+the full list. Key commits:
+
 ```
-49ee7ef docs: require AILab-native Tekton delivery
-2a0e6b8 chore: update asset-api image tag to 49ee7ef0b4ba
-f8c69ef feat: implement Phase 2 reference-time analysis service
-da187f3 chore: set reference-time image tag to f8c69ef8e2a4
-9bcfb71 fix: add PyGuitarPro to runtime requirements
-5096af8 chore: update reference-time image tag to 9bcfb71dbca7
-89fa60f fix: allow reference-time -> asset-api ingress in NetworkPolicy
-d3bda2d fix: use asset 'id' instead of 'link_id' to match asset-api response
-a87e8fc fix: GP5 signature validation offset (length-prefixed format)
-86f46b5 fix: allow SQLite cross-thread access for ThreadPoolExecutor
+30138db fix: ruff BLE001 and I001 in midi_tempo and test_api
+571ccbd fix: phase 2 acceptance fixes — CI/CD, scoring, tests, docs
+65fcc60 fix: ruff 0.16.1 linting across all service files
 ```
 
 ## Live URLs
