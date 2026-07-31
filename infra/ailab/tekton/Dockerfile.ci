@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+WORKDIR /ci
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    Flask==3.1.2 mido==1.3.3 pyguitarpro==0.11 ApolloTab==1.3.1 \
+    gunicorn==23.0.0 "PyYAML>=6.0" tuttut==0.0.6 "pretty_midi>=0.2.9" \
+    networkx==2.8.6 numpy==1.23.2 "fpdf2>=2.7" "pypdf>=4.0" \
+    "pytest>=8.0" "requests>=2.31" ruff && \
+    pip install --no-cache-dir \
+    fastapi uvicorn httpx pydantic soundfile librosa

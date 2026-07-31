@@ -37,35 +37,26 @@ spec:
   - name: source
   steps:
   - name: root-tests
-    image: python:3.11-slim
+    image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:latest
     workingDir: /workspace/source
     script: |
       #!/bin/bash
       set -eux
-      pip install --no-cache-dir --upgrade pip
-      pip install --no-cache-dir -r requirements.txt ruff pytest
       python -m pytest -q --tb=short
-    timeout: 15m
   - name: service-tests
-    image: python:3.11-slim
+    image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:latest
     workingDir: /workspace/source
     script: |
       #!/bin/bash
       set -eux
-      pip install --no-cache-dir --upgrade pip
-      pip install --no-cache-dir -r requirements.txt
-      pip install --no-cache-dir -r services/reference_time/requirements.txt
-      pip install --no-cache-dir pytest
       cd services/reference_time
       python -m pytest tests/ -q --tb=short
-    timeout: 15m
   - name: ruff
-    image: python:3.11-slim
+    image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:latest
     workingDir: /workspace/source
     script: |
       #!/bin/bash
       set -eux
-      pip install --no-cache-dir ruff
       python -m ruff check services/reference_time services/asset_api
   - name: shell-syntax
     image: alpine:3.22

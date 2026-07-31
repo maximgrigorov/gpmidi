@@ -10,6 +10,6 @@ spec:
     limits.cpu: "12"
     limits.memory: 24Gi
     nvidia.com/gpu: "1"
-    persistentvolumeclaims: "10"
-    pods: "20"
+    persistentvolumeclaims: "20"
+    pods: "30"
     services: "10"
