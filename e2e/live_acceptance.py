@@ -1274,16 +1274,19 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     preserved_analysis_id = baseline["response"]["analysis_id"]
     preserved_before = api.report_json(pid, preserved_analysis_id)
 
-    # Saturate the worker pool with slow work so that, at the moment the pod is
-    # deleted, at least one job is running and at least one is still queued.
-    slow_audio = make_wav_clicks(duration_sec=240.0, click_period=1.0)
+    # Saturate the worker pool with work that outlasts the disruption window. The
+    # bounded audio path is the slow part of an analysis, so six ten-minute click
+    # tracks per job keep a job running for far longer than the second or two it
+    # takes to issue the pod deletion. With three-minute tracks a running job
+    # finished inside that window and the scenario reported a false failure.
+    slow_audio = make_wav_clicks(duration_sec=600.0, click_period=1.0)
     slow_links = []
-    for i in range(3):
+    for i in range(6):
         up = api.upload(
             pid, "stem.other", f"e2e-{RUN_ID}-slow-{i}.wav", slow_audio
         )
         slow_links.append(up["link_id"])
-    check.equal(len(slow_links), 3, "slow audio fixtures uploaded")
+    check.equal(len(slow_links), 6, "slow audio fixtures uploaded")
 
     slow_midis = []
     for i in range(4):
@@ -1312,11 +1315,15 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
         len(submitted) >= 3, "several slow analyses were admitted", f"{len(submitted)}"
     )
 
-    # The snapshot must be taken immediately before the pod is deleted: a job
-    # observed running a minute earlier may legitimately have finished, and then
-    # `succeeded` is correct rather than a recovery failure.
+    # Resolve the pod name *before* snapshotting, so the only thing between the
+    # snapshot and the disruption is the delete call itself. A job observed running
+    # a minute earlier may legitimately have finished, and then `succeeded` is
+    # correct rather than a recovery failure.
+    old_pods = cluster.pod_names("reference-time")
+    check.require(old_pods, "the reference-time pod was found", f"{old_pods}")
+
     snapshot: dict[str, str] = {}
-    deadline = time.time() + 90
+    deadline = time.time() + 120
     while time.time() < deadline:
         snapshot = {j: api.job(j)["status"] for j in submitted}
         if "queued" in snapshot.values() and "running" in snapshot.values():
@@ -1326,6 +1333,11 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
         ):
             break
         time.sleep(0.5)
+
+    # Final read immediately before the delete: this is the authoritative snapshot.
+    snapshot = {j: api.job(j)["status"] for j in submitted}
+    deleted = cluster.delete_pods("reference-time")
+    check.require(deleted, "the pod was deleted", f"{deleted}")
 
     queued_at_snapshot = sorted(j for j, s in snapshot.items() if s == "queued")
     running_at_snapshot = sorted(j for j, s in snapshot.items() if s == "running")
@@ -1339,11 +1351,6 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
         "a job was queued at the instant the pod was disrupted",
         f"{[j[:8] for j in queued_at_snapshot]}",
     )
-
-    old_pods = cluster.pod_names("reference-time")
-    check.require(old_pods, "the reference-time pod was found", f"{old_pods}")
-    deleted = cluster.delete_pods("reference-time")
-    check.require(deleted, "the pod was deleted", f"{deleted}")
     new_pod = cluster.wait_ready("reference-time")
     check.require(
         new_pod not in old_pods, "a new pod replaced it", f"{old_pods} -> {new_pod}"
