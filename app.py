@@ -48,7 +48,9 @@ from playable_tabs import (
 from tab_print import print_pdf
 
 APP_ROOT = Path(__file__).resolve().parent
-DATA_ROOT = APP_ROOT / "data"
+# Overridable so the container can point converter session storage at a writable
+# volume while the image root filesystem stays read-only.
+DATA_ROOT = Path(os.environ.get("GPMIDI_DATA_ROOT", str(APP_ROOT / "data")))
 SESSIONS_ROOT = DATA_ROOT / "sessions"
 ALLOWED_EXTENSIONS = {".gp", ".gp3", ".gp4", ".gp5", ".gpx"}
 MAX_CONTENT_LENGTH = 128 * 1024 * 1024
@@ -667,6 +669,17 @@ def create_job(uploaded_file, humanize: bool = False,
     manifest["current_job_id"] = job_id
     save_manifest(manifest)
     return job_id
+
+
+@app.get("/healthz")
+def healthz():
+    """Liveness/readiness probe.
+
+    Deliberately does not touch the Asset API: this reports whether the UI
+    process itself is serving, so an upstream outage does not restart the pod.
+    """
+    from flask import jsonify
+    return jsonify({"status": "ok", "sessions_root_writable": os.access(SESSIONS_ROOT, os.W_OK)})
 
 
 @app.get("/")

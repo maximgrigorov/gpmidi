@@ -375,3 +375,47 @@ class TestReferenceTimeUI:
         client_mock.create_analysis.assert_called_once_with(
             "p1", "gp1", self.GP_SHA, ["mid1"], ["aud1"], "st1"
         )
+
+
+class TestHealthAndClientBases:
+    def test_healthz_reports_ok(self, flask_client):
+        r = flask_client.get("/healthz")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["status"] == "ok"
+        assert body["sessions_root_writable"] is True
+
+    def test_reference_time_base_is_configured_independently(self, monkeypatch):
+        """In-cluster the two APIs are different Services.
+
+        Deriving the reference-time base from the asset-api base by string
+        replacement pointed reference-time requests at asset-api.
+        """
+        monkeypatch.setenv(
+            "ASSET_API_BASE", "http://asset-api.gpmidi-ml.svc.cluster.local:8000/asset-api"
+        )
+        monkeypatch.setenv(
+            "REFERENCE_TIME_BASE",
+            "http://reference-time.gpmidi-ml.svc.cluster.local:8000/reference-time",
+        )
+        import importlib
+
+        import ailab_client
+        importlib.reload(ailab_client)
+        c = ailab_client.AssetAPIClient()
+        assert c._rt_url("/v1/jobs/x") == (
+            "http://reference-time.gpmidi-ml.svc.cluster.local:8000/reference-time/v1/jobs/x"
+        )
+        assert c._url("/v1/projects") == (
+            "http://asset-api.gpmidi-ml.svc.cluster.local:8000/asset-api/v1/projects"
+        )
+
+    def test_reference_time_base_falls_back_to_the_shared_ingress_layout(self, monkeypatch):
+        monkeypatch.setenv("ASSET_API_BASE", "https://192.168.30.2/asset-api")
+        monkeypatch.delenv("REFERENCE_TIME_BASE", raising=False)
+        import importlib
+
+        import ailab_client
+        importlib.reload(ailab_client)
+        c = ailab_client.AssetAPIClient()
+        assert c._rt_url("/v1/jobs/x") == "https://192.168.30.2/reference-time/v1/jobs/x"

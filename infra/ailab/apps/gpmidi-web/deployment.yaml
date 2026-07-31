@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpmidi-web
+  namespace: gpmidi-ml
+  labels:
+    app: gpmidi-web
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gpmidi-web
+  template:
+    metadata:
+      labels:
+        app: gpmidi-web
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: gpmidi-web
+        # Replaced with an immutable digest by the Tekton deploy task.
+        image: 192.168.30.2:3300/mgrigorov/gpmidi-web:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        # In-cluster the two APIs are separate Services, so the reference-time
+        # base URL is configured explicitly rather than derived from the
+        # asset-api URL by string replacement.
+        - name: ASSET_API_BASE
+          value: http://asset-api.gpmidi-ml.svc.cluster.local:8000/asset-api
+        - name: REFERENCE_TIME_BASE
+          value: http://reference-time.gpmidi-ml.svc.cluster.local:8000/reference-time
+        - name: ASSET_API_VERIFY_TLS
+          value: "false"
+        - name: ASSET_API_TIMEOUT
+          value: "30"
+        - name: GPMIDI_DATA_ROOT
+          value: /var/lib/gpmidi
+        # Server-side printing stays disabled in the cluster: an empty printer
+        # name is the documented off switch.
+        - name: CUPS_PRINTER
+          value: ""
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gpmidi-web-secret
+              key: SECRET_KEY
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: sessions
+          mountPath: /var/lib/gpmidi
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          failureThreshold: 30
+          periodSeconds: 2
+      volumes:
+      # Converter session artifacts are ephemeral by design: nothing uploaded
+      # through the Projects UI is ever persisted on this host.
+      - name: sessions
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 512Mi

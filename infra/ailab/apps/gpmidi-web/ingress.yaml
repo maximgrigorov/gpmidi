@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gpmidi-web
+  namespace: gpmidi-ml
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  tls:
+  - secretName: ailab-tls
+  rules:
+  # A dedicated host rather than a catch-all path, so the `*`-host rules that
+  # serve /asset-api and /reference-time are not shadowed.
+  - host: gpmidi.ailab.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: gpmidi-web
+            port:
+              number: 8080

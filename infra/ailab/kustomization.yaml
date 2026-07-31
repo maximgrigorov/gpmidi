@@ -9,4 +9,5 @@ resources:
 - smoke-app
 - apps/asset-api
 - apps/reference-time
+- apps/gpmidi-web
 - tekton

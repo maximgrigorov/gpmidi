@@ -13,6 +13,11 @@ import requests
 
 ASSET_API_BASE = os.environ.get("ASSET_API_BASE", "https://192.168.30.2/asset-api")
 ASSET_API_TIMEOUT = int(os.environ.get("ASSET_API_TIMEOUT", "30"))
+# The reference-time service has its own base URL. In-cluster the two services
+# are different Kubernetes Services, so deriving one from the other by string
+# replacement (the previous behaviour) pointed reference-time requests at
+# asset-api. Only fall back to the derived value for the shared-ingress layout.
+REFERENCE_TIME_BASE = os.environ.get("REFERENCE_TIME_BASE", "")
 
 
 def _parse_bool(val: str) -> bool:
@@ -31,8 +36,12 @@ class AssetAPIError(Exception):
 
 
 class AssetAPIClient:
-    def __init__(self, base_url: str | None = None):
+    def __init__(self, base_url: str | None = None, reference_time_url: str | None = None):
         self.base = (base_url or ASSET_API_BASE).rstrip("/")
+        rt = reference_time_url or REFERENCE_TIME_BASE
+        self.reference_time_base = (
+            rt.rstrip("/") if rt else self.base.replace("/asset-api", "/reference-time")
+        )
         self.verify = ASSET_API_VERIFY_TLS
         self.timeout = ASSET_API_TIMEOUT
 
@@ -165,8 +174,7 @@ class AssetAPIClient:
     # --- Reference-Time Analysis ---
 
     def _rt_url(self, path: str) -> str:
-        base = self.base.replace("/asset-api", "/reference-time")
-        return f"{base}{path}"
+        return f"{self.reference_time_base}{path}"
 
     def create_analysis(
         self, project_id: str, gp_link_id: str, gp_sha: str,
