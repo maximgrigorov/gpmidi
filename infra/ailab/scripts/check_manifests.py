@@ -35,6 +35,10 @@ EXEMPT_WORKLOADS = {"el-gitea-listener"}
 # The Phase 0 smoke deployment predates these rules and exists only to prove
 # ingress works; it is not part of the Phase 2 delivery surface.
 EXEMPT_IMAGE_RULES = {"smoke-app"}
+# The prune CronJob and the gate tasks reference the CI image by its `pinned`
+# floating alias on purpose: it is an internal tool image, not a delivered
+# artifact, and it is republished only by the gpmidi-ci-image pipeline.
+EXEMPT_IMAGE_RULES.add("tekton-prune")
 
 GPU_RESOURCES = ("nvidia.com/gpu", "amd.com/gpu")
 
@@ -43,7 +47,13 @@ def containers(spec: dict):
     return list(spec.get("containers") or []) + list(spec.get("initContainers") or [])
 
 
-def check_workload(kind: str, name: str, pod_spec: dict, failures: list[str]) -> None:
+def check_workload(
+    kind: str,
+    name: str,
+    pod_spec: dict,
+    failures: list[str],
+    require_no_token: bool = True,
+) -> None:
     def fail(msg: str) -> None:
         failures.append(f"{kind}/{name}: {msg}")
 
@@ -52,7 +62,7 @@ def check_workload(kind: str, name: str, pod_spec: dict, failures: list[str]) ->
         fail("pod securityContext.runAsNonRoot must be true")
     if (pod_sc.get("seccompProfile") or {}).get("type") != "RuntimeDefault":
         fail("pod securityContext.seccompProfile.type must be RuntimeDefault")
-    if pod_spec.get("automountServiceAccountToken") is not False:
+    if require_no_token and pod_spec.get("automountServiceAccountToken") is not False:
         fail("automountServiceAccountToken must be false")
     for field in ("hostNetwork", "hostPID", "hostIPC"):
         if pod_spec.get(field):
@@ -104,6 +114,7 @@ def main(argv: list[str]) -> int:
 
     failures: list[str] = []
     workloads: dict[str, dict] = {}
+    cronjobs: dict[str, dict] = {}
     policies: list[dict] = []
 
     for doc in docs:
@@ -119,6 +130,16 @@ def main(argv: list[str]) -> int:
             pod_spec = ((doc.get("spec") or {}).get("template") or {}).get("spec") or {}
             workloads[name] = doc
             check_workload(kind, name, pod_spec, failures)
+        elif kind == "CronJob":
+            # A scheduled job runs in the same restricted namespace and gets the
+            # same treatment, minus the NetworkPolicy coverage rule.
+            pod_spec = (
+                (((doc.get("spec") or {}).get("jobTemplate") or {}).get("spec") or {})
+                .get("template")
+                or {}
+            ).get("spec") or {}
+            cronjobs[name] = doc
+            check_workload(kind, name, pod_spec, failures, require_no_token=False)
         elif kind == "NetworkPolicy":
             policies.append(doc)
 
@@ -157,9 +178,14 @@ def main(argv: list[str]) -> int:
                     f"NetworkPolicy/{name}: an ingress rule has no 'from' selector"
                 )
 
-    print(f"checked {len(workloads)} workload(s) and {len(policies)} NetworkPolicy(ies)")
+    print(
+        f"checked {len(workloads)} workload(s), {len(cronjobs)} cronjob(s) and "
+        f"{len(policies)} NetworkPolicy(ies)"
+    )
     for name in sorted(workloads):
         print(f"  workload ok: {name}")
+    for name in sorted(cronjobs):
+        print(f"  cronjob ok: {name}")
     if failures:
         print("\nMANIFEST POLICY FAILURES:")
         for f in failures:

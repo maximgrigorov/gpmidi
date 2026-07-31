@@ -14,18 +14,34 @@ spec:
         spec:
           serviceAccountName: tekton-prune
           restartPolicy: OnFailure
+          automountServiceAccountToken: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
           containers:
           - name: prune
-            image: alpine:3.22
-            command: ["/bin/sh", "-c"]
+            # The pinned CI image already carries kubectl and jq, so the prune job
+            # does not download a binary on every run.
+            image: 192.168.30.2:3300/mgrigorov/gpmidi-ci:pinned
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            command: ["/bin/bash", "-c"]
             args:
             - |
               set -eu
-              apk add --no-cache curl jq > /dev/null 2>&1
-              curl -sLo /usr/local/bin/kubectl \
-                "https://dl.k8s.io/release/v1.32.4/bin/linux/amd64/kubectl"
-              chmod +x /usr/local/bin/kubectl
-
               echo "=== Pruning completed PipelineRuns older than 7 days ==="
               CUTOFF=$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
                 || date -u -v-7d '+%Y-%m-%dT%H:%M:%SZ')
