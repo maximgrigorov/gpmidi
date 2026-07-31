@@ -25,9 +25,7 @@ from reference_time.cache import canonical_json, compute_cache_key
 from reference_time.consensus import build_consensus
 from reference_time.mapping import (
     AnchorConstraint,
-    AlignmentResult,
     align_measures,
-    DEFAULT_PARAMS,
 )
 from reference_time.midi_tempo import (
     _ticks_to_seconds_piecewise,
@@ -42,7 +40,6 @@ from reference_time.models import (
     SourceTempoEvidence,
     TempoEvent,
     TimeSignatureEvent,
-    Warning,
     WarningCode,
 )
 from reference_time.report import generate_html_report, generate_json_report
@@ -284,7 +281,14 @@ class TestAlignment:
         src = self._src_measures(2)
         gp = self._gp_measures(4)
         result = align_measures(src, gp)
-        assert len(result.mappings) == 2
+        # 2 matched source measures + 2 explicit GP gap records
+        assert len(result.mappings) == 4
+        gp_gaps = [m for m in result.mappings if m.mapping_type == MappingType.GP_GAP]
+        assert len(gp_gaps) == 2
+        for gap in gp_gaps:
+            assert gap.source_measure_index == -1
+            assert gap.gp_measure_index is not None
+            assert "gp_gap" in gap.evidence
 
     def test_monotonic(self):
         src = self._src_measures(8)
@@ -340,6 +344,306 @@ class TestAlignment:
             if m.mapping_type == MappingType.ONE_TO_ONE:
                 pytest.fail("TS mismatch should not produce ONE_TO_ONE")
         assert result.global_confidence < 0.5
+
+
+class TestAlignmentSensitivity:
+    """Tests proving scoring components actually affect output."""
+
+    def _src_measures(self, n=4, ts=(4, 4), density=0.0, audio_db=None):
+        ppq = 480
+        ticks_per_measure = ppq * 4 * ts[0] // ts[1]
+        measures = []
+        for i in range(n):
+            measures.append(SourceMeasure(
+                index=i,
+                tick_start=i * ticks_per_measure,
+                tick_end=(i + 1) * ticks_per_measure,
+                seconds_start=i * 2.0,
+                seconds_end=(i + 1) * 2.0,
+                numerator=ts[0],
+                denominator=ts[1],
+                tempo_bpm=120.0,
+                confidence=1.0,
+                audio_downbeat_evidence=audio_db,
+            ))
+        return measures
+
+    def _gp_measures(self, n=4, ts=(4, 4), markers=None):
+        ppq = 960
+        ticks_per_measure = ppq * 4 * ts[0] // ts[1]
+        measures = []
+        for i in range(n):
+            measures.append(GPMeasure(
+                gp_revision_sha256="gp_sha",
+                measure_index=i,
+                measure_number=i + 1,
+                tick_start=i * ticks_per_measure,
+                tick_end=(i + 1) * ticks_per_measure,
+                numerator=ts[0],
+                denominator=ts[1],
+                marker_text=(markers or {}).get(i),
+            ))
+        return measures
+
+    def test_duration_changes_confidence(self):
+        src_equal = self._src_measures(4)
+        gp_equal = self._gp_measures(4)
+        result_equal = align_measures(src_equal, gp_equal)
+
+        ppq = 480
+        src_unequal = []
+        for i in range(4):
+            src_unequal.append(SourceMeasure(
+                index=i,
+                tick_start=i * ppq * 4,
+                tick_end=(i + 1) * ppq * 4,
+                seconds_start=sum(1.0 if j < 2 else 3.0 for j in range(i)),
+                seconds_end=sum(1.0 if j < 2 else 3.0 for j in range(i + 1)),
+                numerator=4, denominator=4, tempo_bpm=120.0, confidence=1.0,
+            ))
+        result_unequal = align_measures(src_unequal, gp_equal)
+        equal_conf = [m.confidence for m in result_equal.mappings if m.mapping_type == MappingType.ONE_TO_ONE]
+        unequal_conf = [m.confidence for m in result_unequal.mappings if m.mapping_type == MappingType.ONE_TO_ONE]
+        assert sum(equal_conf) != sum(unequal_conf), "Duration should affect scoring"
+
+    def test_audio_changes_confidence(self):
+        src_no_audio = self._src_measures(4, audio_db=None)
+        src_with_audio = self._src_measures(4, audio_db=0.9)
+        gp = self._gp_measures(4)
+        r1 = align_measures(src_no_audio, gp)
+        r2 = align_measures(src_with_audio, gp)
+        c1 = sum(m.confidence for m in r1.mappings if m.mapping_type == MappingType.ONE_TO_ONE)
+        c2 = sum(m.confidence for m in r2.mappings if m.mapping_type == MappingType.ONE_TO_ONE)
+        assert c2 > c1, "Audio evidence should increase confidence"
+
+    def test_marker_changes_scoring(self):
+        src = self._src_measures(4)
+        gp_no_marker = self._gp_measures(4)
+        gp_with_marker = self._gp_measures(4, markers={0: "Intro"})
+        r1 = align_measures(src, gp_no_marker)
+        r2 = align_measures(src, gp_with_marker)
+        e1 = r1.mappings[0].evidence
+        e2 = r2.mappings[0].evidence
+        assert not any("marker:" in e for e in e1)
+        assert any("marker:" in e for e in e2)
+
+    def test_repeat_changes_scoring(self):
+        src = self._src_measures(4)
+        gp = self._gp_measures(4)
+        gp_repeat = self._gp_measures(4)
+        gp_repeat[2] = gp_repeat[2].model_copy(update={"has_repeat_open": True})
+        r1 = align_measures(src, gp)
+        r2 = align_measures(src, gp_repeat)
+        assert r1.global_confidence != r2.global_confidence or \
+            any("repeat_open" in m.evidence for m in r2.mappings)
+
+    def test_alternatives_populated(self):
+        src = self._src_measures(2)
+        gp = self._gp_measures(4)
+        result = align_measures(src, gp)
+        matched = [m for m in result.mappings if m.mapping_type == MappingType.ONE_TO_ONE]
+        has_alt = any(len(m.alternatives) > 0 for m in matched)
+        assert has_alt, "Near-tie alternatives should be populated"
+
+    def test_normalized_positions(self):
+        src = self._src_measures(4)
+        gp = self._gp_measures(4)
+        result = align_measures(src, gp)
+        for m in result.mappings:
+            if m.mapping_type == MappingType.GP_GAP:
+                continue
+            assert 0.0 <= m.normalized_position_start <= 1.0
+            assert 0.0 <= m.normalized_position_end <= 1.0
+            if m.mapping_type == MappingType.ONE_TO_ONE:
+                assert m.normalized_position_end > m.normalized_position_start
+
+    def test_consensus_conflict_reduces_confidence(self):
+        src = self._src_measures(4)
+        gp = self._gp_measures(4)
+        r_no_conflict = align_measures(src, gp, consensus_has_conflict=False)
+        r_conflict = align_measures(src, gp, consensus_has_conflict=True)
+        assert r_conflict.global_confidence < r_no_conflict.global_confidence
+
+    def test_explicit_gp_gap_mappings(self):
+        src = self._src_measures(1)
+        gp = self._gp_measures(3)
+        result = align_measures(src, gp)
+        gp_gaps = [m for m in result.mappings if m.mapping_type == MappingType.GP_GAP]
+        assert len(gp_gaps) == 2
+        for gap in gp_gaps:
+            assert gap.source_measure_index == -1
+            assert gap.gp_tick_start is not None
+
+
+class TestConsensusDeep:
+    """Tests for trajectory/boundary/duration/ts/preroll consensus comparison."""
+
+    def _make_evidence(self, bpm=120.0, duration=16.0, sha="sha1",
+                       link="link1", events=None, first_event_seconds=0.0):
+        if events is None:
+            events = [TempoEvent(tick=0, seconds=0.0, bpm=bpm)]
+        return SourceTempoEvidence(
+            asset_link_id=link,
+            sha256=sha,
+            parser_name="mido",
+            parser_version="1.3.3",
+            midi_ppq=480,
+            time_signatures=[TimeSignatureEvent(tick=0, seconds=0.0, numerator=4, denominator=4)],
+            tempo_events=events,
+            first_event_tick=0,
+            first_event_seconds=first_event_seconds,
+            duration_ticks=int(480 * 4 * 8),
+            duration_seconds=duration,
+            source_type=0,
+        )
+
+    def test_trajectory_conflict_regions(self):
+        ev1 = self._make_evidence(
+            sha="s1", link="l1",
+            events=[
+                TempoEvent(tick=0, seconds=0.0, bpm=120.0),
+                TempoEvent(tick=3840, seconds=8.0, bpm=80.0),
+            ],
+        )
+        ev2 = self._make_evidence(
+            sha="s2", link="l2",
+            events=[
+                TempoEvent(tick=0, seconds=0.0, bpm=120.0),
+                TempoEvent(tick=3840, seconds=8.0, bpm=120.0),
+            ],
+        )
+        c = build_consensus([ev1, ev2])
+        assert c.decision.value == "conflict"
+        tempo_conflicts = [r for r in c.conflict_regions if "tempo" in r["type"]]
+        assert len(tempo_conflicts) > 0
+
+    def test_preroll_mismatch(self):
+        ev1 = self._make_evidence(sha="s1", link="l1", first_event_seconds=0.0)
+        ev2 = self._make_evidence(sha="s2", link="l2", first_event_seconds=2.0)
+        c = build_consensus([ev1, ev2])
+        assert c.decision.value == "conflict"
+        preroll = [r for r in c.conflict_regions if r["type"] == "preroll_downbeat_mismatch"]
+        assert len(preroll) == 1
+
+    def test_duration_mismatch_conflict(self):
+        ev1 = self._make_evidence(sha="s1", link="l1", duration=16.0)
+        ev2 = self._make_evidence(sha="s2", link="l2", duration=30.0)
+        c = build_consensus([ev1, ev2])
+        assert c.decision.value == "conflict"
+        dur = [r for r in c.conflict_regions if r["type"] == "duration_mismatch"]
+        assert len(dur) == 1
+
+    def test_agreement_with_different_event_counts(self):
+        ev1 = self._make_evidence(
+            sha="s1", link="l1",
+            events=[TempoEvent(tick=0, seconds=0.0, bpm=120.0)],
+        )
+        ev2 = self._make_evidence(
+            sha="s2", link="l2",
+            events=[
+                TempoEvent(tick=0, seconds=0.0, bpm=120.0),
+                TempoEvent(tick=3840, seconds=8.0, bpm=120.0),
+            ],
+        )
+        c = build_consensus([ev1, ev2])
+        assert c.decision.value == "agreed"
+
+
+class TestStructure:
+    """Tests for structure JSON parsing and anchor constraints."""
+
+    def test_valid_structure(self):
+        from reference_time.structure import parse_structure_json
+        doc = json.dumps({
+            "version": "1.0",
+            "anchors": [
+                {"source_measure": 0, "gp_measure": 0, "label": "Start"},
+                {"source_measure": 3, "gp_measure": 3, "label": "Chorus"},
+            ],
+        })
+        result = parse_structure_json(doc.encode(), 8, 8)
+        assert len(result.anchors) == 2
+        assert result.anchors[0].source_measure_index == 0
+        assert result.anchors[1].label == "Chorus"
+
+    def test_malformed_json(self):
+        from reference_time.structure import parse_structure_json
+        with pytest.raises(ValueError, match="Malformed"):
+            parse_structure_json(b"not json", 4, 4)
+
+    def test_unsupported_version(self):
+        from reference_time.structure import parse_structure_json
+        doc = json.dumps({"version": "99.0", "anchors": []})
+        with pytest.raises(ValueError, match="Unsupported"):
+            parse_structure_json(doc.encode(), 4, 4)
+
+    def test_out_of_range_anchor(self):
+        from reference_time.structure import parse_structure_json
+        doc = json.dumps({
+            "version": "1.0",
+            "anchors": [{"source_measure": 100, "gp_measure": 0}],
+        })
+        with pytest.raises(ValueError, match="out of range"):
+            parse_structure_json(doc.encode(), 4, 4)
+
+    def test_conflicting_anchors(self):
+        from reference_time.structure import parse_structure_json
+        doc = json.dumps({
+            "version": "1.0",
+            "anchors": [
+                {"source_measure": 0, "gp_measure": 0},
+                {"source_measure": 0, "gp_measure": 2},
+            ],
+        })
+        with pytest.raises(ValueError, match="Conflicting"):
+            parse_structure_json(doc.encode(), 4, 4)
+
+    def test_non_monotonic_anchors(self):
+        from reference_time.structure import parse_structure_json
+        doc = json.dumps({
+            "version": "1.0",
+            "anchors": [
+                {"source_measure": 0, "gp_measure": 2},
+                {"source_measure": 1, "gp_measure": 1},
+            ],
+        })
+        with pytest.raises(ValueError, match="Non-monotonic"):
+            parse_structure_json(doc.encode(), 4, 4)
+
+    def test_sections_produce_labels(self):
+        from reference_time.structure import parse_structure_json
+        doc = json.dumps({
+            "version": "1.0",
+            "sections": [
+                {"label": "Intro", "source_measure": 0},
+                {"label": "Verse", "source_measure": 4},
+            ],
+        })
+        result = parse_structure_json(doc.encode(), 8, 8)
+        assert result.section_labels[0] == "Intro"
+        assert result.section_labels[4] == "Verse"
+
+    def test_anchor_changes_mapping(self):
+        src = [SourceMeasure(
+            index=i, tick_start=i * 1920, tick_end=(i + 1) * 1920,
+            seconds_start=i * 2.0, seconds_end=(i + 1) * 2.0,
+            numerator=4, denominator=4, tempo_bpm=120.0, confidence=1.0,
+        ) for i in range(4)]
+        gp = [GPMeasure(
+            gp_revision_sha256="gp", measure_index=i, measure_number=i + 1,
+            tick_start=i * 3840, tick_end=(i + 1) * 3840,
+            numerator=4, denominator=4,
+        ) for i in range(4)]
+        r_no_anchor = align_measures(src, gp)
+        r_anchored = align_measures(
+            src, gp,
+            anchors=[AnchorConstraint(source_measure_index=1, gp_measure_index=2)],
+        )
+        m_no = r_no_anchor.mappings[1]
+        m_yes = r_anchored.mappings[1]
+        assert m_yes.gp_measure_index == 2
+        assert m_yes.confidence == 1.0
+        assert m_no.gp_measure_index != m_yes.gp_measure_index or m_no.confidence != 1.0
 
 
 class TestCacheKey:

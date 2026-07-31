@@ -1,0 +1,234 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: repo-url
+    type: string
+  - name: revision
+    type: string
+    default: main
+  workspaces:
+  - name: source
+  results:
+  - name: commit-sha
+    description: Exact commit SHA checked out
+  steps:
+  - name: clone
+    image: alpine/git:2.47.2
+    script: |
+      #!/bin/sh
+      set -eu
+      git clone --depth 1 --branch "$(params.revision)" "$(params.repo-url)" /workspace/source
+      cd /workspace/source
+      SHA=$(git rev-parse HEAD)
+      echo -n "$SHA" > "$(results.commit-sha.path)"
+      echo "Checked out $SHA"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-lint
+  namespace: gpmidi-ml
+spec:
+  workspaces:
+  - name: source
+  steps:
+  - name: install-deps
+    image: python:3.12-slim
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -eu
+      pip install --quiet -r requirements.txt
+      pip install --quiet ruff pytest
+      cd services/reference_time && pip install --quiet -r requirements.txt
+      cd ../asset_api && pip install --quiet -r requirements.txt
+  - name: root-tests
+    image: python:3.12-slim
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -eu
+      pip install --quiet -r requirements.txt ruff pytest 2>/dev/null
+      python -m pytest -q --tb=short 2>&1
+  - name: service-tests
+    image: python:3.12-slim
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -eu
+      pip install --quiet -r requirements.txt 2>/dev/null
+      pip install --quiet -r services/reference_time/requirements.txt 2>/dev/null
+      pip install --quiet pytest ruff 2>/dev/null
+      cd services/reference_time
+      python -m pytest tests/ -q --tb=short 2>&1
+  - name: ruff
+    image: python:3.12-slim
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -eu
+      pip install --quiet ruff 2>/dev/null
+      python -m ruff check services/reference_time services/asset_api 2>&1
+  - name: trailing-whitespace
+    image: alpine/git:2.47.2
+    workingDir: /workspace/source
+    script: |
+      #!/bin/sh
+      set -eu
+      # Check for trailing whitespace in tracked files
+      if git diff --check HEAD~1 2>/dev/null; then
+        echo "No trailing whitespace"
+      else
+        echo "ERROR: trailing whitespace found" >&2
+        exit 1
+      fi
+  - name: shell-syntax
+    image: alpine:3.22
+    workingDir: /workspace/source
+    script: |
+      #!/bin/sh
+      set -eu
+      apk add --no-cache bash > /dev/null 2>&1
+      for f in infra/ailab/scripts/*.sh; do
+        echo "Checking $f"
+        bash -n "$f"
+      done
+      echo "All shell scripts pass syntax check"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: kaniko-build-push
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: image
+    type: string
+    description: Full image reference (registry/owner/name:tag)
+  - name: context
+    type: string
+    description: Path to build context relative to workspace root
+  - name: dockerfile
+    type: string
+    default: Dockerfile
+  workspaces:
+  - name: source
+  - name: docker-config
+    description: Docker config.json for registry auth
+  results:
+  - name: digest
+    description: Image digest (sha256:...)
+  steps:
+  - name: build-and-push
+    image: gcr.io/kaniko-project/executor:v1.23.2
+    args:
+    - --dockerfile=/workspace/source/$(params.context)/$(params.dockerfile)
+    - --context=/workspace/source/$(params.context)
+    - --destination=$(params.image)
+    - --digest-file=$(results.digest.path)
+    - --insecure
+    - --skip-tls-verify
+    - --cache=false
+    - --snapshot-mode=redo
+    - --push-retry=2
+    env:
+    - name: DOCKER_CONFIG
+      value: /workspace/docker-config
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "4"
+        memory: 4Gi
+    timeout: 15m
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-and-wait
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: deployment
+    type: string
+  - name: container
+    type: string
+  - name: image
+    type: string
+  workspaces: []
+  steps:
+  - name: patch-and-rollout
+    image: bitnami/kubectl:1.32
+    script: |
+      #!/bin/bash
+      set -eu
+      echo "Patching $(params.deployment) -> $(params.image)"
+      kubectl -n gpmidi-ml set image \
+        deployment/$(params.deployment) \
+        $(params.container)=$(params.image)
+      echo "Waiting for rollout..."
+      kubectl -n gpmidi-ml rollout status \
+        deployment/$(params.deployment) \
+        --timeout=120s
+      echo "Deployment rolled out successfully"
+      POD=$(kubectl -n gpmidi-ml get pod \
+        -l app=$(params.deployment) \
+        -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')
+      echo "Live image ID: $POD"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: smoke-test
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: service-name
+    type: string
+  - name: healthz-path
+    type: string
+  steps:
+  - name: curl-healthz
+    image: curlimages/curl:8.14.1
+    script: |
+      #!/bin/sh
+      set -eu
+      SVC="$(params.service-name).gpmidi-ml.svc.cluster.local:8000"
+      echo "Checking $SVC$(params.healthz-path)"
+      # Retry up to 30s
+      for i in $(seq 1 15); do
+        CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://$SVC$(params.healthz-path)" 2>/dev/null || echo 000)
+        if [ "$CODE" = "200" ]; then
+          echo "Health check passed (HTTP 200)"
+          exit 0
+        fi
+        echo "Attempt $i: HTTP $CODE, retrying..."
+        sleep 2
+      done
+      echo "ERROR: health check failed after 30s" >&2
+      exit 1
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: kustomize-render
+  namespace: gpmidi-ml
+spec:
+  workspaces:
+  - name: source
+  steps:
+  - name: render
+    image: bitnami/kubectl:1.32
+    workingDir: /workspace/source
+    script: |
+      #!/bin/bash
+      set -eu
+      echo "Rendering kustomize manifests..."
+      kubectl kustomize infra/ailab > /tmp/rendered.yaml
+      echo "Rendered $(wc -l < /tmp/rendered.yaml) lines"
+      echo "Kustomize render succeeded"

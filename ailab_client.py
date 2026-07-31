@@ -162,6 +162,62 @@ class AssetAPIClient:
         )
         self._handle(r)
 
+    # --- Reference-Time Analysis ---
+
+    def _rt_url(self, path: str) -> str:
+        base = self.base.replace("/asset-api", "/reference-time")
+        return f"{base}{path}"
+
+    def create_analysis(
+        self, project_id: str, gp_link_id: str, gp_sha: str,
+        midi_link_ids: list[str],
+        audio_link_ids: list[str] | None = None,
+        structure_link_id: str | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "gp_revision_sha256": gp_sha,
+            "gp_asset_link_id": gp_link_id,
+            "source_midi_link_ids": midi_link_ids,
+            "audio_link_ids": audio_link_ids or [],
+        }
+        if structure_link_id:
+            body["structure_link_id"] = structure_link_id
+        r = requests.post(
+            self._rt_url(f"/v1/projects/{project_id}/analyses"),
+            json=body, verify=self.verify, timeout=self.timeout,
+        )
+        return self._handle(r)
+
+    def list_analyses(self, project_id: str) -> dict:
+        r = requests.get(
+            self._rt_url(f"/v1/projects/{project_id}/analyses"),
+            verify=self.verify, timeout=self.timeout,
+        )
+        return self._handle(r)
+
+    def get_analysis_job(self, job_id: str) -> dict:
+        r = requests.get(
+            self._rt_url(f"/v1/jobs/{job_id}"),
+            verify=self.verify, timeout=self.timeout,
+        )
+        return self._handle(r)
+
+    def get_analysis_report_json(self, project_id: str, analysis_id: str) -> dict:
+        r = requests.get(
+            self._rt_url(f"/v1/projects/{project_id}/analyses/{analysis_id}/report.json"),
+            verify=self.verify, timeout=self.timeout,
+        )
+        return self._handle(r)
+
+    def get_analysis_report_html(self, project_id: str, analysis_id: str) -> str:
+        r = requests.get(
+            self._rt_url(f"/v1/projects/{project_id}/analyses/{analysis_id}/report.html"),
+            verify=self.verify, timeout=self.timeout,
+        )
+        if r.status_code >= 400:
+            self._handle(r)
+        return r.text
+
 
 _client: AssetAPIClient | None = None
 

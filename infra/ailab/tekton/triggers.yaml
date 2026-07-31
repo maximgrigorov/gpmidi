@@ -1,0 +1,107 @@
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: gitea-push
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: revision
+    value: $(body.after)
+  - name: repo-url
+    value: $(body.repository.clone_url)
+  - name: ref
+    value: $(body.ref)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: gpmidi-ci
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: revision
+  - name: repo-url
+  - name: ref
+  resourcetemplates:
+  - apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      generateName: gpmidi-ci-
+      namespace: gpmidi-ml
+    spec:
+      pipelineRef:
+        name: gpmidi-ci
+      params:
+      - name: repo-url
+        value: $(tt.params.repo-url)
+      - name: revision
+        value: $(tt.params.revision)
+      taskRunTemplate:
+        serviceAccountName: tekton-build
+      taskRunSpecs:
+      - pipelineTaskName: deploy-asset-api
+        serviceAccountName: tekton-deploy
+      - pipelineTaskName: deploy-reference-time
+        serviceAccountName: tekton-deploy
+      - pipelineTaskName: smoke-asset-api
+        serviceAccountName: tekton-deploy
+      - pipelineTaskName: smoke-reference-time
+        serviceAccountName: tekton-deploy
+      workspaces:
+      - name: shared-workspace
+        volumeClaimTemplate:
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 2Gi
+      - name: docker-config
+        secret:
+          secretName: gitea-registry-auth
+      timeouts:
+        pipeline: 30m
+        tasks: 20m
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: gitea-listener
+  namespace: gpmidi-ml
+spec:
+  serviceAccountName: tekton-triggers-el
+  triggers:
+  - name: gitea-push-main
+    bindings:
+    - ref: gitea-push
+    template:
+      ref: gpmidi-ci
+    interceptors:
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+      - name: filter
+        # Only trigger on pushes to refs/heads/main from the gpmidi repo
+        # Prevents trigger loops from tag pushes or other branches
+        value: >-
+          body.ref == 'refs/heads/main' &&
+          body.repository.full_name == 'mgrigorov/gpmidi' &&
+          body.after != '0000000000000000000000000000000000000000'
+      - name: overlays
+        value:
+        - key: short_sha
+          expression: "body.after.truncate(12)"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: el-gitea-listener
+  namespace: gpmidi-ml
+spec:
+  type: ClusterIP
+  selector:
+    eventlistener: gitea-listener
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080

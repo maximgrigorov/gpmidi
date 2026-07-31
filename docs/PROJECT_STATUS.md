@@ -1,6 +1,6 @@
 # Project status — Reference-Guided MIDI Restoration
 
-**Last independent review:** 2026-07-31  
+**Last independent review:** 2026-07-31
 **Current milestone:** Phase 1 accepted; Phase 2 is the next implementation phase.
 
 ## Completed
@@ -63,7 +63,7 @@ Therefore the **first prerequisite in the next Cursor task** is to establish AIL
 
 ### Phase 2 — Reference-Time Vertical Slice (feature branch)
 
-**Branch:** `feat/reference-time-vertical-slice`  
+**Branch:** `feat/reference-time-vertical-slice`
 **Status:** Feature-complete on branch, not merged to main.
 
 Implemented on branch:

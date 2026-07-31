@@ -158,18 +158,14 @@ def extract_tempo_evidence(
     tempo_table = _build_tempo_table(midi_file)
     ts_table = _build_time_sig_table(midi_file)
 
-    has_default_tempo = False
     if not tempo_table:
-        has_default_tempo = True
         tempo_table = [(0, DEFAULT_TEMPO_US)]
         warnings.append(Warning(
             code=WarningCode.DEFAULT_TEMPO,
             message=f"No tempo events; using MIDI default {DEFAULT_TEMPO_BPM} BPM",
         ))
 
-    has_default_ts = False
     if not ts_table:
-        has_default_ts = True
         ts_table = [(0, DEFAULT_NUMERATOR, DEFAULT_DENOMINATOR)]
         warnings.append(Warning(
             code=WarningCode.DEFAULT_TIME_SIG,

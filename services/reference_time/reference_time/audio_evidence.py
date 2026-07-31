@@ -12,10 +12,12 @@ Resource bounds:
 
 from __future__ import annotations
 
-import io
 import os
 import tempfile
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from .models import Warning, WarningCode
 
@@ -46,10 +48,10 @@ class AudioEvidence:
 
 
 def _compute_onset_envelope(
-    samples: "numpy.ndarray",
+    samples: "np.ndarray",
     sr: int,
     hop_length: int = ONSET_HOP_LENGTH,
-) -> "numpy.ndarray":
+) -> "np.ndarray":
     """Compute a spectral flux onset envelope."""
     import numpy as np
 
@@ -78,7 +80,7 @@ def _compute_onset_envelope(
 
 
 def _pick_peaks(
-    envelope: "numpy.ndarray",
+    envelope: "np.ndarray",
     sr: int,
     hop_length: int,
     threshold_ratio: float = 0.3,

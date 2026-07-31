@@ -46,7 +46,6 @@ def extract_gp_grid(
     Measure headers come from the song's measureHeaders which are
     shared across tracks, avoiding multiplying measure count.
     """
-    ext = original_filename.lower()
     try:
         import io
         stream = io.BytesIO(gp_bytes)

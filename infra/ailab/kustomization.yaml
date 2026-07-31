@@ -9,3 +9,4 @@ resources:
 - smoke-app
 - apps/asset-api
 - apps/reference-time
+- tekton

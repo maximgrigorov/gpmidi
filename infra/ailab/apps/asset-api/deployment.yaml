@@ -27,8 +27,8 @@ spec:
           type: RuntimeDefault
       containers:
       - name: asset-api
-        image: asset-api:49ee7ef0b4ba
-        imagePullPolicy: Never
+        image: server:3300/mgrigorov/asset-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
           protocol: TCP

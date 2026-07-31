@@ -23,7 +23,7 @@ from .models import (
 )
 
 DEFAULT_PARAMS = {
-    "version": "1.0.0",
+    "version": "2.0.0",
     "ts_match_score": 10.0,
     "ts_mismatch_penalty": -5.0,
     "marker_anchor_bonus": 8.0,
@@ -32,12 +32,16 @@ DEFAULT_PARAMS = {
     "duration_weight": 2.0,
     "duration_tolerance_ratio": 0.3,
     "density_weight": 1.0,
+    "density_tolerance": 0.5,
     "repeat_bonus": 2.0,
-    "confidence_ts_match": 0.3,
-    "confidence_duration": 0.2,
-    "confidence_marker": 0.2,
-    "confidence_monotonic": 0.2,
-    "confidence_density": 0.1,
+    "audio_corroboration_bonus": 3.0,
+    "confidence_ts_match": 0.25,
+    "confidence_duration": 0.25,
+    "confidence_marker": 0.15,
+    "confidence_monotonic": 0.15,
+    "confidence_density": 0.10,
+    "confidence_audio": 0.10,
+    "alternative_threshold": 2.0,
 }
 
 
@@ -69,41 +73,78 @@ def _time_sig_score(
 def _duration_score(
     src: SourceMeasure,
     gp: GPMeasure,
+    all_source: list[SourceMeasure],
     all_gp: list[GPMeasure],
     params: dict,
 ) -> float:
     """Score based on relative measure duration similarity.
 
-    Compares source measure duration fraction to GP measure tick fraction.
+    Compares the fraction of total source duration to the fraction of total
+    GP ticks. If both measures represent a similar proportion of their
+    respective totals, score positively.
     """
     src_dur = src.seconds_end - src.seconds_start
     gp_ticks = gp.tick_end - gp.tick_start
 
-    if not all_gp:
+    if not all_gp or not all_source:
         return 0.0
 
     total_gp_ticks = all_gp[-1].tick_end - all_gp[0].tick_start
     if total_gp_ticks <= 0:
         return 0.0
 
-    gp_frac = gp_ticks / total_gp_ticks
-
     total_src_dur = max(0.001, sum(
-        m.seconds_end - m.seconds_start for m in []
+        m.seconds_end - m.seconds_start for m in all_source
     ))
 
-    if src_dur <= 0:
+    gp_frac = gp_ticks / total_gp_ticks
+    src_frac = src_dur / total_src_dur
+
+    if src_frac <= 0:
         return 0.0
 
+    ratio = src_frac / max(0.001, gp_frac) if gp_frac > 0 else 0.0
     tolerance = params["duration_tolerance_ratio"]
-    expected_gp_frac = gp_frac
+    weight = params["duration_weight"]
 
-    score = params["duration_weight"]
-    ratio = gp_frac / max(0.001, expected_gp_frac) if expected_gp_frac > 0 else 1.0
+    deviation = abs(1.0 - ratio)
+    if deviation < tolerance:
+        return weight * (1.0 - deviation / tolerance)
+    return -weight * min(1.0, deviation)
 
-    if abs(1.0 - ratio) < tolerance:
-        return score
-    return -score * abs(1.0 - ratio)
+
+def _density_score(
+    src: SourceMeasure,
+    params: dict,
+) -> float:
+    """Score nudge based on note density — denser measures get a small bonus."""
+    density = getattr(src, "note_density", 0.0) or 0.0
+    if density <= 0:
+        return 0.0
+    weight = params.get("density_weight", 1.0)
+    tolerance = params.get("density_tolerance", 0.5)
+    return weight * min(1.0, density * tolerance)
+
+
+def _repeat_score(
+    gp: GPMeasure,
+    params: dict,
+) -> float:
+    """Bonus for GP repeat boundaries."""
+    bonus = 0.0
+    if gp.has_repeat_open or gp.has_repeat_close:
+        bonus += params["repeat_bonus"]
+    return bonus
+
+
+def _audio_corroboration_score(
+    src: SourceMeasure,
+    params: dict,
+) -> float:
+    """Bonus if audio evidence corroborates this measure's downbeat."""
+    if src.audio_downbeat_evidence is not None and src.audio_downbeat_evidence > 0.5:
+        return params.get("audio_corroboration_bonus", 3.0)
+    return 0.0
 
 
 def _marker_score(
@@ -118,11 +159,17 @@ def _marker_score(
 def _compute_cell_score(
     src: SourceMeasure,
     gp: GPMeasure,
+    all_source: list[SourceMeasure],
     all_gp: list[GPMeasure],
     params: dict,
 ) -> float:
+    """Composite score for matching src to gp."""
     score = 0.0
     score += _time_sig_score(src, gp, params)
+    score += _duration_score(src, gp, all_source, all_gp, params)
+    score += _density_score(src, params)
+    score += _repeat_score(gp, params)
+    score += _audio_corroboration_score(src, params)
     score += _marker_score(gp, params)
     return score
 
@@ -179,30 +226,77 @@ def _build_anchor_map(
 
 def _compute_confidence(
     src: SourceMeasure,
-    gp: GPMeasure,
+    gp: Optional[GPMeasure],
     mapping_type: MappingType,
+    all_source: list[SourceMeasure],
+    all_gp: list[GPMeasure],
     params: dict,
 ) -> float:
-    """Compute calibrated confidence in [0,1]."""
+    """Compute calibrated confidence in [0,1] from actual score components."""
+    if mapping_type == MappingType.SOURCE_GAP:
+        return 0.1
+    if mapping_type == MappingType.GP_GAP:
+        return 0.1
+    if gp is None:
+        return 0.1
+
     confidence = 0.0
 
-    if mapping_type == MappingType.SOURCE_GAP or mapping_type == MappingType.GP_GAP:
-        return 0.2
-
-    if mapping_type == MappingType.AMBIGUOUS:
-        return 0.3
-
+    # Time-signature match component
     if src.numerator == gp.numerator and src.denominator == gp.denominator:
         confidence += params["confidence_ts_match"]
 
-    confidence += params["confidence_duration"]
+    # Duration component — fraction similarity
+    src_dur = src.seconds_end - src.seconds_start
+    total_src_dur = max(0.001, sum(m.seconds_end - m.seconds_start for m in all_source))
+    total_gp_ticks = (all_gp[-1].tick_end - all_gp[0].tick_start) if all_gp else 1
+    gp_ticks = gp.tick_end - gp.tick_start
+    if total_gp_ticks > 0 and total_src_dur > 0:
+        src_frac = src_dur / total_src_dur
+        gp_frac = gp_ticks / total_gp_ticks
+        ratio = src_frac / max(0.001, gp_frac) if gp_frac > 0 else 0.0
+        tolerance = params["duration_tolerance_ratio"]
+        deviation = abs(1.0 - ratio)
+        if deviation < tolerance:
+            confidence += params["confidence_duration"] * (1.0 - deviation / tolerance)
 
+    # Marker component
     if gp.marker_text or gp.section_text:
         confidence += params["confidence_marker"]
 
+    # Monotonicity is always satisfied by DP construction
     confidence += params["confidence_monotonic"]
 
+    # Density component
+    density = getattr(src, "note_density", 0.0) or 0.0
+    if density > 0:
+        confidence += params["confidence_density"]
+
+    # Audio corroboration component
+    if src.audio_downbeat_evidence is not None and src.audio_downbeat_evidence > 0.5:
+        confidence += params["confidence_audio"]
+
+    if mapping_type == MappingType.AMBIGUOUS:
+        confidence *= 0.5
+
     return min(1.0, max(0.0, confidence))
+
+
+def _compute_normalized_positions(
+    src: SourceMeasure,
+    gp: Optional[GPMeasure],
+    all_source: list[SourceMeasure],
+    all_gp: list[GPMeasure],
+) -> tuple[float, float]:
+    """Compute normalized [0,1] position of this mapping within the full timeline."""
+    if not all_source or not all_gp:
+        return 0.0, 1.0
+
+    total_src_dur = max(0.001, all_source[-1].seconds_end - all_source[0].seconds_start)
+    src_start_frac = (src.seconds_start - all_source[0].seconds_start) / total_src_dur
+    src_end_frac = (src.seconds_end - all_source[0].seconds_start) / total_src_dur
+
+    return max(0.0, min(1.0, src_start_frac)), max(0.0, min(1.0, src_end_frac))
 
 
 def align_measures(
@@ -210,11 +304,13 @@ def align_measures(
     gp_measures: list[GPMeasure],
     anchors: list[AnchorConstraint] | None = None,
     params: dict | None = None,
+    consensus_has_conflict: bool = False,
 ) -> AlignmentResult:
     """Align source measures to GP measures using dynamic programming.
 
     Monotonic alignment with gap support, anchor constraints,
-    and explicit scoring.
+    and explicit scoring. Produces explicit MeasureMapping records for
+    both source gaps and GP gaps.
     """
     if params is None:
         params = DEFAULT_PARAMS.copy()
@@ -234,11 +330,16 @@ def align_measures(
     if not gp_measures:
         mappings = []
         for src in source_measures:
+            n_start, n_end = _compute_normalized_positions(
+                src, None, source_measures, gp_measures
+            )
             mappings.append(MeasureMapping(
                 source_measure_index=src.index,
                 mapping_type=MappingType.GP_GAP,
                 source_seconds_start=src.seconds_start,
                 source_seconds_end=src.seconds_end,
+                normalized_position_start=n_start,
+                normalized_position_end=n_end,
                 confidence=0.0,
                 reason_codes=["no_gp_measures"],
             ))
@@ -263,6 +364,9 @@ def align_measures(
     bt = [[(-1, -1)] * (n_gp + 1) for _ in range(n_src + 1)]
     dp[0][0] = 0.0
 
+    # Also store all cell scores for alternatives computation
+    cell_scores: dict[tuple[int, int], float] = {}
+
     for i in range(1, n_src + 1):
         src = source_measures[i - 1]
         src_idx = src.index
@@ -286,10 +390,13 @@ def align_measures(
             else:
                 if j > 0:
                     gp = gp_measures[j - 1]
-                    cell_score = _compute_cell_score(src, gp, gp_measures, params)
+                    cs = _compute_cell_score(
+                        src, gp, source_measures, gp_measures, params
+                    )
+                    cell_scores[(i, j)] = cs
                     for k in range(j):
                         skip_penalty = (j - 1 - k) * params["gap_penalty"] if j - 1 > k else 0
-                        candidate = dp[i - 1][k] + cell_score + skip_penalty
+                        candidate = dp[i - 1][k] + cs + skip_penalty
                         if candidate > best:
                             best = candidate
                             best_from = (i - 1, k)
@@ -320,9 +427,14 @@ def align_measures(
 
     mappings: list[MeasureMapping] = []
     used_gp: set[int] = set()
+    alt_threshold = params.get("alternative_threshold", 2.0)
 
     for ci, cj in path:
         src = source_measures[ci - 1]
+        n_start, n_end = _compute_normalized_positions(
+            src, gp_measures[cj - 1] if cj > 0 else None,
+            source_measures, gp_measures
+        )
 
         if cj == 0:
             mapping_type = MappingType.SOURCE_GAP
@@ -330,9 +442,13 @@ def align_measures(
             gp_num = None
             gp_t_start = None
             gp_t_end = None
-            confidence = 0.2
+            confidence = _compute_confidence(
+                src, None, MappingType.SOURCE_GAP,
+                source_measures, gp_measures, params
+            )
             evidence = ["source_gap"]
             reason_codes = ["no_gp_match"]
+            alternatives = []
         else:
             gp = gp_measures[cj - 1]
             gp_idx = gp.measure_index
@@ -347,7 +463,9 @@ def align_measures(
             else:
                 mapping_type = MappingType.ONE_TO_ONE
 
-            confidence = _compute_confidence(src, gp, mapping_type, params)
+            confidence = _compute_confidence(
+                src, gp, mapping_type, source_measures, gp_measures, params
+            )
 
             evidence = []
             reason_codes = []
@@ -357,8 +475,38 @@ def align_measures(
             else:
                 evidence.append("time_sig_mismatch")
                 reason_codes.append("ts_mismatch")
+
+            # Duration evidence
+            src_dur = src.seconds_end - src.seconds_start
+            total_src = max(0.001, sum(m.seconds_end - m.seconds_start for m in source_measures))
+            total_gp_t = (gp_measures[-1].tick_end - gp_measures[0].tick_start) if gp_measures else 1
+            if total_gp_t > 0 and total_src > 0:
+                s_frac = src_dur / total_src
+                g_frac = (gp.tick_end - gp.tick_start) / total_gp_t
+                if g_frac > 0:
+                    dur_ratio = s_frac / g_frac
+                    if abs(1.0 - dur_ratio) < params["duration_tolerance_ratio"]:
+                        evidence.append("duration_match")
+                    else:
+                        evidence.append("duration_mismatch")
+
+            # Audio evidence
+            if src.audio_downbeat_evidence is not None and src.audio_downbeat_evidence > 0.5:
+                evidence.append("audio_corroboration")
+                reason_codes.append("audio_confirmed")
+
+            # Density evidence
+            density = getattr(src, "note_density", 0.0) or 0.0
+            if density > 0:
+                evidence.append(f"density:{density:.1f}")
+
             if gp.marker_text:
                 evidence.append(f"marker:{gp.marker_text}")
+            if gp.has_repeat_open:
+                evidence.append("repeat_open")
+            if gp.has_repeat_close:
+                evidence.append(f"repeat_close:{gp.repeat_close_count}")
+
             if src.index in anchor_map:
                 evidence.append("user_anchor")
                 reason_codes.append("anchored")
@@ -366,6 +514,25 @@ def align_measures(
 
             if gp_idx is not None:
                 used_gp.add(gp_idx)
+
+            # Compute alternatives: other GP measures with scores close to best
+            alternatives = []
+            best_cell = cell_scores.get((ci, cj), 0.0)
+            for aj in range(1, n_gp + 1):
+                if aj == cj:
+                    continue
+                alt_score = cell_scores.get((ci, aj), None)
+                if alt_score is not None and (best_cell - alt_score) < alt_threshold:
+                    alt_gp = gp_measures[aj - 1]
+                    alt_reason = "near_tie"
+                    if alt_gp.marker_text:
+                        alt_reason += f":marker={alt_gp.marker_text}"
+                    alternatives.append(MappingAlternative(
+                        gp_measure_index=alt_gp.measure_index,
+                        score=alt_score,
+                        reason=alt_reason,
+                    ))
+            alternatives.sort(key=lambda a: -a.score)
 
         m_warnings: list[Warning] = []
         if confidence < 0.5:
@@ -388,23 +555,58 @@ def align_measures(
             source_seconds_end=src.seconds_end,
             gp_tick_start=gp_t_start,
             gp_tick_end=gp_t_end,
+            normalized_position_start=n_start,
+            normalized_position_end=n_end,
             confidence=confidence,
             evidence=evidence,
             reason_codes=reason_codes,
             warnings=m_warnings,
+            alternatives=alternatives,
         ))
 
-    unmapped_gp = set(range(n_gp)) - used_gp
+    # Explicit GP gap mappings for unmapped GP measures
+    unmapped_gp = sorted(set(range(n_gp)) - used_gp)
+    for gp_idx in unmapped_gp:
+        gp = gp_measures[gp_idx]
+        mappings.append(MeasureMapping(
+            source_measure_index=-1,
+            gp_measure_index=gp.measure_index,
+            gp_measure_number=gp.measure_number,
+            mapping_type=MappingType.GP_GAP,
+            source_seconds_start=0.0,
+            source_seconds_end=0.0,
+            gp_tick_start=gp.tick_start,
+            gp_tick_end=gp.tick_end,
+            confidence=0.1,
+            evidence=["gp_gap"],
+            reason_codes=["no_source_match"],
+            warnings=[Warning(
+                code=WarningCode.LOW_CONFIDENCE,
+                message=f"GP measure {gp.measure_number} has no source mapping",
+            )],
+        ))
+
     if unmapped_gp:
         warnings.append(Warning(
             code=WarningCode.LOW_CONFIDENCE,
             message=f"{len(unmapped_gp)} GP measures not mapped to any source measure",
-            context={"unmapped_gp_indices": sorted(unmapped_gp)},
+            context={"unmapped_gp_indices": unmapped_gp},
         ))
 
+    # Consensus conflict reduces global confidence
+    if consensus_has_conflict:
+        warnings.append(Warning(
+            code=WarningCode.TEMPO_MAP_CONFLICT,
+            message="Consensus conflict detected; global confidence reduced",
+        ))
+
+    matched = [m for m in mappings if m.mapping_type not in (MappingType.SOURCE_GAP, MappingType.GP_GAP)]
     total_confidence = (
-        sum(m.confidence for m in mappings) / len(mappings) if mappings else 0.0
+        sum(m.confidence for m in matched) / len(matched) if matched else 0.0
     )
+
+    if consensus_has_conflict:
+        total_confidence *= 0.7
 
     return AlignmentResult(
         mappings=mappings,

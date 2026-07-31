@@ -3,6 +3,10 @@
 Compares tempo maps from several source MIDI files, produces agreement
 metrics, selects a deterministic primary, and reports conflicts.
 Selection does NOT depend on upload/filesystem/hash-map order.
+
+Comparison is PPQ/time-normalized: trajectories are resampled onto a
+common time grid so different-length MIDIs or different PPQs can be
+compared without requiring identical event counts.
 """
 
 from __future__ import annotations
@@ -17,8 +21,8 @@ from .models import (
 
 TEMPO_TOLERANCE_BPM = 1.0
 DURATION_TOLERANCE_SECONDS = 2.0
-TS_TOLERANCE_MEASURES = 1
-DOWNBEAT_TOLERANCE_SECONDS = 0.1
+BOUNDARY_TOLERANCE_SECONDS = 0.5
+TRAJECTORY_SAMPLE_COUNT = 100
 
 
 def _normalize_tempo_trajectory(
@@ -28,32 +32,107 @@ def _normalize_tempo_trajectory(
     return [(e.seconds, e.bpm) for e in evidence.tempo_events]
 
 
+def _sample_bpm_at_time(trajectory: list[tuple[float, float]], t: float) -> float:
+    """Interpolate BPM at time t from a trajectory of (seconds, bpm) events.
+
+    Uses step-function semantics: the BPM holds until the next event.
+    """
+    if not trajectory:
+        return 120.0
+    if t <= trajectory[0][0]:
+        return trajectory[0][1]
+    for i in range(len(trajectory) - 1):
+        if trajectory[i][0] <= t < trajectory[i + 1][0]:
+            return trajectory[i][1]
+    return trajectory[-1][1]
+
+
+def _trajectory_boundaries(trajectory: list[tuple[float, float]]) -> list[float]:
+    """Extract tempo change boundary times."""
+    if len(trajectory) <= 1:
+        return []
+    boundaries = []
+    for i in range(1, len(trajectory)):
+        if abs(trajectory[i][1] - trajectory[i - 1][1]) > 0.01:
+            boundaries.append(trajectory[i][0])
+    return boundaries
+
+
 def _compare_tempo_trajectories(
     a: list[tuple[float, float]],
     b: list[tuple[float, float]],
+    duration_a: float,
+    duration_b: float,
 ) -> dict:
-    """Compare two PPQ-normalized tempo trajectories."""
-    if len(a) != len(b):
-        return {
-            "event_count_match": False,
-            "a_count": len(a),
-            "b_count": len(b),
-            "max_bpm_diff": None,
-            "max_time_diff": None,
-        }
+    """Compare two PPQ-normalized tempo trajectories by resampling onto
+    a common normalized time grid. Reports max/mean BPM deviation,
+    boundary alignment, and regional conflicts.
+    """
+    max_dur = max(duration_a, duration_b, 0.001)
+    n_samples = TRAJECTORY_SAMPLE_COUNT
+    sample_times = [i * max_dur / n_samples for i in range(n_samples + 1)]
 
-    max_bpm = 0.0
-    max_time = 0.0
-    for (ta, ba), (tb, bb) in zip(a, b):
-        max_bpm = max(max_bpm, abs(ba - bb))
-        max_time = max(max_time, abs(ta - tb))
+    max_bpm_diff = 0.0
+    sum_bpm_diff = 0.0
+    conflict_segments: list[dict] = []
+    segment_start = None
+
+    for t in sample_times:
+        bpm_a = _sample_bpm_at_time(a, t)
+        bpm_b = _sample_bpm_at_time(b, t)
+        diff = abs(bpm_a - bpm_b)
+        max_bpm_diff = max(max_bpm_diff, diff)
+        sum_bpm_diff += diff
+
+        if diff > TEMPO_TOLERANCE_BPM:
+            if segment_start is None:
+                segment_start = t
+        else:
+            if segment_start is not None:
+                conflict_segments.append({
+                    "start_seconds": round(segment_start, 3),
+                    "end_seconds": round(t, 3),
+                    "max_bpm_diff": round(max_bpm_diff, 3),
+                })
+                segment_start = None
+
+    if segment_start is not None:
+        conflict_segments.append({
+            "start_seconds": round(segment_start, 3),
+            "end_seconds": round(max_dur, 3),
+            "max_bpm_diff": round(max_bpm_diff, 3),
+        })
+
+    mean_bpm_diff = sum_bpm_diff / (n_samples + 1)
+
+    # Boundary alignment: check if tempo change times are similar
+    bounds_a = _trajectory_boundaries(a)
+    bounds_b = _trajectory_boundaries(b)
+    matched_boundaries = 0
+    unmatched_boundaries = []
+    for ba in bounds_a:
+        if any(abs(ba - bb) < BOUNDARY_TOLERANCE_SECONDS for bb in bounds_b):
+            matched_boundaries += 1
+        else:
+            unmatched_boundaries.append(round(ba, 3))
+    for bb in bounds_b:
+        if not any(abs(bb - ba) < BOUNDARY_TOLERANCE_SECONDS for ba in bounds_a):
+            unmatched_boundaries.append(round(bb, 3))
+
+    total_boundaries = len(bounds_a) + len(bounds_b)
+    if total_boundaries == 0:
+        boundary_agreement = 1.0
+    else:
+        boundary_agreement = (2.0 * matched_boundaries) / total_boundaries
 
     return {
-        "event_count_match": True,
-        "a_count": len(a),
-        "b_count": len(b),
-        "max_bpm_diff": max_bpm,
-        "max_time_diff": max_time,
+        "event_count_a": len(a),
+        "event_count_b": len(b),
+        "max_bpm_diff": round(max_bpm_diff, 3),
+        "mean_bpm_diff": round(mean_bpm_diff, 3),
+        "boundary_agreement": round(boundary_agreement, 3),
+        "unmatched_boundaries": unmatched_boundaries,
+        "conflict_segments": conflict_segments,
     }
 
 
@@ -64,10 +143,33 @@ def _compare_time_signatures(
     """Compare time signature sequences."""
     a_sigs = [(ts.tick, ts.numerator, ts.denominator) for ts in a.time_signatures]
     b_sigs = [(ts.tick, ts.numerator, ts.denominator) for ts in b.time_signatures]
+
+    # Normalize by comparing (numerator, denominator) sequences only
+    a_norms = [(n, d) for _, n, d in a_sigs]
+    b_norms = [(n, d) for _, n, d in b_sigs]
+
     return {
-        "match": a_sigs == b_sigs,
+        "match": a_norms == b_norms,
         "a_count": len(a_sigs),
         "b_count": len(b_sigs),
+        "a_signatures": a_norms,
+        "b_signatures": b_norms,
+    }
+
+
+def _compare_preroll_downbeat(
+    a: SourceTempoEvidence,
+    b: SourceTempoEvidence,
+) -> dict:
+    """Compare first-event timing (pre-roll/downbeat alignment)."""
+    a_first = a.first_event_seconds or 0.0
+    b_first = b.first_event_seconds or 0.0
+    diff = abs(a_first - b_first)
+    return {
+        "a_first_seconds": a_first,
+        "b_first_seconds": b_first,
+        "diff_seconds": round(diff, 3),
+        "aligned": diff < BOUNDARY_TOLERANCE_SECONDS,
     }
 
 
@@ -104,7 +206,7 @@ def build_consensus(
     conflict_regions: list[dict] = []
     has_conflict = False
 
-    for i, src in enumerate(sorted_sources):
+    for src in sorted_sources:
         src_warnings: list[Warning] = []
         if src.validation_errors:
             src_warnings.append(Warning(
@@ -122,44 +224,65 @@ def build_consensus(
 
         pair_key = f"{reference.sha256[:12]}_vs_{other.sha256[:12]}"
 
-        tempo_cmp = _compare_tempo_trajectories(ref_trajectory, other_trajectory)
+        tempo_cmp = _compare_tempo_trajectories(
+            ref_trajectory, other_trajectory,
+            reference.duration_seconds, other.duration_seconds,
+        )
         ts_cmp = _compare_time_signatures(reference, other)
+        preroll_cmp = _compare_preroll_downbeat(reference, other)
         duration_diff = abs(reference.duration_seconds - other.duration_seconds)
 
         agreement_metrics[pair_key] = {
             "tempo_comparison": tempo_cmp,
             "time_signature_comparison": ts_cmp,
-            "duration_diff_seconds": duration_diff,
+            "preroll_comparison": preroll_cmp,
+            "duration_diff_seconds": round(duration_diff, 3),
         }
 
-        if not tempo_cmp["event_count_match"]:
+        # Trajectory conflict: resampled BPM differs beyond tolerance
+        if tempo_cmp["max_bpm_diff"] > TEMPO_TOLERANCE_BPM:
+            has_conflict = True
+            for seg in tempo_cmp["conflict_segments"]:
+                conflict_regions.append({
+                    "type": "tempo_trajectory_mismatch",
+                    "sources": [reference.sha256, other.sha256],
+                    "region": seg,
+                })
+
+        # Boundary conflict: tempo change points don't align
+        if tempo_cmp["boundary_agreement"] < 0.5:
             has_conflict = True
             conflict_regions.append({
-                "type": "tempo_event_count_mismatch",
+                "type": "boundary_mismatch",
                 "sources": [reference.sha256, other.sha256],
-                "detail": tempo_cmp,
-            })
-        elif tempo_cmp["max_bpm_diff"] is not None and tempo_cmp["max_bpm_diff"] > TEMPO_TOLERANCE_BPM:
-            has_conflict = True
-            conflict_regions.append({
-                "type": "tempo_value_mismatch",
-                "sources": [reference.sha256, other.sha256],
-                "max_bpm_diff": tempo_cmp["max_bpm_diff"],
+                "unmatched": tempo_cmp["unmatched_boundaries"],
             })
 
+        # Time signature mismatch
         if not ts_cmp["match"]:
             has_conflict = True
             conflict_regions.append({
                 "type": "time_signature_mismatch",
                 "sources": [reference.sha256, other.sha256],
+                "detail": ts_cmp,
             })
 
+        # Duration mismatch
         if duration_diff > DURATION_TOLERANCE_SECONDS:
             has_conflict = True
             conflict_regions.append({
                 "type": "duration_mismatch",
                 "sources": [reference.sha256, other.sha256],
-                "diff_seconds": duration_diff,
+                "diff_seconds": round(duration_diff, 3),
+            })
+
+        # Pre-roll / downbeat mismatch
+        if not preroll_cmp["aligned"]:
+            has_conflict = True
+            conflict_regions.append({
+                "type": "preroll_downbeat_mismatch",
+                "sources": [reference.sha256, other.sha256],
+                "detail": preroll_cmp,
             })
 
     primary = sorted_sources[0]
@@ -170,7 +293,10 @@ def build_consensus(
         f"({primary.duration_seconds:.2f}s), SHA tie-break {primary.sha256[:12]}"
     )
     if has_conflict:
-        selection_reason = f"CONFLICT detected. {selection_reason}"
+        n_regions = len(conflict_regions)
+        selection_reason = (
+            f"CONFLICT detected ({n_regions} region(s)). {selection_reason}"
+        )
 
     return MidiConsensus(
         decision=decision,

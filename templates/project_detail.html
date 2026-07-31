@@ -119,6 +119,112 @@
       {% else %}
       <p class="muted">Нет загруженных файлов. Используй форму слева для загрузки.</p>
       {% endif %}
+
+      {# --- Reference-Time Analysis --- #}
+      <section class="section">
+        <h2>Reference-Time анализ</h2>
+
+        {# Filtered assets are passed from the route as rt_gp_assets, rt_midi_assets, etc. #}
+
+        {% if rt_gp_assets and rt_midi_assets %}
+        <form action="{{ url_for('project_analyze', project_id=project.id) }}" method="post" class="form-stack" style="max-width: 640px; margin-bottom: 1.5rem">
+          <div>
+            <label>Guitar Pro</label>
+            <select name="gp_link_id" required class="input" onchange="this.form.gp_sha.value=this.options[this.selectedIndex].dataset.sha">
+              {% for a in rt_gp_assets %}
+              <option value="{{ a.id }}" data-sha="{{ a.asset_sha256 }}">{{ a.original_filename }} (rev {{ a.get('revision', '?') }}, {{ a.asset_sha256[:8] }}…)</option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="gp_sha" value="{{ rt_gp_assets[0].asset_sha256 if rt_gp_assets else '' }}">
+          </div>
+
+          <div>
+            <label>Source MIDI</label>
+            {% for a in rt_midi_assets %}
+            <label class="checkbox-label">
+              <input type="checkbox" name="midi_link_ids" value="{{ a.id }}" checked>
+              {{ a.original_filename }} <span class="badge">{{ a.role }}</span>
+            </label>
+            {% endfor %}
+          </div>
+
+          {% if rt_audio_assets %}
+          <div>
+            <label>Audio (опционально)</label>
+            {% for a in rt_audio_assets %}
+            <label class="checkbox-label">
+              <input type="checkbox" name="audio_link_ids" value="{{ a.id }}">
+              {{ a.original_filename }} <span class="badge">{{ a.role }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if rt_struct_assets %}
+          <div>
+            <label>Structure JSON (опционально)</label>
+            <select name="structure_link_id" class="input">
+              <option value="">— нет —</option>
+              {% for a in rt_struct_assets %}
+              <option value="{{ a.id }}">{{ a.original_filename }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
+          <button type="submit" class="btn primary">Запустить анализ</button>
+        </form>
+        {% else %}
+        <p class="muted">Для запуска анализа нужен Guitar Pro и хотя бы один Suno MIDI.</p>
+        {% endif %}
+
+        {% if analysis_jobs %}
+        <h3>Задания</h3>
+        <table class="data-table">
+          <thead><tr><th>ID</th><th>Статус</th><th>Фаза</th><th>Создано</th><th></th></tr></thead>
+          <tbody>
+            {% for j in analysis_jobs %}
+            <tr>
+              <td><code>{{ j.job_id[:8] }}…</code></td>
+              <td>
+                <span class="badge {{ 'success' if j.status == 'succeeded' else 'error' if j.status == 'failed' else '' }}">{{ j.status }}</span>
+              </td>
+              <td>{{ j.progress_phase }}</td>
+              <td>{{ j.created_at[:19] }}</td>
+              <td>
+                {% if j.status == 'succeeded' %}
+                <a href="{{ url_for('project_analysis_report', project_id=project.id, analysis_id=j.analysis_id) }}" class="btn ghost small" target="_blank">HTML</a>
+                <a href="{{ url_for('project_analysis_report_json', project_id=project.id, analysis_id=j.analysis_id) }}" class="btn ghost small" target="_blank">JSON</a>
+                {% elif j.status in ('queued', 'running') %}
+                <span class="muted">⏳</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+
+        {% if analyses %}
+        <h3>Результаты</h3>
+        <table class="data-table">
+          <thead><tr><th>ID</th><th>Cache key</th><th>Дата</th><th></th></tr></thead>
+          <tbody>
+            {% for a in analyses %}
+            <tr>
+              <td><code>{{ a.analysis_id[:8] }}…</code></td>
+              <td><code>{{ a.cache_key[:12] }}…</code></td>
+              <td>{{ a.created_at[:19] }}</td>
+              <td>
+                <a href="{{ url_for('project_analysis_report', project_id=project.id, analysis_id=a.analysis_id) }}" class="btn ghost small" target="_blank">HTML</a>
+                <a href="{{ url_for('project_analysis_report_json', project_id=project.id, analysis_id=a.analysis_id) }}" class="btn ghost small" target="_blank">JSON</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </section>
     </main>
   </div>
 </body>

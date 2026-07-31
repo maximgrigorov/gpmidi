@@ -11,7 +11,6 @@ import html
 import json
 from datetime import datetime, timezone
 
-from .cache import canonical_json
 from .models import MappingType, ReferenceTimeAnalysis, Warning
 
 

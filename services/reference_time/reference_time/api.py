@@ -5,14 +5,12 @@ Versioned API under /reference-time/v1.
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -22,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import __version__
-from .cache import compute_cache_key, compute_source_evidence_cache_key
+from .cache import compute_cache_key
 from .config import (
     ASSET_API_URL,
     CORS_ORIGINS,
@@ -32,13 +30,15 @@ from .config import (
     MAX_CONCURRENT_JOBS,
     MAX_QUEUE_LENGTH,
 )
+from .audio_evidence import extract_audio_evidence
 from .consensus import build_consensus
 from .database import AnalysisDB
 from .gp_grid import extract_gp_grid
 from .mapping import DEFAULT_PARAMS, align_measures
 from .midi_tempo import build_source_measures, extract_tempo_evidence
-from .models import JobStatus, ReferenceTimeAnalysis
+from .models import ConsensusDecision, ReferenceTimeAnalysis, Warning, WarningCode
 from .report import generate_html_report, generate_json_report
+from .structure import parse_structure_json
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,9 @@ _lock = threading.Lock()
 async def lifespan(app: FastAPI):
     global db, executor
     os.makedirs(os.path.join(DATA_ROOT, "db"), exist_ok=True)
-    db = AnalysisDB(DB_PATH)
+    db = AnalysisDB(DB_PATH, job_timeout_seconds=JOB_TIMEOUT_SECONDS)
     db.recover_interrupted_jobs()
+    db.enforce_timeouts()
     executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS)
     logger.info("Reference-time service started, version %s", __version__)
     yield
@@ -261,20 +262,97 @@ def _run_analysis(
         db.update_job_status(job_id, "running", "measures", "Building source measures")
         source_measures = build_source_measures(primary_evidence)
 
+        # --- Audio evidence (optional, degrades safely) ---
+        audio_evidence_list = []
+        audio_warnings: list[Warning] = []
+        if request.audio_link_ids:
+            db.update_job_status(job_id, "running", "audio", "Extracting audio evidence")
+            for aud_link_id in request.audio_link_ids:
+                try:
+                    aud_bytes = _fetch_asset_bytes(project_id, aud_link_id)
+                    ae = extract_audio_evidence(aud_bytes)
+                    audio_evidence_list.append(ae)
+                    audio_warnings.extend(ae.warnings)
+                except Exception as e:
+                    logger.warning("Audio extraction failed for %s: %s", aud_link_id, e)
+                    audio_warnings.append(Warning(
+                        code=WarningCode.AUDIO_DECODE_FAILED,
+                        message=f"Audio {aud_link_id}: {e}",
+                    ))
+        else:
+            audio_warnings.append(Warning(
+                code=WarningCode.AUDIO_MISSING,
+                message="No audio assets provided; confidence reduced",
+            ))
+
+        # Integrate audio downbeat evidence into source measures
+        if audio_evidence_list:
+            all_downbeats = []
+            for ae in audio_evidence_list:
+                all_downbeats.extend(ae.downbeat_candidates)
+            all_downbeats.sort()
+
+            enriched = []
+            for sm in source_measures:
+                db_evidence = None
+                for db_t in all_downbeats:
+                    if sm.seconds_start - 0.5 <= db_t <= sm.seconds_start + 0.5:
+                        proximity = 1.0 - abs(db_t - sm.seconds_start) / 0.5
+                        db_evidence = max(db_evidence or 0.0, proximity)
+                enriched.append(sm.model_copy(update={
+                    "audio_downbeat_evidence": db_evidence,
+                }))
+            source_measures = enriched
+
+        # --- Structure/anchor parsing (optional) ---
+        anchors = []
+        structure_warnings: list[Warning] = []
+        if request.structure_link_id:
+            db.update_job_status(job_id, "running", "structure", "Parsing structure")
+            try:
+                struct_bytes = _fetch_asset_bytes(project_id, request.structure_link_id)
+                struct_result = parse_structure_json(
+                    struct_bytes, len(source_measures), len(gp_measures)
+                )
+                anchors = struct_result.anchors
+                structure_warnings = struct_result.warnings
+            except ValueError as e:
+                db.update_job_status(
+                    job_id, "failed",
+                    error_code="structure_parse_failed",
+                    error_message=str(e),
+                )
+                return
+
         db.update_job_status(job_id, "running", "alignment", "Aligning source to GP")
 
-        alignment = align_measures(source_measures, gp_measures, params=DEFAULT_PARAMS.copy())
+        consensus_has_conflict = consensus.decision == ConsensusDecision.CONFLICT
+        alignment = align_measures(
+            source_measures,
+            gp_measures,
+            anchors=anchors or None,
+            params=DEFAULT_PARAMS.copy(),
+            consensus_has_conflict=consensus_has_conflict,
+        )
 
         input_identities = {
             "gp_revision": gp_sha,
         }
         for ev in source_evidence_list:
             input_identities[f"source_midi_{ev.asset_link_id}"] = ev.sha256
+        for aud_id in request.audio_link_ids:
+            aud_info = asset_map.get(aud_id, {})
+            input_identities[f"audio_{aud_id}"] = aud_info.get("sha256", "")
+        if request.structure_link_id:
+            struct_info = asset_map.get(request.structure_link_id, {})
+            input_identities["structure"] = struct_info.get("sha256", "")
 
         processor_versions = {
             "reference_time": __version__,
             "mido": primary_evidence.parser_version,
         }
+
+        all_warnings = alignment.warnings + audio_warnings + structure_warnings
 
         analysis = ReferenceTimeAnalysis(
             analysis_id=analysis_id,
@@ -289,7 +367,7 @@ def _run_analysis(
             gp_measures=gp_measures,
             mappings=alignment.mappings,
             global_confidence=alignment.global_confidence,
-            global_warnings=alignment.warnings,
+            global_warnings=all_warnings,
             cache_key=cache_key,
         )
 
@@ -332,10 +410,24 @@ async def create_analysis(project_id: str, request: AnalysisRequest):
             all_ids.append(request.structure_link_id)
         asset_map = _validate_project_assets(project_id, all_ids)
 
+        # Derive GP SHA from trusted asset-api metadata, not from caller
+        gp_info = asset_map[request.gp_asset_link_id]
+        trusted_gp_sha = gp_info.get("sha256", "")
+        if not trusted_gp_sha:
+            raise ValueError(
+                f"GP asset {request.gp_asset_link_id} has no SHA in asset-api metadata"
+            )
+
         for mid_id in request.source_midi_link_ids:
-            source_midi_sha256s.append(asset_map[mid_id].get("sha256", ""))
+            mid_sha = asset_map[mid_id].get("sha256", "")
+            if not mid_sha:
+                raise ValueError(f"MIDI asset {mid_id} has no SHA in metadata")
+            source_midi_sha256s.append(mid_sha)
         for aud_id in request.audio_link_ids:
-            audio_sha256s.append(asset_map[aud_id].get("sha256", ""))
+            aud_sha = asset_map[aud_id].get("sha256", "")
+            if not aud_sha:
+                raise ValueError(f"Audio asset {aud_id} has no SHA in metadata")
+            audio_sha256s.append(aud_sha)
         if request.structure_link_id:
             structure_sha256 = asset_map[request.structure_link_id].get("sha256")
 
@@ -349,7 +441,7 @@ async def create_analysis(project_id: str, request: AnalysisRequest):
         "reference_time": __version__,
     }
     cache_key_val = compute_cache_key(
-        request.gp_revision_sha256,
+        trusted_gp_sha,
         source_midi_sha256s,
         audio_sha256s,
         structure_sha256,
@@ -357,28 +449,33 @@ async def create_analysis(project_id: str, request: AnalysisRequest):
         DEFAULT_PARAMS,
     )
 
-    cached = db.find_cached_result(cache_key_val)
-    if cached:
-        return AnalysisResponse(
-            job_id="",
-            analysis_id=cached["analysis_id"],
-            status="succeeded",
-            cache_hit=True,
-            request_id=rid,
-        )
-
-    with _lock:
-        active = db.count_active_jobs()
-        if active >= MAX_QUEUE_LENGTH:
-            raise HTTPException(
-                status_code=429,
-                detail={"code": "queue_full", "message": "Analysis queue is full", "request_id": rid},
-            )
-
     job_id = str(uuid.uuid4())
     analysis_id = str(uuid.uuid4())
 
-    db.create_job(job_id, analysis_id, project_id, cache_key_val)
+    try:
+        result, is_new = db.find_or_create_job_for_cache(
+            cache_key=cache_key_val,
+            job_id=job_id,
+            analysis_id=analysis_id,
+            project_id=project_id,
+            max_queue_length=MAX_QUEUE_LENGTH,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "queue_full", "message": str(e), "request_id": rid},
+        )
+
+    if not is_new:
+        status = result.get("status", "queued")
+        return AnalysisResponse(
+            job_id=result.get("job_id", ""),
+            analysis_id=result.get("analysis_id", analysis_id),
+            status="succeeded" if status == "cached" else status,
+            cache_hit=(status == "cached"),
+            request_id=rid,
+        )
+
     executor.submit(_run_analysis, job_id, analysis_id, project_id, request, cache_key_val)
 
     return AnalysisResponse(

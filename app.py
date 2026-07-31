@@ -973,10 +973,29 @@ def project_detail(project_id: str):
     except Exception as e:
         flash(f"AILab недоступен: {e}", "error")
         return redirect(url_for("projects_list"))
+
+    analyses_data = {"analyses": [], "jobs": []}
+    try:
+        analyses_data = client.list_analyses(project_id)
+    except Exception:
+        pass
+
+    all_assets = data["assets"]
+    rt_gp = [a for a in all_assets if a.get("role") == "guitar-pro"]
+    rt_midi = [a for a in all_assets if (a.get("role") or "").startswith("suno-midi")]
+    rt_audio = [a for a in all_assets if a.get("role") in ("mix",) or (a.get("role") or "").startswith("stem.")]
+    rt_struct = [a for a in all_assets if a.get("role") == "structure"]
+
     return render_template("project_detail.html",
                            project=data["project"],
-                           assets=data["assets"],
-                           gp_revisions=data["gp_revisions"])
+                           assets=all_assets,
+                           gp_revisions=data["gp_revisions"],
+                           analyses=analyses_data.get("analyses", []),
+                           analysis_jobs=analyses_data.get("jobs", []),
+                           rt_gp_assets=rt_gp,
+                           rt_midi_assets=rt_midi,
+                           rt_audio_assets=rt_audio,
+                           rt_struct_assets=rt_struct)
 
 
 @app.post("/projects/<project_id>/upload")
@@ -1039,6 +1058,78 @@ def project_asset_download(project_id: str, link_id: str):
         abort(e.status_code, description=e.message)
     except Exception as e:
         abort(502, description=f"AILab недоступен: {e}")
+
+
+# --- Reference-Time Analysis ---
+
+@app.post("/projects/<project_id>/analyze")
+def project_analyze(project_id: str):
+    gp_link_id = request.form.get("gp_link_id", "")
+    gp_sha = request.form.get("gp_sha", "")
+    midi_ids = request.form.getlist("midi_link_ids")
+    audio_ids = request.form.getlist("audio_link_ids")
+    structure_id = request.form.get("structure_link_id") or None
+
+    if not gp_link_id or not midi_ids:
+        flash("Нужен GP файл и хотя бы один MIDI", "error")
+        return redirect(url_for("project_detail", project_id=project_id))
+
+    try:
+        client = get_client()
+        result = client.create_analysis(
+            project_id, gp_link_id, gp_sha,
+            midi_ids, audio_ids, structure_id,
+        )
+        if result.get("cache_hit"):
+            flash(f"Анализ уже выполнен (cache hit): {result['analysis_id'][:8]}…", "success")
+        else:
+            flash(f"Анализ запущен: job {result['job_id'][:8]}…", "success")
+    except AssetAPIError as e:
+        flash(f"Ошибка анализа: {e.message}", "error")
+    except Exception as e:
+        flash(f"Reference-time недоступен: {e}", "error")
+
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.get("/projects/<project_id>/analyses/<analysis_id>/report")
+def project_analysis_report(project_id: str, analysis_id: str):
+    try:
+        client = get_client()
+        html = client.get_analysis_report_html(project_id, analysis_id)
+        return html
+    except AssetAPIError as e:
+        abort(e.status_code, description=e.message)
+    except Exception as e:
+        abort(502, description=f"Reference-time недоступен: {e}")
+
+
+@app.get("/projects/<project_id>/analyses/<analysis_id>/report.json")
+def project_analysis_report_json(project_id: str, analysis_id: str):
+    try:
+        client = get_client()
+        data = client.get_analysis_report_json(project_id, analysis_id)
+        from flask import jsonify
+        return jsonify(data)
+    except AssetAPIError as e:
+        abort(e.status_code, description=e.message)
+    except Exception as e:
+        abort(502, description=f"Reference-time недоступен: {e}")
+
+
+@app.get("/projects/<project_id>/analyses/<job_id>/status")
+def project_analysis_status(project_id: str, job_id: str):
+    try:
+        client = get_client()
+        job = client.get_analysis_job(job_id)
+        from flask import jsonify
+        return jsonify(job)
+    except AssetAPIError as e:
+        from flask import jsonify as jf
+        return jf({"error": e.message}), e.status_code
+    except Exception as e:
+        from flask import jsonify as jf
+        return jf({"error": str(e)}), 502
 
 
 if __name__ == "__main__":

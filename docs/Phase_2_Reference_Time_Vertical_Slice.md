@@ -1,7 +1,7 @@
 # Phase 2 — Reference-Time Vertical Slice
 
-**Branch:** `feat/reference-time-vertical-slice`  
-**Source SHA:** `86f46b5a5f18` (tip at time of writing)  
+**Branch:** `feat/reference-time-vertical-slice`
+**Source SHA:** `86f46b5a5f18` (tip at time of writing)
 **Status:** Feature-complete on branch; **do not merge to main; Phase 3 not started.**
 
 ## 1. Architecture and deviations

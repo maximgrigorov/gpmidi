@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import uuid
 
-import pytest
 
 from reference_time.database import AnalysisDB
 from reference_time.cache import compute_cache_key
@@ -109,6 +108,146 @@ class TestDatabase:
 
         db.update_job_status(j1, "succeeded")
         assert db.count_active_jobs() == 1
+        db.close()
+
+
+class TestRecovery:
+    """Tests for queued/running job recovery and timeout enforcement."""
+
+    def test_recover_queued_jobs(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path)
+        j1 = str(uuid.uuid4())
+        j2 = str(uuid.uuid4())
+        db.create_job(j1, str(uuid.uuid4()), "proj1", "c1")
+        db.create_job(j2, str(uuid.uuid4()), "proj1", "c2")
+        # j1 stays queued, j2 gets running
+        db.update_job_status(j2, "running")
+
+        db.recover_interrupted_jobs()
+        assert db.get_job(j1)["status"] == "interrupted"
+        assert db.get_job(j2)["status"] == "interrupted"
+        db.close()
+
+    def test_successful_job_not_recovered(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path)
+        j1 = str(uuid.uuid4())
+        db.create_job(j1, str(uuid.uuid4()), "proj1", "c1")
+        db.update_job_status(j1, "succeeded")
+
+        db.recover_interrupted_jobs()
+        assert db.get_job(j1)["status"] == "succeeded"
+        db.close()
+
+    def test_timeout_enforcement(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path, job_timeout_seconds=0)
+        j1 = str(uuid.uuid4())
+        db.create_job(j1, str(uuid.uuid4()), "proj1", "c1")
+        db.update_job_status(j1, "running")
+
+        import time
+        time.sleep(0.1)
+        db.enforce_timeouts()
+        job = db.get_job(j1)
+        assert job["status"] == "failed"
+        assert job["error_code"] == "timeout"
+        db.close()
+
+    def test_timeout_does_not_affect_queued(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path, job_timeout_seconds=0)
+        j1 = str(uuid.uuid4())
+        db.create_job(j1, str(uuid.uuid4()), "proj1", "c1")
+
+        import time
+        time.sleep(0.1)
+        db.enforce_timeouts()
+        assert db.get_job(j1)["status"] == "queued"
+        db.close()
+
+
+class TestIdempotentQueue:
+    """Tests for race-safe, idempotent job creation."""
+
+    def test_duplicate_cache_key_returns_existing(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path)
+        j1 = str(uuid.uuid4())
+        a1 = str(uuid.uuid4())
+        result1, is_new1 = db.find_or_create_job_for_cache(
+            "cache_key_1", j1, a1, "proj1", 10
+        )
+        assert is_new1 is True
+
+        j2 = str(uuid.uuid4())
+        a2 = str(uuid.uuid4())
+        result2, is_new2 = db.find_or_create_job_for_cache(
+            "cache_key_1", j2, a2, "proj1", 10
+        )
+        assert is_new2 is False
+        assert result2["job_id"] == j1
+        db.close()
+
+    def test_cached_result_returned(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path)
+        a1 = str(uuid.uuid4())
+        db.store_result(a1, "proj1", "cache_key_2", '{"result": true}')
+
+        j2 = str(uuid.uuid4())
+        result, is_new = db.find_or_create_job_for_cache(
+            "cache_key_2", j2, str(uuid.uuid4()), "proj1", 10
+        )
+        assert is_new is False
+        assert result["status"] == "cached"
+        db.close()
+
+    def test_queue_full_raises(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path)
+        for i in range(3):
+            db.create_job(str(uuid.uuid4()), str(uuid.uuid4()), "proj1", f"ck{i}")
+
+        import pytest
+        with pytest.raises(ValueError, match="Queue full"):
+            db.find_or_create_job_for_cache(
+                "new_key", str(uuid.uuid4()), str(uuid.uuid4()), "proj1", 3
+            )
+        db.close()
+
+    def test_completed_job_allows_new(self, tmp_db_path):
+        db = AnalysisDB(tmp_db_path)
+        j1 = str(uuid.uuid4())
+        db.create_job(j1, str(uuid.uuid4()), "proj1", "ck1")
+        db.update_job_status(j1, "failed")
+
+        result, is_new = db.find_or_create_job_for_cache(
+            "new_ck", str(uuid.uuid4()), str(uuid.uuid4()), "proj1", 1
+        )
+        assert is_new is True
+        db.close()
+
+
+class TestConcurrentThreads:
+    """Test thread-safe database access."""
+
+    def test_concurrent_writes(self, tmp_db_path):
+        import threading
+        db = AnalysisDB(tmp_db_path)
+        errors = []
+
+        def create_job(idx):
+            try:
+                db.create_job(
+                    str(uuid.uuid4()), str(uuid.uuid4()),
+                    "proj1", f"cache_{idx}"
+                )
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=create_job, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+        assert db.count_active_jobs() == 10
         db.close()
 
 

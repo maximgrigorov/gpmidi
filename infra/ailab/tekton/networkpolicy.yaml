@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-tekton-egress
+  namespace: gpmidi-ml
+spec:
+  podSelector:
+    matchLabels:
+      tekton.dev/memberOf: tasks
+  policyTypes:
+  - Egress
+  egress:
+  # Tekton tasks need broad egress: Gitea clone, registry push, K8s API
+  - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-tekton-eventlistener
+  namespace: gpmidi-ml
+spec:
+  podSelector:
+    matchLabels:
+      eventlistener: gitea-listener
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Accept webhook posts from Traefik ingress or host network
+  - ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - {}

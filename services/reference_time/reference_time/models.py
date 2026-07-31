@@ -13,7 +13,6 @@ import math
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 

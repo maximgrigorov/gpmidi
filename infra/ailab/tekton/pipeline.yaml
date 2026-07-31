@@ -1,0 +1,141 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: gpmidi-ci
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: repo-url
+    type: string
+    default: http://server:3300/mgrigorov/gpmidi.git
+  - name: revision
+    type: string
+    default: main
+  - name: registry
+    type: string
+    default: server:3300
+  - name: registry-owner
+    type: string
+    default: mgrigorov
+  workspaces:
+  - name: shared-workspace
+  - name: docker-config
+
+  tasks:
+  # 1. Clone the repo at exact SHA
+  - name: clone
+    taskRef:
+      name: git-clone
+    params:
+    - name: repo-url
+      value: $(params.repo-url)
+    - name: revision
+      value: $(params.revision)
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+
+  # 2. Tests and lint gates (fail-closed: all must pass before build)
+  - name: test-lint
+    taskRef:
+      name: test-lint
+    runAfter: [clone]
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+
+  # 3. Kustomize render validation
+  - name: kustomize-validate
+    taskRef:
+      name: kustomize-render
+    runAfter: [clone]
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+
+  # 4. Build and push asset-api image
+  - name: build-asset-api
+    taskRef:
+      name: kaniko-build-push
+    runAfter: [test-lint, kustomize-validate]
+    params:
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
+    - name: context
+      value: services/asset_api
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: docker-config
+      workspace: docker-config
+
+  # 5. Build and push reference-time image
+  - name: build-reference-time
+    taskRef:
+      name: kaniko-build-push
+    runAfter: [test-lint, kustomize-validate]
+    params:
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
+    - name: context
+      value: services/reference_time
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: docker-config
+      workspace: docker-config
+
+  # 6. Deploy asset-api
+  - name: deploy-asset-api
+    taskRef:
+      name: deploy-and-wait
+    runAfter: [build-asset-api]
+    params:
+    - name: deployment
+      value: asset-api
+    - name: container
+      value: asset-api
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/asset-api:$(tasks.clone.results.commit-sha)
+
+  # 7. Deploy reference-time
+  - name: deploy-reference-time
+    taskRef:
+      name: deploy-and-wait
+    runAfter: [build-reference-time]
+    params:
+    - name: deployment
+      value: reference-time
+    - name: container
+      value: reference-time
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/reference-time:$(tasks.clone.results.commit-sha)
+
+  # 8. Smoke tests (after both deploys)
+  - name: smoke-asset-api
+    taskRef:
+      name: smoke-test
+    runAfter: [deploy-asset-api]
+    params:
+    - name: service-name
+      value: asset-api
+    - name: healthz-path
+      value: /asset-api/healthz
+
+  - name: smoke-reference-time
+    taskRef:
+      name: smoke-test
+    runAfter: [deploy-reference-time]
+    params:
+    - name: service-name
+      value: reference-time
+    - name: healthz-path
+      value: /reference-time/healthz
+
+  results:
+  - name: commit-sha
+    value: $(tasks.clone.results.commit-sha)
+  - name: asset-api-digest
+    value: $(tasks.build-asset-api.results.digest)
+  - name: reference-time-digest
+    value: $(tasks.build-reference-time.results.digest)
