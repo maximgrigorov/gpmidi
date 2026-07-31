@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reference-time
+  namespace: gpmidi-ml
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  tls:
+  - secretName: ailab-tls
+  rules:
+  - http:
+      paths:
+      - path: /reference-time
+        pathType: Prefix
+        backend:
+          service:
+            name: reference-time
+            port:
+              number: 8000

@@ -8,3 +8,4 @@ resources:
 - base
 - smoke-app
 - apps/asset-api
+- apps/reference-time

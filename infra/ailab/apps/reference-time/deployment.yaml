@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reference-time
+  namespace: gpmidi-ml
+  labels:
+    app: reference-time
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: reference-time
+  template:
+    metadata:
+      labels:
+        app: reference-time
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: reference-time
+        image: reference-time:PLACEHOLDER
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        env:
+        - name: RT_DATA_ROOT
+          value: /var/lib/reference-time
+        - name: ASSET_API_URL
+          value: http://asset-api.gpmidi-ml.svc.cluster.local:8000
+        - name: CORS_ORIGINS
+          value: "https://192.168.30.2,http://192.168.20.66:8082"
+        - name: MAX_CONCURRENT_JOBS
+          value: "2"
+        - name: MAX_QUEUE_LENGTH
+          value: "10"
+        - name: JOB_TIMEOUT_SECONDS
+          value: "300"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/reference-time
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /reference-time/healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /reference-time/readyz
+            port: 8000
+          initialDelaySeconds: 3
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: reference-time-data
+      - name: tmp
+        emptyDir:
+          sizeLimit: 512Mi

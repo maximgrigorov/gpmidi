@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: reference-time
+  namespace: gpmidi-ml
+  labels:
+    app: reference-time
+spec:
+  type: ClusterIP
+  selector:
+    app: reference-time
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
