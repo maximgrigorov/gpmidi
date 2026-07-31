@@ -42,7 +42,8 @@ spec:
     script: |
       #!/bin/bash
       set -eux
-      pip install --no-cache-dir setuptools wheel
+      pip install --no-cache-dir --upgrade pip
+      pip install --no-cache-dir "setuptools<70" wheel
       pip install --no-cache-dir -r requirements.txt ruff pytest
       python -m pytest -q --tb=short
     timeout: 15m
@@ -52,7 +53,8 @@ spec:
     script: |
       #!/bin/bash
       set -eux
-      pip install --no-cache-dir setuptools wheel
+      pip install --no-cache-dir --upgrade pip
+      pip install --no-cache-dir "setuptools<70" wheel
       pip install --no-cache-dir -r requirements.txt
       pip install --no-cache-dir -r services/reference_time/requirements.txt
       pip install --no-cache-dir pytest
