@@ -11,6 +11,12 @@ spec:
     hosts:
     - ailab.local
     - gpmidi-ml.ailab.local
+  # Named hosts only. This Ingress used to carry a hostless `/` rule as well,
+  # which made the Phase 0 smoke page the owner of the default route — so
+  # https://192.168.30.2/ answered with "AILab gpmidi-ml smoke deployment". That
+  # rule is gone: the default route now belongs to the cluster dashboard
+  # (apps/headlamp), and two hostless `PathPrefix(/)` routers of equal length
+  # would have been an unresolvable tie in Traefik anyway.
   rules:
   - host: ailab.local
     http:
@@ -24,15 +30,6 @@ spec:
               number: 8080
   - host: gpmidi-ml.ailab.local
     http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: smoke-app
-            port:
-              number: 8080
-  - http:
       paths:
       - path: /
         pathType: Prefix

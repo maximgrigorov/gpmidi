@@ -10,7 +10,14 @@ spec:
   tls:
   - secretName: ailab-tls
   rules:
-  - host: gpmidi.ailab.local
+  # Dedicated hosts rather than a catch-all path, so the `*`-host rules that
+  # serve /asset-api and /reference-time are not shadowed — and so the hostless
+  # default route stays free for the cluster dashboard (apps/headlamp).
+  #
+  # home.arpa is the RFC 8375 name for home networks and is the documented
+  # primary. It needs a static A record on the MikroTik:
+  #   gpmidi.ailab.home.arpa -> 192.168.30.2
+  - host: gpmidi.ailab.home.arpa
     http:
       paths:
       - path: /
@@ -20,11 +27,11 @@ spec:
             name: gpmidi-web
             port:
               number: 8080
-  # PoC usability fallback: allow opening the UI directly by AILab IP without
-  # requiring a workstation-specific DNS or /etc/hosts entry. The existing
-  # hostless /asset-api and /reference-time routes are longer prefixes and keep
-  # precedence in Traefik.
-  - http:
+  # Legacy alias, kept only so existing bookmarks and /etc/hosts entries keep
+  # working. `.local` is reserved for mDNS by RFC 6762 and must not be the
+  # primary documented name; do not add new `.local` hosts.
+  - host: gpmidi.ailab.local
+    http:
       paths:
       - path: /
         pathType: Prefix
