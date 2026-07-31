@@ -261,9 +261,11 @@ spec:
     script: |
       #!/bin/bash
       set -euo pipefail
-      gitleaks detect --source . --no-banner --redact \
+      # Full history scan with the reviewed allowlist in .gitleaks.toml.
+      gitleaks detect --source . --config .gitleaks.toml --no-banner --redact \
         --report-format json --report-path /workspace/evidence/gitleaks.json 2>&1 \
         | tee /workspace/evidence/gitleaks.txt
+      cp .gitleaks.toml /workspace/evidence/gitleaks-config.toml
       exit "${PIPESTATUS[0]}"
 
   - name: dependency-and-license-review
@@ -403,9 +405,20 @@ spec:
       # material or test fixture may be.
       crane export --insecure "$BY_DIGEST" - | tar -tf - > "$OUT/files.txt" || true
       wc -l < "$OUT/files.txt"
-      if grep -Eiq '(^|/)(\.git/|\.env$|id_rsa|\.kube/config|kubeconfig)' "$OUT/files.txt"; then
+      # Anchored to real credential filenames: a *script* whose name merely
+      # contains "kubeconfig" is not a leaked credential.
+      LEAK_RE='(^|/)\.git/|(^|/)\.env$|(^|/)id_rsa(\.pub)?$|(^|/)\.kube/config$|(^|/)kubeconfig$|(^|/)\.netrc$|(^|/)\.npmrc$|(^|/)\.pypirc$|\.pem$|\.key$'
+      if grep -Eq "$LEAK_RE" "$OUT/files.txt"; then
         echo "ERROR: image contains secret or VCS material" >&2
-        grep -Ei '(^|/)(\.git/|\.env$|id_rsa|\.kube/config|kubeconfig)' "$OUT/files.txt" >&2
+        grep -E "$LEAK_RE" "$OUT/files.txt" >&2
+        exit 1
+      fi
+      # Test suites and infrastructure definitions have no business in a runtime
+      # image; catching them here keeps the delivered surface small.
+      STRAY_RE='(^|/)tests?/|(^|/)test_[^/]*\.py$|(^|/)e2e/|(^|/)infra/|(^|/)docs/'
+      if grep -Eq "$STRAY_RE" "$OUT/files.txt"; then
+        echo "ERROR: image contains test or infrastructure content" >&2
+        grep -E "$STRAY_RE" "$OUT/files.txt" | head -20 >&2
         exit 1
       fi
       {
@@ -777,17 +790,18 @@ spec:
           echo "injected a schema-invalid manifest"
           ;;
         secret)
-          # Assembled at run time so this task definition is not itself a
-          # secret-scan finding on the real branch.
-          KEY_ID="A""KIA""IOSFODNN""7EXAMPLE"
-          KEY_SECRET="wJalrXUtnFEMI/""K7MDENG/""bPxRfiCYEXAMPLEKEY"
+          # Generated at run time from /dev/urandom, so the repository never
+          # contains a credential-shaped literal for the secret scanner to find.
+          FAKE_ID="AKIA$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n' | tr 'a-f' 'A-F')"
+          FAKE_SECRET="$(head -c 30 /dev/urandom | base64 | tr -d '\n=' | cut -c1-40)"
           {
-            echo "AWS_ACCESS_KEY_ID = \"$KEY_ID\""
-            echo "AWS_SECRET_ACCESS_KEY = \"$KEY_SECRET\""
+            echo "AWS_ACCESS_KEY_ID = \"$FAKE_ID\""
+            echo "AWS_SECRET_ACCESS_KEY = \"$FAKE_SECRET\""
           } > deliberate_secret.py
           git -c user.email=ci@ailab.local -c user.name=ci add -A
-          git -c user.email=ci@ailab.local -c user.name=ci commit -q -m "deliberate secret for negative proof"
-          echo "injected a committed secret"
+          git -c user.email=ci@ailab.local -c user.name=ci commit -q \
+            -m "deliberate secret for negative proof"
+          echo "injected a committed high-entropy credential"
           ;;
         *)
           echo "ERROR: unknown fail-gate '$(params.fail-gate)'" >&2

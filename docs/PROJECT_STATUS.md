@@ -64,48 +64,44 @@ Therefore the **first prerequisite in the next Cursor task** is to establish AIL
 ### Phase 2 — Reference-Time Vertical Slice (feature branch)
 
 **Branch:** `feat/reference-time-vertical-slice`
-**Status:** Acceptance fixes applied on branch; not merged to main.
+**Status:** implemented and independently re-verified on the branch after a
+clean-context audit. **Not merged to `main`. Phase 3 not started.**
 
-Implemented on branch:
+The previous branch state was audited and rejected. Every defect below was
+reproduced before being fixed, and the fixes are pinned by tests rather than by
+claims:
 
-- reference-time analysis service (`services/reference_time/`, version 0.3.0);
-- MIDI tempo-map extraction with note-density computation per measure;
-- multi-MIDI PPQ/time-normalized consensus with regional conflict detection;
-- GP grid extraction with markers, repeats, alternate endings;
-- DP measure alignment with duration, density, audio, repeat, marker, anchor scoring;
-- audio evidence extraction (onset/downbeat via spectral flux);
-- structure JSON parsing with monotonic anchor constraints;
-- JSON and HTML report generation (XSS-safe);
-- SQLite persistence with WAL mode, thread-safe writes, cache-key invalidation;
-- FastAPI with background job processing (ThreadPoolExecutor);
-- startup recovery for orphaned queued/running jobs;
-- Flask Project UI: GP/MIDI/audio/structure selection, analyze, job/result display;
-- K8s deployment, service, ingress, NetworkPolicy, PVC;
-- Tekton CI/CD: 9-task pipeline (clone, test-lint, kustomize-validate, build×2, deploy×2, smoke×2);
-- Gitea OCI registry for durable image storage;
-- Gitea webhook → EventListener with CEL interceptor;
-- fail-closed negative gate proof (negative-gate-xlk95);
-- workspace pruning CronJob;
-- rollback instructions with SHA-tagged registry images;
-- 99 service tests + 255 root tests passing; ruff clean.
+| Audit item | What was wrong | Now |
+|---|---|---|
+| A | the live E2E runner was collected by root pytest (13 fixture errors) and its `fail()` helper recorded a failure without raising, so a scenario could report PASS while failing | runner moved to `e2e/live_acceptance.py`, excluded by `pytest.ini`, rebuilt fail-closed; `test_e2e_runner_contract.py` pins that property in the root gate |
+| B | cache identity was not scoped to `project_id`, so two projects with identical assets collided | both identities are project-scoped and version-prefixed |
+| C | a caller-supplied `gp_revision_sha256` could become authoritative | the claim is checked against Asset API metadata (`gp_revision_mismatch`); only the trusted digest reaches a key |
+| D | no role or type validation at all | every slot validates ownership, role, type and digest with distinct stable codes, before any job exists |
+| E | downloads used `resp.content` | streamed with per-role byte and time bounds enforced while reading, and scopes cleaned on every path |
+| F | a `source_gap` DP transition with `j > 0` was reconstructed as a repeat | each cell records its operation; repeats need repeat evidence |
+| G | timeouts ran only at startup, progress reset `started_at`, a late worker could overwrite a terminal state and publish a result | continuous watchdog, one-time `started_at`, immutable terminal states, guarded atomic publication |
+| H | "source evidence reuse" was a computed key with nothing behind it | a persisted project-scoped bundle; reuse proven by extraction counts |
+| I | weak live evidence: cache-key-only anchor check, warm-cache concurrency, no reuse proof, in-process Flask client, partial restart proof | all fourteen scenarios rebuilt; the Flask UI is now genuinely deployed |
+| J | deployment proved only by tag | deployed by digest, with the live pod `imageID` compared against the published digest |
 
-Deployed images (from PipelineRun `ruff-fix-t5r6w`, commit `30138db`):
-- `asset-api@sha256:07d5f1f943c128ab365272241219bc9af590db88ad9056c79a9fab8668147355`
-- `reference-time@sha256:ce2398f506b8bc8e94ab716dc7ae3ad08a732cd4db9a843a3a6c5dbacb8bdefe`
+Also delivered:
 
-Pod image IDs match pipeline-produced digests exactly.
+- `gpmidi-web`: the Flask converter and Projects UI, now an in-cluster workload,
+  because scenario 12 requires the real HTTP path and the UI was not deployed
+  anywhere before;
+- the AILab Tekton path rebuilt around exact-SHA checkout, a full gate set with
+  every tool pinned in the CI image, digest-based deployment, image audit and
+  vulnerability scanning, PVC persistence verification, a post-deploy live
+  acceptance stage, least-privilege separated identities, evidence archiving with
+  retention, and a negative pipeline that structurally cannot deploy.
 
-Live E2E: 14/14 scenarios passed (`tests/test_e2e_live.py`, evidence in
-`tests/e2e_evidence.json`). Covers GP parse, consensus, conflict, audio,
-anchors, gaps, cache, restart, determinism, Flask UI, asset integrity, and
-service health.
+Full detail, including the pinned toolchain, scoring model and cache contract:
+`docs/Phase_2_Reference_Time_Vertical_Slice.md`.
 
-Test counts (from PipelineRun `ruff-fix-t5r6w`):
-- Root `python -m pytest -q`: 258 passed, 27 skipped
-- Service `python -m pytest tests/ -q`: 99 passed
-- `ruff check`: clean (0 errors)
-
-Report: `docs/Phase_2_Reference_Time_Vertical_Slice.md`
+<!-- PHASE2-EVIDENCE-START -->
+*Verified delivery evidence pending: filled from the authoritative PipelineRun,
+the negative run and the rollback test.*
+<!-- PHASE2-EVIDENCE-END -->
 
 ## Next
 
@@ -113,9 +109,35 @@ Phase 2 acceptance review pending. Phase 3 (MIDI restoration using measure mappi
 
 ## Operational state
 
-AILab services are running. Tekton CI/CD pipeline is active; pushes to `main` on Gitea trigger automated build/test/deploy.
+AILab is running. The Tekton delivery path is installed and active in namespace
+`gpmidi-ml`. A push to `main` on Gitea is authenticated by shared-secret signature
+and validated for repository, ref and commit shape before a PipelineRun is created;
+a feature candidate is validated by `infra/ailab/scripts/run-pipeline.sh`, which
+labels the run `manual-candidate` so evidence never misrepresents it as a main
+push.
 
-Tekton versions:
-- Tekton Pipelines: v0.76.1
-- Tekton Triggers: v0.30.1
-- Kaniko: v1.23.2
+Installed versions (verified on the cluster, and pinned in
+`infra/ailab/versions.env`):
+
+| Component | Version |
+|---|---|
+| k3s | v1.36.2+k3s1 |
+| Tekton Pipelines | v1.14.1 |
+| Tekton Triggers | v0.36.0 |
+| kaniko | v1.23.2 |
+| Gitea (registry + git) | 1.25.5 |
+| kubectl / kubeconform / ShellCheck | v1.32.4 / v0.7.0 / v0.11.0 |
+| gitleaks / trivy / crane / ruff | 8.24.3 / 0.72.0 / v0.20.3 / 0.15.6 |
+
+Registry: Gitea's OCI registry at `192.168.30.2:3300`, package data under
+`/home/mgrigorov/gitea/data` on the root NVMe.
+
+Tekton co-scheduling is disabled (`infra/ailab/scripts/configure-tekton.sh`): the
+default affinity assistant refuses a TaskRun that binds both the shared source
+workspace and the durable evidence workspace, and on a single-node cluster
+co-scheduling buys nothing.
+
+Namespace limits are real constraints, not decoration: `LimitRange` caps a pod at
+10 CPU and `ResourceQuota` caps `limits.cpu` at 12 for the whole namespace, of
+which the application pods hold about 5.7. Gate groups and per-image build/audit
+pairs are therefore chained rather than run in parallel.

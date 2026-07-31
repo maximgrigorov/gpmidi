@@ -1,0 +1,25 @@
+# Secret-scanning configuration.
+#
+# The default rule set is used in full. Only two structural false positives are
+# allowlisted, each by a narrow regex rather than by excluding a path, so a real
+# secret in the same file would still be caught.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed false positives"
+regexTarget = "match"
+regexes = [
+  # Immutable image tags are full 40-character git commit SHAs, which the generic
+  # high-entropy rule reads as an API key. Example:
+  #   image: 192.168.30.2:3300/mgrigorov/asset-api:30138db39267549090dc08eab92b830a61ef6e71
+  '''(asset-api|reference-time|gpmidi-web|gpmidi-ci):[0-9a-f]{40}''',
+
+  # AWS's own published example credentials, which appeared in
+  # infra/ailab/tekton/tasks.yaml (commit c8c06e7) as the fixture for the
+  # negative-gate proof. HEAD no longer contains them — the fixture is generated
+  # at run time — but this branch's history cannot be rewritten, and
+  # `gitleaks detect` scans history on purpose.
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''wJalrXUtnFEMI''',
+]

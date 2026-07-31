@@ -1,9 +1,39 @@
+.git/
+.gitignore
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.mid
-*_midi/
-data/
-.git/
+.pytest_cache/
+.ruff_cache/
 .venv/
+venv/
+
+# Local app/session data and generated converter output
+data/
+renders/
+*_midi/
+*.mid
+*.midi
+*.zip
+
+# Not part of the runtime image: test suites, the live acceptance runner,
+# infrastructure definitions and documentation. The image-audit gate fails the
+# build if any of them reach the published image.
+test_*.py
+tests/
+e2e/
+infra/
+docs/
+pytest.ini
+ruff.toml
+*.md
+!third_party/**/*.md
+
+# Local fixtures that must never be baked in
+*.gp
+*.gp3
+*.gp4
+*.gp5
+*.gpx
+.DS_Store
