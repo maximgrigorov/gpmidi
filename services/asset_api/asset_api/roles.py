@@ -76,6 +76,11 @@ def validate_extension(filename: str, role: AssetRole) -> str | None:
 
 def validate_signature(header: bytes, extension: str) -> bool:
     """Cheap magic-bytes check. Returns True if valid or unknown extension."""
+    # Modern Guitar Pro ``.gp`` files are ZIP/GPIF containers, while older
+    # Guitar Pro 6/7 files may use the BCFZ container under the same suffix.
+    if extension == ".gp":
+        return header.startswith((b"BCFZ", b"PK\x03\x04"))
+
     sigs = SIGNATURES.get(extension)
     if not sigs:
         return True

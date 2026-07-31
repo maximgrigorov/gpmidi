@@ -80,6 +80,10 @@ class TestSignatureValidation:
         header = b"\x18FICHIER GUITAR PRO v5.10" + b"\x00" * 50
         assert validate_signature(header, ".gp5") is True
 
+    def test_gp8_zip_signature(self):
+        header = b"PK\x03\x04" + b"\x00" * 60
+        assert validate_signature(header, ".gp") is True
+
     def test_gp5_bad_signature(self):
         header = b"NOTG" + b"\x00" * 60
         assert validate_signature(header, ".gp5") is False
