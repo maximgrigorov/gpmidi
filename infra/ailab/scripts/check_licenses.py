@@ -19,7 +19,15 @@ import json
 import sys
 
 ALLOWED_SUBSTRINGS = (
+    # Trove classifiers spell these as e.g.
+    # "OSI Approved :: BSD License", so substring matching is deliberate.
     "mit",
+    "bsd license",
+    "apache software license",
+    "python software foundation license",
+    "the unlicense",
+    "zope public license",
+    "historical permission notice and disclaimer",
     "bsd",
     "apache",
     "isc",

@@ -274,12 +274,16 @@ spec:
     script: |
       #!/bin/bash
       set -euo pipefail
-      /opt/venv-root/bin/pip-licenses --format=markdown --with-urls \
+      # `--from=mixed` reads the trove classifiers first and falls back to the
+      # legacy License field. With the default the majority of modern packages
+      # report UNKNOWN, because PEP 639 moved the declaration to classifiers and
+      # License-Expression.
+      /opt/venv-root/bin/pip-licenses --from=mixed --format=markdown --with-urls \
         > /workspace/evidence/licenses-root.md
-      /opt/venv-svc/bin/pip-licenses --format=markdown --with-urls \
+      /opt/venv-svc/bin/pip-licenses --from=mixed --format=markdown --with-urls \
         > /workspace/evidence/licenses-svc.md
-      /opt/venv-root/bin/pip-licenses --format=json > /tmp/licenses-root.json
-      /opt/venv-svc/bin/pip-licenses --format=json > /tmp/licenses-svc.json
+      /opt/venv-root/bin/pip-licenses --from=mixed --format=json > /tmp/licenses-root.json
+      /opt/venv-svc/bin/pip-licenses --from=mixed --format=json > /tmp/licenses-svc.json
       /opt/venv-svc/bin/python infra/ailab/scripts/check_licenses.py \
         /tmp/licenses-root.json /tmp/licenses-svc.json 2>&1 \
         | tee /workspace/evidence/license-review.txt
