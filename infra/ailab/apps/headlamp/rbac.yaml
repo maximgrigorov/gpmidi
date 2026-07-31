@@ -1,0 +1,38 @@
+# Login identity for the cluster owner.
+#
+# This is deliberately NOT the ServiceAccount the Headlamp pod runs as. That one
+# (`headlamp`, created by the chart) has no cluster-wide permissions at all; see
+# the comment in values.yaml. The two are separated so that the privilege lives
+# in a token the owner holds, not in a token mounted inside a network-facing pod.
+#
+# No token is stored here. Tokens are minted on demand through the TokenRequest
+# API (`kubectl create token`), so they expire on their own and there is nothing
+# in Git or in a Secret to leak:
+#
+#   sudo k3s kubectl -n headlamp create token headlamp-admin --duration=24h
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-admin
+  namespace: headlamp
+---
+# cluster-admin, because the stated purpose is for the owner to inspect *and*
+# administer their own single-node home lab from the dashboard: nodes,
+# namespaces, workloads, events, logs and object YAML across every namespace.
+# A read-only binding would not cover the "administer" half.
+#
+# This is a LAN-only PoC cluster with one human operator. On anything shared,
+# this binding is the first thing that should be narrowed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-admin
+subjects:
+- kind: ServiceAccount
+  name: headlamp-admin
+  namespace: headlamp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin

@@ -1,0 +1,129 @@
+# Helm values for the Headlamp cluster dashboard on AILab.
+#
+# Chart:  headlamp/headlamp  (https://kubernetes-sigs.github.io/headlamp/)
+# Pinned version lives in infra/ailab/versions.env; the install script passes it
+# with --version so this file never has to be edited to move versions.
+#
+# Scope: single-node PoC. One replica, no bundled database, no HA, no
+# fleet/multi-cluster features, no cert-manager.
+
+replicaCount: 1
+
+config:
+  inCluster: true
+  inClusterContextName: ailab
+
+  # Served at the domain root, so no base URL rewriting is needed.
+  baseURL: ""
+
+  # AUTHENTICATION. Headlamp authenticates each browser session with a
+  # Kubernetes bearer token that the user pastes in, and forwards that token to
+  # the API server. Every action is therefore evaluated against the *user's* own
+  # RBAC, not the pod's.
+  #
+  # `unsafeUseServiceAccountToken: false` is what keeps that true. Flipping it to
+  # true would make Headlamp act as its own ServiceAccount for every visitor,
+  # i.e. an unauthenticated dashboard. It must stay false: on this LAN the only
+  # thing in front of Headlamp is Traefik, not an auth proxy.
+  unsafeUseServiceAccountToken: false
+
+  # 24h, matching the duration used for the headlamp-admin token in
+  # scripts/install-headlamp.sh.
+  sessionTTL: 86400
+
+  # Not needed for cluster inspection, and enableHelm would expose release
+  # mutation through the dashboard.
+  enableHelm: false
+  watchPlugins: false
+  clusterInventory:
+    enabled: false
+
+  # No external identity provider here — login is by Kubernetes bearer token.
+  # The chart otherwise renders an empty, unreferenced `oidc` Secret, which is
+  # just a confusing artefact for anyone auditing the namespace later.
+  oidc:
+    secret:
+      create: false
+
+# The Headlamp workload's own ServiceAccount is deliberately left with NO
+# cluster-wide permissions.
+#
+# The chart default is `clusterRoleBinding.create: true` with
+# `clusterRoleName: cluster-admin`, which grants the pod's ServiceAccount
+# cluster-admin. That is not needed here: because users log in with their own
+# bearer token, the pod SA is never the identity that reads cluster objects. A
+# cluster-admin token sitting in a mounted volume would only be an escalation
+# path if the container were ever compromised.
+#
+# Administration is done with the separate `headlamp-admin` ServiceAccount
+# declared in rbac.yaml, whose token the owner pastes into the UI.
+serviceAccount:
+  create: true
+  name: headlamp
+clusterRoleBinding:
+  create: false
+
+# The pod SA token is still mounted so Headlamp can discover the in-cluster API
+# server endpoint and CA bundle. With no RoleBinding attached, that token can do
+# nothing on its own — an API call made without a user token comes back 401/403,
+# which is exactly what makes the UI demand a login.
+automountServiceAccountToken: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  runAsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+# Mirrors the hardening the repo's own manifest gate (scripts/check_manifests.py)
+# requires of application workloads. With readOnlyRootFilesystem the chart adds a
+# writable emptyDir at /tmp by itself.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  runAsGroup: 101
+  privileged: false
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# Modest and explicit. Headlamp is a Go backend serving a static frontend; it
+# idles well under 100Mi. Limits exist so a runaway dashboard cannot compete
+# with the GPU/LLM workloads on this single node.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+service:
+  type: ClusterIP
+  port: 80
+
+# The Ingress is NOT owned by Helm. It is a repository manifest
+# (apps/headlamp/ingress.yaml) applied with kubectl, because it has to express
+# the hostless default-route rule that makes https://192.168.30.2/ open the
+# dashboard — and because keeping it out of the release keeps one routing change
+# from requiring a chart upgrade.
+ingress:
+  enabled: false
+httpRoute:
+  enabled: false
+
+# No persistence: nothing about Headlamp is stateful. Sessions live in the
+# browser.
+persistentVolumeClaim:
+  enabled: false
+
+# Single replica on a single node; a disruption budget would only ever block
+# node drains.
+podDisruptionBudget:
+  enabled: false
+
+pluginsManager:
+  enabled: false

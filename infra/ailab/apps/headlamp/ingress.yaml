@@ -1,0 +1,52 @@
+# Routing for the cluster dashboard.
+#
+# Owned by this repository, not by the Helm release (`ingress.enabled: false` in
+# values.yaml), so the routing model can be reasoned about in one place next to
+# the application Ingresses it shares an entrypoint with.
+#
+# Traefik resolves overlapping routers by rule length, longest first. That is
+# what lets a hostless `PathPrefix(/)` here coexist with the pre-existing
+# hostless `/asset-api` and `/reference-time` prefixes: those rules are longer,
+# so they keep winning for their own paths, and everything else on the default
+# route falls through to Headlamp. Host-qualified rules are longer still, so
+# gpmidi.ailab.home.arpa is unaffected.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headlamp
+  namespace: headlamp
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  # ailab-tls is the shared self-signed cluster certificate. An Ingress can only
+  # reference a Secret in its own namespace, so scripts/ensure-ailab-tls.sh
+  # installs the same certificate into both gpmidi-ml and headlamp. No `hosts:`
+  # list, so Traefik also serves it for IP access, where there is no SNI.
+  tls:
+  - secretName: ailab-tls
+  rules:
+  # The documented primary name.
+  - host: k8s.ailab.home.arpa
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: headlamp
+            port:
+              number: 80
+  # The default route: https://192.168.30.2/ with no DNS entry at all. This is
+  # the one hostless `/` rule in the cluster — the Phase 0 smoke-app and the
+  # gpmidi-web PoC fallback both gave it up so that the IP address has a single
+  # unambiguous owner.
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: headlamp
+            port:
+              number: 80
