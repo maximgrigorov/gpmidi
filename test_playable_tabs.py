@@ -185,6 +185,7 @@ def test_regen_param_validation_is_whitelisted():
 
 def test_ascii_pdf_is_a4_and_handles_long_lines(tmp_path: Path):
     from pypdf import PdfReader
+
     from tab_print import ascii_to_pdf
 
     system = "\n".join(["e|" + "-" * 198] + [f"S{i}|" + "-" * 30 for i in range(5)])
@@ -200,6 +201,7 @@ def test_ascii_pdf_is_a4_and_handles_long_lines(tmp_path: Path):
 
 def test_gpif_reused_note_definition_is_cloned_for_different_fingering():
     import xml.etree.ElementTree as ET
+
     from playable_tabs import iter_gpif_note_elements, patch_gpif_track_positions
 
     root = ET.fromstring("""

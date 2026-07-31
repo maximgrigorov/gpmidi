@@ -133,6 +133,7 @@ class TestTLSParsing:
         """Default (no env) should be False for self-signed AILab cert."""
         monkeypatch.delenv("ASSET_API_VERIFY_TLS", raising=False)
         import importlib
+
         import ailab_client
         importlib.reload(ailab_client)
         assert ailab_client.ASSET_API_VERIFY_TLS is False
@@ -140,6 +141,7 @@ class TestTLSParsing:
     def test_verify_true_when_set(self, monkeypatch):
         monkeypatch.setenv("ASSET_API_VERIFY_TLS", "true")
         import importlib
+
         import ailab_client
         importlib.reload(ailab_client)
         assert ailab_client.ASSET_API_VERIFY_TLS is True

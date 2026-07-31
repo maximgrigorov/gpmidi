@@ -789,11 +789,25 @@ def test_legato_origin_destination_b15():
 def _mini_song(beats_spec):
     """Минимальный GPSong с одним треком/тактом из спецификации битов:
     [(dur_value, [(string, fret, hammer)]), ...] — ноты None = пауза."""
-    from gp_import import (GPBeat, GPBeatEffect, GPBeatStatus, GPChannel,
-                           GPDenominator, GPDuration, GPMeasure,
-                           GPMeasureHeader, GPNote, GPNoteEffect, GPSong,
-                           GPString, GPTimeSignature, GPTrack, GPVoice)
     from guitarpro.models import NoteType
+
+    from gp_import import (
+        GPBeat,
+        GPBeatEffect,
+        GPBeatStatus,
+        GPChannel,
+        GPDenominator,
+        GPDuration,
+        GPMeasure,
+        GPMeasureHeader,
+        GPNote,
+        GPNoteEffect,
+        GPSong,
+        GPString,
+        GPTimeSignature,
+        GPTrack,
+        GPVoice,
+    )
     beats = []
     for dur_value, notes_spec in beats_spec:
         dur = GPDuration(value=dur_value, time=int(960 * 4 / dur_value))

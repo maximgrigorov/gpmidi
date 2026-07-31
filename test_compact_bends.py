@@ -1,8 +1,8 @@
 """Компактные bend-кривые и явная настройка Hydra 3.5 в UI."""
 from __future__ import annotations
 
-from gp_import import GPBend, GPBendPoint
 import gp_to_shreddage as g
+from gp_import import GPBend, GPBendPoint
 
 
 def _absolute_pitchwheel_events(events):

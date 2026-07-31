@@ -7,7 +7,7 @@ size matches what was sent, not the multipart request Content-Length.
 from __future__ import annotations
 
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
 
 import pytest
@@ -57,6 +57,7 @@ def test_proxy_upload_content_length(upstream_server, monkeypatch):
     monkeypatch.setenv("ASSET_API_VERIFY_TLS", "false")
 
     import importlib
+
     import ailab_client
     importlib.reload(ailab_client)
 

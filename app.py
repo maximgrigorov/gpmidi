@@ -20,15 +20,15 @@ from flask import (
     session,
     url_for,
 )
+from mido import MidiFile
 from werkzeug.utils import secure_filename
 
-from mido import MidiFile
-
+from articulation_config import config_for_track_type
 from gp_import import parse_song
 from gp_to_shreddage import (
-    build_combined_midi,
     PITCH_BEND_RANGE_ST,
     TICKS_PER_BEAT,
+    build_combined_midi,
     build_drum_midi,
     build_instrument_midi,
     build_other_midi,
@@ -36,7 +36,6 @@ from gp_to_shreddage import (
     resolve_track_type,
     safe_filename,
 )
-from articulation_config import config_for_track_type
 from playable_tabs import (
     TUNABLE_PARAMS,
     TrackGeneration,
@@ -926,7 +925,7 @@ def delete_job(job_id: str):
 
 # --- Projects (AILab Asset Storage) ---
 
-from ailab_client import get_client, AssetAPIError  # noqa: E402
+from ailab_client import AssetAPIError, get_client  # noqa: E402
 
 
 @app.get("/projects")

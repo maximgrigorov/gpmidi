@@ -18,7 +18,6 @@ velocity и микро-сдвиг. Единственное исключение
 from __future__ import annotations
 
 import logging
-import random
 from functools import lru_cache
 from pathlib import Path
 

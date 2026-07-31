@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 from mido import MidiFile
 
@@ -85,6 +85,7 @@ def build_export(song, workdir: Path, track_name: str):
 
 def main(src: str = "pnd.gp5", track_name: str = "Solo Guitar"):
     import sys
+
     from gp_import import parse_song
     if len(sys.argv) > 1:
         src = sys.argv[1]

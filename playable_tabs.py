@@ -4,15 +4,14 @@ import argparse
 import copy
 import logging
 import shutil
-import tempfile
 import time
 import warnings
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
-import xml.etree.ElementTree as ET
 
 import guitarpro
 from guitarpro.models import NoteType
@@ -21,7 +20,6 @@ from mido import Message, MetaMessage, MidiFile, MidiTrack, bpm2tempo
 from gp_import import _write_patched_gp, is_gp7_gp8_archive, parse_song
 from gp_to_shreddage import (
     TICKS_PER_BEAT,
-    duration_ticks,
     iter_voice_beats_with_canonical_ticks,
     resolve_track_type,
     safe_filename,
@@ -584,7 +582,8 @@ def _materialize_gpif_track_occurrences(root: ET.Element, track_index: int) -> N
         if track_index >= len(bar_ids) or bar_ids[track_index] not in bars:
             continue
         bar = copy.deepcopy(bars[bar_ids[track_index]])
-        bar.set("id", str(next_bar)); next_bar += 1
+        bar.set("id", str(next_bar))
+        next_bar += 1
         bars_container.append(bar)
         bar_ids[track_index] = bar.get("id")
         bars_element.text = " ".join(bar_ids)
@@ -595,7 +594,8 @@ def _materialize_gpif_track_occurrences(root: ET.Element, track_index: int) -> N
             if voice_id == "-1" or voice_id not in voices:
                 continue
             voice = copy.deepcopy(voices[voice_id])
-            voice.set("id", str(next_voice)); next_voice += 1
+            voice.set("id", str(next_voice))
+            next_voice += 1
             voices_container.append(voice)
             voice_ids[voice_index] = voice.get("id")
             beats_element = voice.find("Beats")
@@ -604,7 +604,8 @@ def _materialize_gpif_track_occurrences(root: ET.Element, track_index: int) -> N
                 if beat_id not in beats:
                     continue
                 beat = copy.deepcopy(beats[beat_id])
-                beat.set("id", str(next_beat)); next_beat += 1
+                beat.set("id", str(next_beat))
+                next_beat += 1
                 beats_container.append(beat)
                 beat_ids[beat_index] = beat.get("id")
             beats_element.text = " ".join(beat_ids)

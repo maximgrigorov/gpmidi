@@ -46,17 +46,17 @@ import random
 import sys
 
 try:
-    import guitarpro
+    import guitarpro  # noqa: F401  — availability probe, real import is below
 except ImportError:
     sys.exit("Не найден модуль pyguitarpro. Установите: pip install pyguitarpro")
 
 try:
-    import mido
+    import mido  # noqa: F401  — availability probe, real import is below
     from mido import Message, MetaMessage, MidiFile, MidiTrack, bpm2tempo
 except ImportError:
     sys.exit("Не найден модуль mido. Установите: pip install mido")
 
-from guitarpro.models import SlideType, NoteType
+from guitarpro.models import NoteType, SlideType
 
 from articulation_config import (
     articulation_priority,
@@ -66,15 +66,15 @@ from articulation_config import (
     keyswitch_note,
     log_config_used,
 )
-from verify_midi import smoke_check
 from humanize import (
+    humanize_drums,
     pitched_beat_shift,
     pitched_strum_offsets,
     pitched_velocity,
-    humanize_drums,
     profile_for_track_type,
     profile_label,
 )
+from verify_midi import smoke_check
 
 logger = logging.getLogger("gpmidi.convert")
 
@@ -307,7 +307,7 @@ def iter_voice_beats_with_canonical_ticks(track):
     """
     measure_tick = 0
     for measure in track.measures:
-        ts = measure.header.timeSignature
+        ts = measure.header.timeSignature  # noqa: F841  — kept for readability of the grid walk
         measure_start_tick = measure_tick
         for vi, voice in enumerate(measure.voices):
             beat_tick = measure_start_tick
@@ -800,7 +800,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         # fresh voice object per measure, so id(voice) breaks tie linking across
         # barlines. Voice index is stable across measures -> ties over barlines hold.
         last_off = last_off_by_voice.setdefault(vi, {})
-        ts = measure.header.timeSignature
+        ts = measure.header.timeSignature  # noqa: F841  — kept for readability of the grid walk
         ts_key = (ts.numerator, ts.denominator.value)
         if ts_key != last_ts:
             ev.add(measure_start_tick, ORDER_META,
@@ -1168,7 +1168,7 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False):
         # barlines. Voice index is stable across measures -> ties over barlines hold.
         last_off = last_off_by_voice.setdefault(vi, {})
         hidden_off = hidden_off_by_voice.setdefault(vi, {})
-        ts = measure.header.timeSignature
+        ts = measure.header.timeSignature  # noqa: F841  — kept for readability of the grid walk
         ts_key = (ts.numerator, ts.denominator.value)
         if ts_key != last_ts:
             ev.add(measure_start_tick, ORDER_META,
@@ -1260,7 +1260,7 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
     string_pitch = {s.number: s.value for s in track.strings}
 
     for measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur in iter_voice_beats_with_canonical_ticks(track):
-        ts = measure.header.timeSignature
+        ts = measure.header.timeSignature  # noqa: F841  — kept for readability of the grid walk
         ts_key = (ts.numerator, ts.denominator.value)
         if ts_key != last_ts:
             ev.add(measure_start_tick, ORDER_META,

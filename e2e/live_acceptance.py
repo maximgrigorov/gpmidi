@@ -28,7 +28,6 @@ import guitarpro
 import mido
 import requests
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -787,8 +786,8 @@ def test_11_deterministic(project_id: str, links: dict, analysis_id: str | None)
 def test_12_flask(project_id: str, links: dict):
     """Test Flask app project page by importing app.py and using test client."""
     try:
-        import sys
         import os
+        import sys
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         os.environ.setdefault("ASSET_API_BASE", f"{ASSET_API}")
         os.environ.setdefault("ASSET_API_VERIFY_TLS", "0")

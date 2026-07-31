@@ -6,15 +6,14 @@ import re
 import sys
 import types
 import warnings
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-import xml.etree.ElementTree as ET
 
 import guitarpro
 from guitarpro.models import NoteType, SlideType
-
 
 APOLLOTAB_ROOT = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "ApolloTab"
 

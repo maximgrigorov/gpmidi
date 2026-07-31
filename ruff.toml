@@ -1,0 +1,42 @@
+# Root Ruff configuration so `python -m ruff check .` is a meaningful gate.
+#
+# `third_party/gtrsnipe_core` is vendored upstream code under the PolyForm
+# Noncommercial license (see third_party/gtrsnipe_core/VENDORED_FROM.txt).
+# It is deliberately kept byte-identical to the recorded upstream commit, so it
+# is excluded from linting rather than reformatted.
+exclude = [
+    "third_party",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    "data",
+]
+
+line-length = 120
+
+[lint]
+# pycodestyle errors/warnings, pyflakes, import sorting and blind-except.
+# BLE is enabled for the services and the live E2E runner because swallowing
+# exceptions there is what let a failing scenario report success.
+select = ["E", "F", "W", "I", "BLE"]
+ignore = [
+    # Long lines are tolerated in generated HTML/report strings and fixtures.
+    "E501",
+]
+
+[lint.per-file-ignores]
+# Legacy converter/verifier modules predate this gate and their behaviour is
+# frozen by AGENTS.md; only import hygiene is enforced there.
+"verify_midi.py" = ["BLE001"]
+"qa_compare_gp_to_midi.py" = ["BLE001"]
+"gp_import.py" = ["BLE001"]
+"gp_to_shreddage.py" = ["BLE001"]
+"playable_tabs.py" = ["BLE001"]
+"tab_print.py" = ["BLE001"]
+"humanize.py" = ["BLE001"]
+"app.py" = ["BLE001"]
+"ailab_client.py" = ["BLE001"]
+# Tests use deliberate mid-file imports for optional dependencies.
+"test_*.py" = ["E402", "BLE001"]
+"services/*/tests/*.py" = ["E402"]
