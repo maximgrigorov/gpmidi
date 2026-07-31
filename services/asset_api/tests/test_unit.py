@@ -18,7 +18,6 @@ from asset_api.roles import (
 )
 from asset_api.storage import StreamingHashWriter, blob_relpath, cleanup_stale_temps
 
-
 # --- Role / extension validation ---
 
 class TestRoleExtension:
