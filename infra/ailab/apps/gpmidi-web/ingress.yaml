@@ -10,10 +10,21 @@ spec:
   tls:
   - secretName: ailab-tls
   rules:
-  # A dedicated host rather than a catch-all path, so the `*`-host rules that
-  # serve /asset-api and /reference-time are not shadowed.
   - host: gpmidi.ailab.local
     http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: gpmidi-web
+            port:
+              number: 8080
+  # PoC usability fallback: allow opening the UI directly by AILab IP without
+  # requiring a workstation-specific DNS or /etc/hosts entry. The existing
+  # hostless /asset-api and /reference-time routes are longer prefixes and keep
+  # precedence in Traefik.
+  - http:
       paths:
       - path: /
         pathType: Prefix
