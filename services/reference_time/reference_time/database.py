@@ -1,11 +1,26 @@
-"""SQLite persistence for analysis jobs and results.
+"""SQLite persistence for analysis jobs, results and source evidence.
 
-WAL mode, migrations, deterministic ordering.
-Failed/incomplete analyses are never returned as successful cache hits.
+Invariants this layer enforces (each one is a fossilised defect):
 
-Thread safety: uses a threading.Lock around all writes and a per-call
-connection factory for thread safety. SQLite WAL supports concurrent
-readers with one writer, which is sufficient for this workload.
+* **Terminal states are immutable.** A late worker cannot overwrite
+  `failed`/`timeout`/`interrupted` with `succeeded`. Every status write carries
+  `WHERE status NOT IN (<terminal>)` and reports whether it applied.
+* **`started_at` is written once.** Progress updates must not slide the timeout
+  deadline forward; `started_at = COALESCE(started_at, ?)`.
+* **Results are published atomically against the owning job.** `store_result`
+  runs in one `BEGIN IMMEDIATE` transaction that first re-reads the job and
+  refuses to insert unless it is still `queued`/`running`. A job that timed out
+  therefore cannot publish a cache entry afterwards.
+* **Cache admission is atomic.** Looking for an existing result or active job
+  and inserting a new job happen in the same immediate transaction, so two
+  concurrent cold-cache requests admit exactly one computation.
+* **No `INSERT OR REPLACE` on identity columns.** `analysis_results` uses
+  `ON CONFLICT(cache_key) DO NOTHING` (first writer wins).
+* **Deterministic ordering.** Every listing has an explicit tie-breaker.
+
+Thread safety: one connection per operation plus a process-wide write lock.
+SQLite WAL allows concurrent readers with a single writer, which suits a
+single-replica analyzer.
 """
 
 from __future__ import annotations
@@ -13,9 +28,15 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+TERMINAL_STATUSES = ("succeeded", "failed", "cancelled", "interrupted")
+ACTIVE_STATUSES = ("queued", "running")
+
+_TERMINAL_SQL = ", ".join("?" for _ in TERMINAL_STATUSES)
+_ACTIVE_SQL = ", ".join("?" for _ in ACTIVE_STATUSES)
 
 MIGRATIONS = [
     # Version 1: initial schema
@@ -55,6 +76,18 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_results_project ON analysis_results(project_id);
     CREATE INDEX IF NOT EXISTS idx_results_cache_key ON analysis_results(cache_key);
     """,
+    # Version 2: persisted, reusable source-side evidence
+    """
+    CREATE TABLE IF NOT EXISTS source_evidence (
+        source_evidence_key TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_source_evidence_project
+        ON source_evidence(project_id);
+    """,
 ]
 
 
@@ -72,6 +105,8 @@ class AnalysisDB:
         finally:
             conn.close()
 
+    # -- plumbing ---------------------------------------------------------
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, timeout=30)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -81,24 +116,11 @@ class AnalysisDB:
         return conn
 
     def _migrate(self, conn: sqlite3.Connection):
-        cur = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"
         )
-        if not cur.fetchone():
-            for sql in MIGRATIONS[0].split(";"):
-                sql = sql.strip()
-                if sql:
-                    conn.execute(sql)
-            conn.execute(
-                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                (SCHEMA_VERSION,),
-            )
-            conn.commit()
-            return
-
-        cur = conn.execute("SELECT MAX(version) FROM schema_version")
-        row = cur.fetchone()
-        current = row[0] if row else 0
+        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        current = row[0] or 0
 
         for version in range(current, SCHEMA_VERSION):
             for sql in MIGRATIONS[version].split(";"):
@@ -106,70 +128,105 @@ class AnalysisDB:
                 if sql:
                     conn.execute(sql)
             conn.execute(
-                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
                 (version + 1,),
             )
         conn.commit()
 
+    def schema_version(self) -> int:
+        conn = self._connect()
+        try:
+            row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+            return row[0] or 0
+        finally:
+            conn.close()
+
     def close(self):
-        pass
+        """No-op: connections are per-operation and always closed."""
 
-    def recover_interrupted_jobs(self):
-        """Mark orphaned 'running' AND 'queued' jobs as 'interrupted' on restart."""
+    # -- recovery and timeouts -------------------------------------------
+
+    def recover_interrupted_jobs(self) -> dict[str, int]:
+        """Terminally recover orphaned jobs after a process restart.
+
+        Policy (documented, terminal — no automatic retry): a job that was
+        `running` or `queued` when the process died has no owner any more, so it
+        becomes `interrupted` with `error_code='process_restart'`. Successful
+        results are never touched, so re-requesting the same inputs is a cache
+        hit; re-requesting a genuinely unfinished analysis creates a new job.
+        """
         now = datetime.now(timezone.utc).isoformat()
+        counts = {"running": 0, "queued": 0}
         with self._write_lock:
             conn = self._connect()
             try:
-                conn.execute(
-                    """UPDATE analysis_jobs SET status = 'interrupted',
-                       error_code = 'process_restart',
-                       error_message = 'Job was interrupted by process restart',
-                       finished_at = ?
-                       WHERE status IN ('running', 'queued')""",
-                    (now,),
-                )
+                conn.execute("BEGIN IMMEDIATE")
+                for status in ("running", "queued"):
+                    cur = conn.execute(
+                        """UPDATE analysis_jobs SET status = 'interrupted',
+                           error_code = 'process_restart',
+                           error_message = 'Job was interrupted by process restart',
+                           finished_at = ?
+                           WHERE status = ?""",
+                        (now, status),
+                    )
+                    counts[status] = cur.rowcount or 0
                 conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
             finally:
                 conn.close()
+        return counts
 
-    def enforce_timeouts(self):
-        """Mark timed-out running jobs as failed."""
+    def enforce_timeouts(self) -> list[str]:
+        """Fail every running job whose one-time `started_at` is too old.
+
+        Returns the job ids that were timed out. Called continuously by the
+        watchdog thread, not only at startup.
+        """
         now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(seconds=self._job_timeout_seconds)).isoformat()
+        timed_out: list[str] = []
         with self._write_lock:
             conn = self._connect()
             try:
-                cur = conn.execute(
-                    "SELECT job_id, started_at FROM analysis_jobs WHERE status = 'running'"
-                )
-                for row in cur.fetchall():
-                    started = row["started_at"]
-                    if started:
-                        started_dt = datetime.fromisoformat(started)
-                        if (now - started_dt).total_seconds() > self._job_timeout_seconds:
-                            conn.execute(
-                                """UPDATE analysis_jobs SET status = 'failed',
-                                   error_code = 'timeout',
-                                   error_message = ?,
-                                   finished_at = ?
-                                   WHERE job_id = ? AND status = 'running'""",
-                                (
-                                    f"Job timed out after {self._job_timeout_seconds}s",
-                                    now.isoformat(),
-                                    row["job_id"],
-                                ),
-                            )
+                conn.execute("BEGIN IMMEDIATE")
+                rows = conn.execute(
+                    """SELECT job_id FROM analysis_jobs
+                       WHERE status = 'running' AND started_at IS NOT NULL
+                         AND started_at < ?
+                       ORDER BY started_at, job_id""",
+                    (cutoff,),
+                ).fetchall()
+                for row in rows:
+                    cur = conn.execute(
+                        """UPDATE analysis_jobs SET status = 'failed',
+                           error_code = 'timeout',
+                           error_message = ?,
+                           finished_at = ?
+                           WHERE job_id = ? AND status = 'running'""",
+                        (
+                            f"Job timed out after {self._job_timeout_seconds}s",
+                            now.isoformat(),
+                            row["job_id"],
+                        ),
+                    )
+                    if cur.rowcount:
+                        timed_out.append(row["job_id"])
                 conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
             finally:
                 conn.close()
+        return timed_out
+
+    # -- jobs -------------------------------------------------------------
 
     def create_job(
-        self,
-        job_id: str,
-        analysis_id: str,
-        project_id: str,
-        cache_key: str,
+        self, job_id: str, analysis_id: str, project_id: str, cache_key: str
     ) -> dict:
-        """Create a new job atomically, checking queue limits."""
         now = datetime.now(timezone.utc).isoformat()
         with self._write_lock:
             conn = self._connect()
@@ -197,46 +254,51 @@ class AnalysisDB:
         project_id: str,
         max_queue_length: int,
     ) -> tuple[dict, bool]:
-        """Idempotent: return existing active job or cached result for this
-        cache_key, or atomically create a new one.
+        """Atomic idempotent admission by cache identity.
 
-        Returns (job_or_result_dict, is_new).
-        Raises ValueError if the queue is full and no existing job matches.
+        In one immediate transaction: return an existing successful result, or an
+        existing active job with the same identity, or count active jobs and
+        insert a new one. Two concurrent cold-cache requests therefore produce
+        exactly one admitted computation and one idempotent follower.
+
+        Returns `(job_or_result, is_new)`. Raises ValueError when the queue is
+        full and no existing work matches.
         """
         with self._write_lock:
             conn = self._connect()
             try:
                 conn.execute("BEGIN IMMEDIATE")
 
-                # Check for existing successful result
-                cur = conn.execute(
-                    "SELECT analysis_id FROM analysis_results WHERE cache_key = ?",
+                cached = conn.execute(
+                    """SELECT analysis_id, project_id FROM analysis_results
+                       WHERE cache_key = ?""",
                     (cache_key,),
-                )
-                cached = cur.fetchone()
+                ).fetchone()
                 if cached:
                     conn.rollback()
-                    conn.close()
-                    return {"analysis_id": cached["analysis_id"], "status": "cached"}, False
+                    return (
+                        {
+                            "analysis_id": cached["analysis_id"],
+                            "project_id": cached["project_id"],
+                            "status": "cached",
+                        },
+                        False,
+                    )
 
-                # Check for existing active (queued/running) job with same cache key
-                cur = conn.execute(
-                    """SELECT * FROM analysis_jobs
-                       WHERE cache_key = ? AND status IN ('queued', 'running')
-                       ORDER BY created_at ASC LIMIT 1""",
-                    (cache_key,),
-                )
-                existing = cur.fetchone()
+                existing = conn.execute(
+                    f"""SELECT * FROM analysis_jobs
+                        WHERE cache_key = ? AND status IN ({_ACTIVE_SQL})
+                        ORDER BY created_at ASC, job_id ASC LIMIT 1""",
+                    (cache_key, *ACTIVE_STATUSES),
+                ).fetchone()
                 if existing:
                     conn.rollback()
-                    conn.close()
                     return dict(existing), False
 
-                # Count active jobs for queue limit
-                cur = conn.execute(
-                    "SELECT COUNT(*) FROM analysis_jobs WHERE status IN ('queued', 'running')"
-                )
-                active = cur.fetchone()[0]
+                active = conn.execute(
+                    f"SELECT COUNT(*) FROM analysis_jobs WHERE status IN ({_ACTIVE_SQL})",
+                    ACTIVE_STATUSES,
+                ).fetchone()[0]
                 if active >= max_queue_length:
                     conn.rollback()
                     raise ValueError(
@@ -264,25 +326,22 @@ class AnalysisDB:
     def get_job(self, job_id: str) -> dict | None:
         conn = self._connect()
         try:
-            cur = conn.execute(
+            row = conn.execute(
                 "SELECT * FROM analysis_jobs WHERE job_id = ?", (job_id,)
-            )
-            row = cur.fetchone()
+            ).fetchone()
             return dict(row) if row else None
         finally:
             conn.close()
 
-    def get_jobs_for_project(
-        self, project_id: str, limit: int = 50
-    ) -> list[dict]:
+    def get_jobs_for_project(self, project_id: str, limit: int = 50) -> list[dict]:
         conn = self._connect()
         try:
-            cur = conn.execute(
+            rows = conn.execute(
                 """SELECT * FROM analysis_jobs WHERE project_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
+                   ORDER BY created_at DESC, job_id DESC LIMIT ?""",
                 (project_id, limit),
-            )
-            return [dict(row) for row in cur.fetchall()]
+            ).fetchall()
+            return [dict(r) for r in rows]
         finally:
             conn.close()
 
@@ -294,47 +353,76 @@ class AnalysisDB:
         progress_message: str = "",
         error_code: str | None = None,
         error_message: str | None = None,
-    ):
-        now = datetime.now(timezone.utc).isoformat()
-        updates = {
-            "status": status,
-            "progress_phase": progress_phase,
-            "progress_message": progress_message,
-        }
-        if status == "running":
-            updates["started_at"] = now
-        if status in ("succeeded", "failed", "cancelled", "interrupted"):
-            updates["finished_at"] = now
-        if error_code:
-            updates["error_code"] = error_code
-        if error_message:
-            updates["error_message"] = error_message
+    ) -> bool:
+        """Write a status/progress update unless the job is already terminal.
 
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [job_id]
+        Returns True when the row was updated. A False return means the job
+        reached a terminal state (typically `timeout`) while the worker was still
+        running, and the worker must abandon its result.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        assignments = [
+            "status = ?",
+            "progress_phase = ?",
+            "progress_message = ?",
+        ]
+        values: list[object] = [status, progress_phase, progress_message]
+
+        if status == "running":
+            # Written once: a progress update must never extend the deadline.
+            assignments.append("started_at = COALESCE(started_at, ?)")
+            values.append(now)
+        if status in TERMINAL_STATUSES:
+            assignments.append("finished_at = ?")
+            values.append(now)
+        if error_code is not None:
+            assignments.append("error_code = ?")
+            values.append(error_code)
+        if error_message is not None:
+            assignments.append("error_message = ?")
+            values.append(error_message)
+
+        sql = (
+            f"UPDATE analysis_jobs SET {', '.join(assignments)} "
+            f"WHERE job_id = ? AND status NOT IN ({_TERMINAL_SQL})"
+        )
+        values.append(job_id)
+        values.extend(TERMINAL_STATUSES)
+
         with self._write_lock:
             conn = self._connect()
             try:
-                conn.execute(
-                    f"UPDATE analysis_jobs SET {set_clause} WHERE job_id = ?",
-                    values,
-                )
+                cur = conn.execute(sql, values)
                 conn.commit()
+                return bool(cur.rowcount)
             finally:
                 conn.close()
 
-    def find_cached_result(self, cache_key: str) -> dict | None:
-        """Find existing successful analysis by cache key.
+    def is_job_active(self, job_id: str) -> bool:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""SELECT 1 FROM analysis_jobs
+                    WHERE job_id = ? AND status IN ({_ACTIVE_SQL})""",
+                (job_id, *ACTIVE_STATUSES),
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
 
-        Never returns failed/incomplete analyses.
+    # -- results ----------------------------------------------------------
+
+    def find_cached_result(self, cache_key: str) -> dict | None:
+        """Successful analysis for this identity, if any.
+
+        `analysis_results` only ever holds published successes, so a failed,
+        interrupted or timed-out job can never surface as a cache hit.
         """
         conn = self._connect()
         try:
-            cur = conn.execute(
-                "SELECT * FROM analysis_results WHERE cache_key = ?",
-                (cache_key,),
-            )
-            row = cur.fetchone()
+            row = conn.execute(
+                "SELECT * FROM analysis_results WHERE cache_key = ?", (cache_key,)
+            ).fetchone()
             return dict(row) if row else None
         finally:
             conn.close()
@@ -345,14 +433,26 @@ class AnalysisDB:
         project_id: str,
         cache_key: str,
         result_json: str,
-    ):
-        """Store analysis result. If cache_key already exists, keep the
-        existing row (first-writer-wins) to avoid identity corruption.
+        owning_job_id: str,
+    ) -> bool:
+        """Publish a result only while its owning job is still active.
+
+        One transaction re-reads the job and inserts only when it is
+        `queued`/`running`, so a worker that finishes after its job timed out
+        cannot publish. First writer wins on `cache_key`.
         """
         now = datetime.now(timezone.utc).isoformat()
         with self._write_lock:
             conn = self._connect()
             try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT status FROM analysis_jobs WHERE job_id = ?",
+                    (owning_job_id,),
+                ).fetchone()
+                if row is None or row["status"] not in ACTIVE_STATUSES:
+                    conn.rollback()
+                    return False
                 conn.execute(
                     """INSERT INTO analysis_results
                        (analysis_id, project_id, cache_key, result_json, created_at)
@@ -361,52 +461,106 @@ class AnalysisDB:
                     (analysis_id, project_id, cache_key, result_json, now),
                 )
                 conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
             finally:
                 conn.close()
 
     def get_result(self, analysis_id: str) -> dict | None:
         conn = self._connect()
         try:
-            cur = conn.execute(
-                "SELECT * FROM analysis_results WHERE analysis_id = ?",
-                (analysis_id,),
-            )
-            row = cur.fetchone()
+            row = conn.execute(
+                "SELECT * FROM analysis_results WHERE analysis_id = ?", (analysis_id,)
+            ).fetchone()
             return dict(row) if row else None
         finally:
             conn.close()
 
-    def get_results_for_project(
-        self, project_id: str, limit: int = 50
-    ) -> list[dict]:
+    def get_results_for_project(self, project_id: str, limit: int = 50) -> list[dict]:
         conn = self._connect()
         try:
-            cur = conn.execute(
+            rows = conn.execute(
                 """SELECT analysis_id, project_id, cache_key, created_at
                    FROM analysis_results WHERE project_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
+                   ORDER BY created_at DESC, analysis_id DESC LIMIT ?""",
                 (project_id, limit),
-            )
-            return [dict(row) for row in cur.fetchall()]
+            ).fetchall()
+            return [dict(r) for r in rows]
         finally:
             conn.close()
+
+    # -- persisted source evidence ---------------------------------------
+
+    def get_source_evidence(
+        self, source_evidence_key: str, project_id: str
+    ) -> dict | None:
+        """Read persisted source evidence, scoped to the owning project.
+
+        The `project_id` predicate is a second barrier on top of the
+        project-scoped key: evidence can never be read across projects even if a
+        key were ever to collide.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """SELECT * FROM source_evidence
+                   WHERE source_evidence_key = ? AND project_id = ?""",
+                (source_evidence_key, project_id),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def store_source_evidence(
+        self, source_evidence_key: str, project_id: str, evidence_json: str
+    ) -> bool:
+        """Persist source evidence; first writer wins.
+
+        Race-safe under concurrent requests: a second writer with the same
+        identity is a no-op rather than an identity-corrupting replace.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    """INSERT INTO source_evidence
+                       (source_evidence_key, project_id, evidence_json, created_at)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(source_evidence_key) DO NOTHING""",
+                    (source_evidence_key, project_id, evidence_json, now),
+                )
+                conn.commit()
+                return bool(cur.rowcount)
+            finally:
+                conn.close()
+
+    def count_source_evidence(self) -> int:
+        conn = self._connect()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM source_evidence").fetchone()[0]
+        finally:
+            conn.close()
+
+    # -- counters ---------------------------------------------------------
 
     def count_active_jobs(self) -> int:
         conn = self._connect()
         try:
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM analysis_jobs WHERE status IN ('queued', 'running')"
-            )
-            return cur.fetchone()[0]
+            return conn.execute(
+                f"SELECT COUNT(*) FROM analysis_jobs WHERE status IN ({_ACTIVE_SQL})",
+                ACTIVE_STATUSES,
+            ).fetchone()[0]
         finally:
             conn.close()
 
     def count_queued_jobs(self) -> int:
         conn = self._connect()
         try:
-            cur = conn.execute(
+            return conn.execute(
                 "SELECT COUNT(*) FROM analysis_jobs WHERE status = 'queued'"
-            )
-            return cur.fetchone()[0]
+            ).fetchone()[0]
         finally:
             conn.close()
