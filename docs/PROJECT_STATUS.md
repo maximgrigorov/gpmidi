@@ -59,7 +59,7 @@ Live checks before shutdown:
 - deterministic SQL tie-break ordering;
 - limiter locking, stale README command, and root Ruff cleanup.
 
-Therefore the **first prerequisite in the next Cursor task** is to build/import/deploy an immutable `asset-api` image from the accepted `main` source, update the exact image tag in manifests, and rerun Phase 1 focused live smoke checks. Do not start Phase 2 implementation until this rollout succeeds. The previous `asset-api:2adc75b` deployment remains the rollback target.
+Therefore the **first prerequisite in the next Cursor task** is to establish AILab-native Tekton CI/CD with a durable OCI registry and a Gitea-triggered, fail-closed pipeline. Tests, Linux/amd64 image builds, publication and deployment must run on AILab from the exact accepted `main` commit; the ARM64 Cursor workstation must not build, cache or transfer images. The pipeline must then build/deploy the hardened `asset-api`, pin the exact tag/digest, and rerun Phase 1 focused live smoke checks. Do not start Phase 2 implementation until this rollout succeeds. The previous `asset-api:2adc75b` deployment remains the rollback target.
 
 ## Next
 

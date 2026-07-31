@@ -1,6 +1,6 @@
 # Cursor task: Phase 2 — Reference-time vertical slice
 
-> Start this in a **clean Cursor session**. Execute the task completely: prerequisite Phase 1 hotfix rollout, TDD implementation, immutable image(s), AILab deployment, real E2E tests, and a factual report. Do not stop at a plan, stub, local-only tests, or YAML.
+> Start this in a **clean Cursor session**. Cursor edits and pushes source and infrastructure, but **must not build or store container images on the Cursor workstation**. Bootstrap and use AILab-native Tekton CI/CD so tests, immutable image builds, publication and deployment execute on the x86_64 AILab/k3s infrastructure. Then complete the prerequisite Phase 1 hotfix rollout, TDD implementation, AILab deployment, real E2E tests, and a factual report. Do not stop at a plan, stub, local-only tests, or YAML.
 
 ## 1. Goal
 
@@ -57,9 +57,9 @@ Then:
 
 Do not commit credentials, cookies, kubeconfig, TLS keys, SQLite DBs, blobs, generated user reports, large audio/MIDI/GP fixtures, container archives, model files, or `/data` content.
 
-## 3. Prerequisite: finish the accepted Phase 1 rollout
+## 3. Prerequisite: establish AILab-native CI/CD and finish the accepted Phase 1 rollout
 
-The source includes Hermes hardening commit `c9dbceb`, while the last verified live image was `asset-api:2adc75b`.
+The source includes Hermes hardening commit `c9dbceb`, while the last verified live image was `asset-api:2adc75b`. The prior manual `docker save` + `k3s ctr images import` path was a bootstrap expedient, not the desired delivery architecture. Do not repeat it, and do not use the ARM64 Cursor machine as a builder or image cache.
 
 Before Phase 2 code:
 
@@ -68,22 +68,33 @@ Before Phase 2 code:
    - active profile and model on `:8080` if enabled;
    - homepage, Gitea, smoke ingress, k3s node/pods/PVC;
    - current `asset-api` Deployment image and rollout state;
-2. build `services/asset_api` from the accepted source at the exact current source commit;
-3. tag it immutably with a git SHA, never `latest`;
-4. import/push using the existing documented Phase 1 delivery path;
-5. update the manifest to that exact tag;
-6. run `kubectl diff`, apply, rollout status, pod image-ID check, logs and probes;
-7. verify live:
+2. design, install and declaratively version a minimal **Tekton Pipelines + Tekton Triggers** delivery stack on AILab, with pinned versions and rollback instructions;
+3. use a durable OCI registry reachable by both Tekton build tasks and k3s/containerd. Prefer the existing Gitea OCI registry if it is enabled and proven; otherwise deploy a small authenticated/TLS registry with persistent storage on `/data`. Do not rely on a workstation image cache;
+4. connect a secret-authenticated Gitea webhook for accepted `main` pushes. Validate repository/ref/commit identity and prevent image-tag-only delivery commits from causing an infinite trigger loop;
+5. define a versioned Pipeline which, from a clean workspace on AILab:
+   - clones the exact webhook commit and verifies its SHA;
+   - runs the repository test/lint/render/validation gates;
+   - builds Linux `amd64` images on AILab without mounting the host Docker socket;
+   - tags with the full git SHA, pushes to the durable registry, records the immutable digest and emits provenance/results;
+   - updates the deployment to the exact tag/digest only after all gates pass;
+   - waits for rollout and runs focused live smoke checks;
+6. use least-privilege ServiceAccounts/RBAC, separate build/deploy credentials, Kubernetes Secrets (never git), bounded workspaces/resources/timeouts and pruning/retention suitable for the finite `/data` disk;
+7. make failed test/build/scan/smoke stages fail closed: no deployment and no mutation of the last known-good image. Preserve logs/results sufficient to diagnose a failed run;
+8. trigger the pipeline from a real Gitea `main` event for the accepted source commit. Do **not** substitute an interactive Cursor-side `docker build`, `docker save`, `ctr import`, or manual deployment for this acceptance path;
+9. prove from PipelineRun/TaskRun evidence that checkout, gates and image build ran on AILab `linux/amd64`, that the pushed digest corresponds to the accepted source commit, and that no image/archive was written to the Cursor workstation;
+10. verify the resulting Asset API deployment with rollout status, pod image-ID/digest, logs and probes, then verify live:
    - health and readiness;
    - Project list and one persisted Project;
    - upload/download of a tiny generated WAV and SHA-256 equality;
    - interrupted-upload ticket recovery with a controlled test or an integration test plus startup log evidence;
    - generic 500 response is sanitized and has matching body/header request ID;
    - existing Flask Projects page still works;
-8. preserve `asset-api:2adc75b` as documented rollback target;
-9. commit the image-tag update before beginning Phase 2 implementation.
+11. preserve `asset-api:2adc75b` as documented rollback target and prove the registry/deployment rollback procedure without deleting Project data;
+12. commit the Tekton/registry/webhook/deployment declarations and factual CI/CD evidence before beginning Phase 2 implementation.
 
-If this rollout fails, fix or report the blocker and **do not proceed to Phase 2**.
+The same AILab-native pipeline is the required delivery path for the new Phase 2 service and later images. Cursor may run lightweight local checks for fast feedback, but AILab Tekton is the authoritative CI/CD gate and the only accepted image builder/deployer.
+
+If CI/CD bootstrap or the Phase 1 rollout fails, fix or report the blocker and **do not proceed to Phase 2**.
 
 ## 4. Core architecture
 
@@ -450,7 +461,7 @@ Use a dedicated synthetic Project and prove:
 
 ## 16. Quality gates
 
-Run and record actual output:
+Run and record actual output. Lightweight local runs are useful feedback, but the authoritative copy of these gates must run in the AILab Tekton Pipeline from a clean checkout of the exact commit being built:
 
 ```bash
 python -m pytest -q
@@ -475,6 +486,8 @@ Also run:
 - pod `securityContext`, resources, mounted volumes, image ID and effective NetworkPolicy checks;
 - temp-file cleanup checks;
 - regression proving GPU profile/model unchanged.
+
+Delivery acceptance additionally requires the Gitea webhook event, PipelineRun/TaskRun names and statuses, exact source SHA, AILab node architecture, image tag and registry digest, deployment image ID, rollout/smoke results, and failure-path evidence showing that a deliberately failing gate cannot deploy.
 
 Do not call tests “pre-existing failures” without checking current accepted `main`. The accepted baseline passed **183 tests with 1 expected xfail** in Hermes' environment. Explain environment-dependent skips only with exact collection/failure evidence.
 
@@ -509,7 +522,8 @@ Final report must contain:
 Stop and report rather than guessing if:
 
 - AILab is unavailable after wake/readiness wait;
-- Phase 1 hotfix image cannot be built/deployed/rolled back safely;
+- AILab-native Tekton CI/CD or its durable registry cannot be established safely;
+- Phase 1 hotfix image cannot be built/deployed/rolled back through that CI/CD path;
 - required asset ownership cannot be enforced without exposing paths;
 - source formats are unsupported by pinned permissive dependencies;
 - real E2E evidence contradicts the design;
@@ -520,6 +534,8 @@ When complete, respond with:
 
 - feature branch;
 - ordered commits;
+- Tekton/registry/webhook architecture and pinned versions;
+- PipelineRun/TaskRun evidence for the accepted source SHA;
 - deployed immutable images;
 - exact test/gate results;
 - live URLs and concise E2E evidence;
