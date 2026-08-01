@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -90,7 +92,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    summary = transcribe(args.input, args.output)
+    # Basic Pitch and its dependencies emit progress messages to stdout.
+    # Keep stdout machine-readable for the pipeline's runtime-summary.json.
+    with contextlib.redirect_stdout(sys.stderr):
+        summary = transcribe(args.input, args.output)
     print(json.dumps(summary, sort_keys=True, allow_nan=False))
     return 0
 

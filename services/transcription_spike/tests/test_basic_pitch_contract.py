@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import sys
 import wave
 from pathlib import Path
@@ -121,6 +122,27 @@ def test_cli_help_does_not_require_basic_pitch_installed() -> None:
     assert completed.returncode == 0
     assert "--input" in completed.stdout
     assert "--output" in completed.stdout
+
+
+def test_cli_keeps_dependency_progress_out_of_json_stdout(monkeypatch, capsys, tmp_path: Path) -> None:
+    runtime = load_runtime()
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.mid"
+    input_path.touch()
+
+    def noisy_transcribe(input_arg: Path, output_arg: Path) -> dict[str, object]:
+        print("Predicting MIDI for input.wav...")
+        assert (input_arg, output_arg) == (input_path, output_path)
+        return {"adapter": "basic-pitch", "note_events": 78}
+
+    monkeypatch.setattr(runtime, "transcribe", noisy_transcribe)
+    monkeypatch.setattr(sys, "argv", [str(RUNTIME), "--input", str(input_path), "--output", str(output_path)])
+
+    assert runtime.main() == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"adapter": "basic-pitch", "note_events": 78}
+    assert captured.out.count("\n") == 1
+    assert "Predicting MIDI" in captured.err
 
 
 def test_real_input_pipeline_uses_hash_pinned_source_fixtures() -> None:
