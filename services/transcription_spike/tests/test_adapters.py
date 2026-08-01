@@ -125,6 +125,20 @@ def test_workspace_placeholder_supports_container_style_commands(tmp_path: Path)
     assert result.artifact_path.read_bytes() == b"MThd-workspace"
 
 
+def test_host_without_nofollow_fails_with_explicit_capability_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = write_script(tmp_path / "noop.py", "pass\n")
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"audio")
+    monkeypatch.delattr(os, "O_NOFOLLOW")
+
+    with pytest.raises(AdapterError) as caught:
+        run_external_adapter(spec(script), audio_path=audio, artifact_dir=tmp_path / "artifacts")
+
+    assert caught.value.code == "host_unsupported"
+
+
 def test_process_created_output_symlink_is_rejected_without_reading_target(tmp_path: Path) -> None:
     outside = tmp_path / "outside.mid"
     outside.write_bytes(b"host-only-content")

@@ -141,7 +141,7 @@ def _stop_process(process: subprocess.Popen[bytes], cleanup_argv: list[str] | No
 
 def _open_regular_file_nofollow(path: Path) -> int | None:
     if not hasattr(os, "O_NOFOLLOW"):
-        raise AdapterError("output_missing", "host cannot safely open adapter output")
+        raise AdapterError("host_unsupported", "host cannot safely open adapter output")
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW
     try:
         descriptor = os.open(path, flags)
@@ -270,8 +270,8 @@ def run_external_adapter(
                     break
                 try:
                     output_size = _regular_file_size_nofollow(staged_output)
-                except AdapterError:
-                    failure_code = "output_missing"
+                except AdapterError as error:
+                    failure_code = error.code
                     break
                 if output_size is not None and output_size > spec.max_output_bytes:
                     failure_code = "output_too_large"

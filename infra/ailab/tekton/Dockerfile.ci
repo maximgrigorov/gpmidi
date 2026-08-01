@@ -80,6 +80,8 @@ RUN set -eux; \
 # --- service environment (mirrors asset-api and reference-time) -----------
 COPY services/reference_time/requirements.txt /tmp/rt-requirements.txt
 COPY services/asset_api/requirements.txt /tmp/asset-requirements.txt
+COPY services/transcription_spike/requirements-test.txt /tmp/transcription/requirements-test.txt
+COPY services/transcription_spike/requirements.txt /tmp/transcription/requirements.txt
 RUN set -eux; \
     python -m venv "$VENV_SVC"; \
     "$VENV_SVC/bin/pip" install --upgrade pip; \
@@ -89,6 +91,8 @@ RUN set -eux; \
         pytest==8.3.5 pytest-asyncio==0.25.3 httpx==0.28.1 PyGuitarPro==0.11; \
     "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
         -r /tmp/asset-requirements.txt; \
+    "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
+        -r /tmp/transcription/requirements-test.txt; \
     "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
         python-multipart==0.0.20 aiosqlite==0.21.0 pytest-httpx==0.35.0 \
         'requests>=2.31'; \
@@ -102,5 +106,5 @@ ENV PATH="/opt/venv-root/bin:${PATH}"
 WORKDIR /workspace/source
 
 RUN "$VENV_ROOT/bin/python" -c "import mido, guitarpro, flask; print('root env ok')" \
-    && "$VENV_SVC/bin/python" -c "import fastapi, mido, guitarpro, soundfile, numpy; print('svc env ok')" \
+    && "$VENV_SVC/bin/python" -c "import fastapi, mido, pydantic, pytest; print('svc env ok')" \
     && "$VENV_ROOT/bin/python" -c "import pkg_resources; print('pkg_resources ok')"
