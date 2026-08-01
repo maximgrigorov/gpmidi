@@ -105,6 +105,31 @@ def test_failures_are_bounded_and_sanitized(
     assert not list((tmp_path / "out").glob("*.mid"))
 
 
+def test_workspace_placeholder_supports_container_style_commands(tmp_path: Path) -> None:
+    script = write_script(
+        tmp_path / "workspace.py",
+        "from pathlib import Path\n"
+        "import sys\n"
+        "root=Path(sys.argv[1])\n"
+        "assert (root/'input.wav').read_bytes() == b'audio'\n"
+        "(root/'output.mid').write_bytes(b'MThd-workspace')\n",
+    )
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"audio")
+    adapter = spec(script, command=(sys.executable, str(script), "{workspace}"))
+
+    result = run_external_adapter(adapter, audio_path=audio, artifact_dir=tmp_path / "artifacts")
+
+    assert result.artifact_path.read_bytes() == b"MThd-workspace"
+
+
+def test_spec_rejects_unknown_command_placeholder(tmp_path: Path) -> None:
+    script = write_script(tmp_path / "noop.py", "pass\n")
+
+    with pytest.raises(ValueError, match="unsupported placeholder"):
+        spec(script, command=(sys.executable, str(script), "{workspace}", "{network}"))
+
+
 def test_spec_rejects_unsafe_or_incomplete_contracts(tmp_path: Path) -> None:
     script = write_script(tmp_path / "noop.py", "pass\n")
     bad_values = [

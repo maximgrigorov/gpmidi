@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
+_SUPPORTED_PLACEHOLDERS = {"input", "output", "workspace"}
 
 
 class AdapterError(RuntimeError):
@@ -54,8 +56,12 @@ class AdapterSpec(BaseModel):
         if not self.command or any(not token for token in self.command):
             raise ValueError("command must contain non-empty argv tokens")
         joined = "\0".join(self.command)
-        if "{input}" not in joined or "{output}" not in joined:
-            raise ValueError("command must contain {input} and {output} placeholders")
+        placeholders = set(_PLACEHOLDER.findall(joined))
+        unsupported = placeholders - _SUPPORTED_PLACEHOLDERS
+        if unsupported:
+            raise ValueError(f"unsupported placeholder: {sorted(unsupported)[0]}")
+        if "workspace" not in placeholders and not {"input", "output"}.issubset(placeholders):
+            raise ValueError("command must contain {workspace} or both {input} and {output}")
         if not re.fullmatch(r"\.[A-Za-z0-9]+", self.output_suffix):
             raise ValueError("output_suffix must be a simple extension")
         if self.max_output_bytes <= 0:
@@ -121,7 +127,9 @@ def run_external_adapter(
         stderr_path = workspace / "stderr.log"
         shutil.copyfile(audio_path, staged_input)
         argv = [
-            token.replace("{input}", str(staged_input)).replace("{output}", str(staged_output))
+            token.replace("{input}", str(staged_input))
+            .replace("{output}", str(staged_output))
+            .replace("{workspace}", str(workspace))
             for token in spec.command
         ]
 
