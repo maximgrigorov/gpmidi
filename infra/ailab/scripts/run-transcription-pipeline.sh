@@ -10,6 +10,8 @@ REPO_URL=${REPO_URL:-http://192.168.30.2:3300/mgrigorov/gpmidi.git}
 REGISTRY=${REGISTRY:-192.168.30.2:3300}
 OWNER=${OWNER:-mgrigorov}
 KUBECTL_BIN=${KUBECTL_BIN:-kubectl}
+SOURCE_PVC=${SOURCE_PVC:-}
+EVIDENCE_PVC=${EVIDENCE_PVC:-}
 INPUT_SHA256=d3e5cec64a13fc8c35050f84b9e67f30124d8bb4010295ff7524fd9ccc0cbb1f
 REFERENCE_SHA256=82250c89783273ce847500a7f9a582e6df74e9e2ea8be3af296f480d2f1b8ed9
 
@@ -26,6 +28,35 @@ reference_url=${4:-}
 [[ $ci_image =~ ^[A-Za-z0-9._:/@-]+$ ]] || usage
 [[ $input_url =~ ^http://[A-Za-z0-9._:/-]+$ ]] || usage
 [[ $reference_url =~ ^http://[A-Za-z0-9._:/-]+$ ]] || usage
+if [[ -n $SOURCE_PVC || -n $EVIDENCE_PVC ]]; then
+  [[ $SOURCE_PVC =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || usage
+  [[ $EVIDENCE_PVC =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || usage
+  workspace_bindings=$(cat <<EOF
+  - name: source
+    persistentVolumeClaim:
+      claimName: ${SOURCE_PVC}
+  - name: evidence
+    persistentVolumeClaim:
+      claimName: ${EVIDENCE_PVC}
+EOF
+)
+else
+  workspace_bindings=$(cat <<'EOF'
+  - name: source
+    volumeClaimTemplate:
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: {storage: 4Gi}
+  - name: evidence
+    volumeClaimTemplate:
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: {storage: 4Gi}
+EOF
+)
+fi
 
 manifest=$(mktemp)
 trap 'rm -f "$manifest"' EXIT
@@ -96,6 +127,7 @@ spec:
           script: |
             #!/bin/bash
             set -euo pipefail
+            find /workspace/evidence -mindepth 1 -maxdepth 1 -exec rm -rf {} +
             /opt/venv-svc/bin/python -m pytest -q 2>&1 \
               | tee /workspace/evidence/pytest-transcription-spike.txt
             exit "\${PIPESTATUS[0]}"
@@ -303,18 +335,7 @@ spec:
       - ip: 192.168.30.2
         hostnames: [server]
   workspaces:
-  - name: source
-    volumeClaimTemplate:
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources:
-          requests: {storage: 4Gi}
-  - name: evidence
-    volumeClaimTemplate:
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources:
-          requests: {storage: 4Gi}
+${workspace_bindings}
   - name: evidence-archive
     persistentVolumeClaim:
       claimName: tekton-evidence
