@@ -92,6 +92,9 @@ def test_container_contract_is_pinned_and_non_root() -> None:
     lock = (runtime_dir / "requirements.lock").read_text(encoding="utf-8")
 
     assert "python:3.10.19-slim-bookworm@sha256:23f63358" in dockerfile
+    assert "libgnutls30=3.7.9-2+deb12u7" in dockerfile
+    assert "libssl3=3.0.19-1~deb12u2" in dockerfile
+    assert "openssl=3.0.19-1~deb12u2" in dockerfile
     assert "pip install --require-hashes" in dockerfile
     assert "MODEL_SHA256" in dockerfile
     assert "USER 65532:65532" in dockerfile
