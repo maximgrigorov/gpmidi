@@ -9,8 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgnutls30=3.7.9-2+deb12u7 \
-        libssl3=3.0.19-1~deb12u2 \
-        openssl=3.0.19-1~deb12u2 \
+        libssl3=3.0.20-1~deb12u2 \
+        openssl=3.0.20-1~deb12u2 \
         libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
