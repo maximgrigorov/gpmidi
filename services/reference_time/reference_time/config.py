@@ -30,7 +30,7 @@ DB_PATH = os.path.join(DATA_ROOT, "db", "reference_time.sqlite3")
 TMP_ROOT = os.environ.get("RT_TMP_ROOT", os.path.join(DATA_ROOT, "tmp"))
 
 # --- bounded download limits, per asset role family -----------------------
-MAX_GP_BYTES = int(os.environ.get("MAX_GP_BYTES", str(32 * 1024 * 1024)))
+MAX_GP_BYTES = int(os.environ.get("MAX_GP_BYTES", str(100 * 1024 * 1024)))
 MAX_MIDI_BYTES = int(os.environ.get("MAX_MIDI_BYTES", str(8 * 1024 * 1024)))
 MAX_AUDIO_BYTES = int(os.environ.get("MAX_AUDIO_BYTES", str(512 * 1024 * 1024)))
 MAX_STRUCTURE_BYTES = int(os.environ.get("MAX_STRUCTURE_BYTES", str(1024 * 1024)))

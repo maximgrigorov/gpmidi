@@ -236,7 +236,7 @@ so an oversized or slow asset is abandoned rather than buffered:
 
 | Role | Byte ceiling | Transfer deadline |
 |---|---|---|
-| `guitar-pro` | 32 MiB | 60 s |
+| `guitar-pro` | 100 MiB | 60 s |
 | `suno-midi.*` | 8 MiB | 30 s |
 | `mix`, `stem.*` | 512 MiB | 120 s |
 | `structure` | 1 MiB | 15 s |
