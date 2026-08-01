@@ -94,7 +94,7 @@ from .validation import AssetRef, AssetValidationError, resolve_analysis_inputs
 
 logger = logging.getLogger(__name__)
 
-SOURCE_EVIDENCE_BUNDLE_VERSION = "1"
+SOURCE_EVIDENCE_BUNDLE_VERSION = "2"
 
 db: AnalysisDB | None = None
 executor: ThreadPoolExecutor | None = None

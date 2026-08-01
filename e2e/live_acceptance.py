@@ -792,7 +792,7 @@ def scenario_02_consensus(check: Check, shared: dict) -> None:
         json.dumps(pair["measure_boundary_comparison"]),
     )
     check.require(
-        pair["preroll_comparison"]["aligned"], "pre-roll/downbeat offsets agree"
+        pair["timeline_origin_comparison"]["aligned"], "timeline origins agree"
     )
 
     # Determinism: the same two sources in the opposite request order must reuse

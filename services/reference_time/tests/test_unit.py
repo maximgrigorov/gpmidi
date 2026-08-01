@@ -483,7 +483,8 @@ class TestConsensusDeep:
     """Tests for trajectory/boundary/duration/ts/preroll consensus comparison."""
 
     def _make_evidence(self, bpm=120.0, duration=16.0, sha="sha1",
-                       link="link1", events=None, first_event_seconds=0.0):
+                       link="link1", events=None, first_event_seconds=0.0,
+                       timeline_origin_seconds=0.0):
         if events is None:
             events = [TempoEvent(tick=0, seconds=0.0, bpm=bpm)]
         return SourceTempoEvidence(
@@ -494,6 +495,7 @@ class TestConsensusDeep:
             midi_ppq=480,
             time_signatures=[TimeSignatureEvent(tick=0, seconds=0.0, numerator=4, denominator=4)],
             tempo_events=events,
+            timeline_origin_seconds=timeline_origin_seconds,
             first_event_tick=0,
             first_event_seconds=first_event_seconds,
             duration_ticks=(480 * 4 * 8),
@@ -521,13 +523,21 @@ class TestConsensusDeep:
         tempo_conflicts = [r for r in c.conflict_regions if "tempo" in r["type"]]
         assert len(tempo_conflicts) > 0
 
-    def test_preroll_mismatch(self):
+    def test_different_part_entries_are_diagnostic(self):
         ev1 = self._make_evidence(sha="s1", link="l1", first_event_seconds=0.0)
         ev2 = self._make_evidence(sha="s2", link="l2", first_event_seconds=2.0)
         c = build_consensus([ev1, ev2])
+        assert c.decision.value == "agreed"
+        pair = next(iter(c.agreement_metrics.values()))
+        assert pair["part_entry_comparison"]["aligned"] is False
+        assert pair["timeline_origin_comparison"]["aligned"] is True
+
+    def test_explicit_timeline_origin_mismatch_is_a_conflict(self):
+        ev1 = self._make_evidence(sha="s1", link="l1", timeline_origin_seconds=0.0)
+        ev2 = self._make_evidence(sha="s2", link="l2", timeline_origin_seconds=2.0)
+        c = build_consensus([ev1, ev2])
         assert c.decision.value == "conflict"
-        preroll = [r for r in c.conflict_regions if r["type"] == "preroll_downbeat_mismatch"]
-        assert len(preroll) == 1
+        assert [r["type"] for r in c.conflict_regions] == ["timeline_origin_mismatch"]
 
     def test_duration_mismatch_conflict(self):
         ev1 = self._make_evidence(sha="s1", link="l1", duration=16.0)
@@ -744,7 +754,7 @@ class TestModels:
             gp_revision_sha256="abc123",
             global_confidence=0.8,
         )
-        assert a.schema_version == "2.0.0"
+        assert a.schema_version == "2.1.0"
         assert a.created_at is not None
 
 

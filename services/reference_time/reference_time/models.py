@@ -59,6 +59,7 @@ class WarningCode(str, Enum):
     MEASURE_DURATION_MISMATCH = "measure_duration_mismatch"
     GP_REPEAT_DETECTED = "gp_repeat_detected"
     GP_EMPTY_MEASURE = "gp_empty_measure"
+    GP_AUDIO_SYNC_POINTS = "gp_audio_sync_points"
     AUDIO_TRUNCATED = "audio_truncated"
     ASSET_TOO_LARGE = "asset_too_large"
     DOWNLOAD_TIMEOUT = "download_timeout"
@@ -127,6 +128,8 @@ class SourceTempoEvidence(BaseModel):
     midi_ppq: int
     time_signatures: list[TimeSignatureEvent]
     tempo_events: list[TempoEvent]
+    timeline_origin_tick: int = 0
+    timeline_origin_seconds: float = 0.0
     first_event_tick: int | None = None
     first_event_seconds: float | None = None
     duration_ticks: int
@@ -135,7 +138,24 @@ class SourceTempoEvidence(BaseModel):
     warnings: list[Warning] = []
     validation_errors: list[str] = []
 
-    @field_validator("duration_seconds", "first_event_seconds")
+    @field_validator("duration_seconds", "timeline_origin_seconds", "first_event_seconds")
+    @classmethod
+    def _finite(cls, v: float | None) -> float | None:
+        return _check_finite(v)
+
+
+class AudioMeasureDiagnostic(BaseModel):
+    """Measurable audio evidence for one asset within one source measure."""
+    model_config = ConfigDict(frozen=True)
+
+    asset_link_id: str
+    role: str = ""
+    onset_count: int = 0
+    downbeat_candidate_count: int = 0
+    nearest_downbeat_distance_seconds: float | None = None
+    corroboration: float | None = None
+
+    @field_validator("nearest_downbeat_distance_seconds", "corroboration")
     @classmethod
     def _finite(cls, v: float | None) -> float | None:
         return _check_finite(v)
@@ -155,6 +175,7 @@ class SourceMeasure(BaseModel):
     tempo_bpm: float
     note_density: float = 0.0
     audio_downbeat_evidence: float | None = None
+    audio_diagnostics: list[AudioMeasureDiagnostic] = []
     confidence: float
     warnings: list[Warning] = []
 
@@ -325,7 +346,7 @@ class AnalysisProvenance(BaseModel):
 class ReferenceTimeAnalysis(BaseModel):
     """Top-level analysis result document."""
 
-    schema_version: str = "2.0.0"
+    schema_version: str = "2.1.0"
     analysis_id: str
     project_id: str
     gp_revision_sha256: str

@@ -199,17 +199,37 @@ def _compare_measure_boundaries(
     }
 
 
-def _compare_preroll_downbeat(
+def _compare_part_entries(
     a: SourceTempoEvidence,
     b: SourceTempoEvidence,
 ) -> dict:
-    """Compare first-event timing (pre-roll/downbeat alignment)."""
+    """Compare first sounding notes as part-entry diagnostics only.
+
+    Separate stems naturally enter at different song positions.  This signal
+    must never be promoted to a disagreement about the shared tempo grid.
+    """
     a_first = a.first_event_seconds or 0.0
     b_first = b.first_event_seconds or 0.0
     diff = abs(a_first - b_first)
     return {
         "a_first_seconds": a_first,
         "b_first_seconds": b_first,
+        "diff_seconds": round(diff, 3),
+        "aligned": diff < BOUNDARY_TOLERANCE_SECONDS,
+    }
+
+
+def _compare_timeline_origins(
+    a: SourceTempoEvidence,
+    b: SourceTempoEvidence,
+) -> dict:
+    """Compare explicit timeline origins independently of first notes."""
+    a_origin = a.timeline_origin_seconds
+    b_origin = b.timeline_origin_seconds
+    diff = abs(a_origin - b_origin)
+    return {
+        "a_origin_seconds": a_origin,
+        "b_origin_seconds": b_origin,
         "diff_seconds": round(diff, 3),
         "aligned": diff < BOUNDARY_TOLERANCE_SECONDS,
     }
@@ -271,14 +291,19 @@ def build_consensus(
             reference.duration_seconds, other.duration_seconds,
         )
         ts_cmp = _compare_time_signatures(reference, other)
-        preroll_cmp = _compare_preroll_downbeat(reference, other)
+        part_entry_cmp = _compare_part_entries(reference, other)
+        timeline_origin_cmp = _compare_timeline_origins(reference, other)
         measure_cmp = _compare_measure_boundaries(reference, other)
         duration_diff = abs(reference.duration_seconds - other.duration_seconds)
 
         agreement_metrics[pair_key] = {
             "tempo_comparison": tempo_cmp,
             "time_signature_comparison": ts_cmp,
-            "preroll_comparison": preroll_cmp,
+            # Keep the legacy key as a compatibility alias, but its semantics
+            # are now the actual timeline origin rather than first note onset.
+            "preroll_comparison": timeline_origin_cmp,
+            "timeline_origin_comparison": timeline_origin_cmp,
+            "part_entry_comparison": part_entry_cmp,
             "measure_boundary_comparison": measure_cmp,
             "duration_diff_seconds": round(duration_diff, 3),
         }
@@ -329,13 +354,14 @@ def build_consensus(
                 "diff_seconds": round(duration_diff, 3),
             })
 
-        # Pre-roll / downbeat mismatch
-        if not preroll_cmp["aligned"]:
+        # Only explicit timeline origins can conflict. Different first-note
+        # times are expected across independent stems and stay diagnostic.
+        if not timeline_origin_cmp["aligned"]:
             has_conflict = True
             conflict_regions.append({
-                "type": "preroll_downbeat_mismatch",
+                "type": "timeline_origin_mismatch",
                 "sources": [reference.sha256, other.sha256],
-                "detail": preroll_cmp,
+                "detail": timeline_origin_cmp,
             })
 
     primary = sorted_sources[0]

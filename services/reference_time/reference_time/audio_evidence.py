@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import numpy as np
 
-from .models import AudioEvidence, Warning, WarningCode
+from .models import AudioEvidence, AudioMeasureDiagnostic, Warning, WarningCode
 
 logger = logging.getLogger(__name__)
 
@@ -241,19 +241,38 @@ def apply_audio_evidence_to_measures(
     keeps `None`, which the aligner reads as "no audio evidence" rather than
     "audio contradicts".
     """
-    candidates = sorted(t for ev in audio_evidence for t in ev.downbeat_candidates)
-    if not candidates:
-        return list(source_measures)
-
     enriched = []
     for sm in source_measures:
         best: float | None = None
-        for t in candidates:
-            if t < sm.seconds_start - window_seconds:
-                continue
-            if t > sm.seconds_start + window_seconds:
-                break
-            proximity = 1.0 - abs(t - sm.seconds_start) / window_seconds
-            best = proximity if best is None else max(best, proximity)
-        enriched.append(sm.model_copy(update={"audio_downbeat_evidence": best}))
+        diagnostics: list[AudioMeasureDiagnostic] = []
+        for ev in audio_evidence:
+            onset_count = sum(
+                sm.seconds_start <= time < sm.seconds_end for time in ev.onset_times
+            )
+            candidate_count = sum(
+                sm.seconds_start <= time < sm.seconds_end
+                for time in ev.downbeat_candidates
+            )
+            nearest = (
+                min(abs(time - sm.seconds_start) for time in ev.downbeat_candidates)
+                if ev.downbeat_candidates else None
+            )
+            corroboration = None
+            if nearest is not None and nearest <= window_seconds:
+                corroboration = max(0.0, 1.0 - nearest / window_seconds)
+                best = corroboration if best is None else max(best, corroboration)
+            diagnostics.append(AudioMeasureDiagnostic(
+                asset_link_id=ev.asset_link_id,
+                role=ev.role,
+                onset_count=onset_count,
+                downbeat_candidate_count=candidate_count,
+                nearest_downbeat_distance_seconds=(
+                    round(nearest, 6) if nearest is not None else None
+                ),
+                corroboration=corroboration,
+            ))
+        enriched.append(sm.model_copy(update={
+            "audio_downbeat_evidence": best,
+            "audio_diagnostics": diagnostics,
+        }))
     return enriched

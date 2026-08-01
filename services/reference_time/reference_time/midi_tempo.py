@@ -236,6 +236,8 @@ def extract_tempo_evidence(
         midi_ppq=ppq,
         time_signatures=time_signatures,
         tempo_events=tempo_events,
+        timeline_origin_tick=0,
+        timeline_origin_seconds=0.0,
         first_event_tick=first_tick,
         first_event_seconds=first_seconds,
         duration_ticks=last_tick,

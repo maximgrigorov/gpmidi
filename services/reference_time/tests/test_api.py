@@ -20,6 +20,7 @@ import os
 import struct
 import time
 import uuid
+import zipfile
 
 import mido
 import pytest
@@ -129,6 +130,31 @@ def make_gp_bytes(
 
     buf = io.BytesIO()
     guitarpro.write(song, buf, version=(5, 1, 0))
+    return buf.getvalue()
+
+
+def make_gp8_bytes() -> bytes:
+    """Minimal modern .gp ZIP/GPIF exercising the real service path."""
+    gpif = b"""<GPIF>
+<MasterTrack><Automations>
+<Automation><Type>Tempo</Type><Bar>0</Bar><Position>0</Position><Value>90 2</Value></Automation>
+<Automation><Type>SyncPoint</Type><Bar>0</Bar><Value><BarIndex>0</BarIndex></Value></Automation>
+</Automations></MasterTrack>
+<MasterBars>
+<MasterBar><Time>4/4</Time><Section><Letter>A</Letter><Text>Intro</Text></Section><Bars>0</Bars></MasterBar>
+<MasterBar><Time>3/4</Time><Bars>1</Bars></MasterBar>
+</MasterBars>
+<Bars>
+<Bar id="0"><Voices>0 -1 -1 -1</Voices></Bar>
+<Bar id="1"><Voices>-1 -1 -1 -1</Voices></Bar>
+</Bars>
+<Voices><Voice id="0"><Beats>0</Beats></Voice></Voices>
+<Beats><Beat id="0"><Notes>0</Notes></Beat></Beats>
+<Notes><Note id="0"/></Notes>
+</GPIF>"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("Content/score.gpif", gpif)
     return buf.getvalue()
 
 
@@ -375,6 +401,26 @@ class TestAnalysisLifecycle:
         assert report["mappings"]
         assert report["global_confidence"] > 0
         assert out["job"]["progress_phase"] == "done"
+
+    def test_full_run_accepts_modern_gp8_zip_gpif_without_proxy(self, client):
+        client.fake.blobs[(PROJECT_ID, GP_LINK)] = make_gp8_bytes()
+        gp_asset = next(
+            asset for asset in client.fake.assets[PROJECT_ID] if asset["id"] == GP_LINK
+        )
+        gp_asset["original_filename"] = "song.gp"
+        gp_asset["size_bytes"] = len(client.fake.blobs[(PROJECT_ID, GP_LINK)])
+
+        report = run_to_success(client)["report"]
+
+        assert report["schema_version"] == "2.1.0"
+        assert len(report["gp_measures"]) == 2
+        first, second = report["gp_measures"]
+        assert (first["numerator"], first["denominator"]) == (4, 4)
+        assert first["marker_text"] == "A — Intro"
+        assert first["tempo_bpm"] == 90.0
+        assert any(w["code"] == "gp_audio_sync_points" for w in first["warnings"])
+        assert (second["numerator"], second["denominator"]) == (3, 4)
+        assert second["is_empty"] is True
 
     def test_gp_grid_carries_marker_and_repeat_metadata(self, client):
         report = run_to_success(client)["report"]
