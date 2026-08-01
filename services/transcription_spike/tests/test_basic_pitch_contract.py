@@ -159,3 +159,7 @@ def test_real_input_pipeline_uses_hash_pinned_source_fixtures() -> None:
     assert "curl -fsSLo" not in runner
     assert "name: NUMBA_CACHE_DIR" in runner
     assert "value: /workspace/evidence/phase3-real-input/.numba-cache" in runner
+    assert "find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS" in runner
+
+    tasks = (REPO_ROOT / "infra" / "ailab" / "tekton" / "tasks.yaml").read_text(encoding="utf-8")
+    assert "find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS" in tasks

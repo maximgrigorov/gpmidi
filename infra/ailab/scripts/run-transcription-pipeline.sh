@@ -294,15 +294,41 @@ spec:
 
     finally:
     - name: publish-evidence
-      taskRef:
-        name: publish-evidence
       params:
       - name: ci-image
         value: \$(params.ci-image)
       - name: commit-sha
         value: \$(tasks.clone.results.commit-sha)
-      - name: run-name
-        value: phase3-transcription
+      taskSpec:
+        params:
+        - name: ci-image
+          type: string
+        - name: commit-sha
+          type: string
+        workspaces:
+        - name: evidence
+        - name: evidence-archive
+        steps:
+        - name: archive
+          image: \$(params.ci-image)
+          computeResources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          script: |
+            #!/bin/bash
+            set -euo pipefail
+            DEST="/workspace/evidence-archive/phase3-transcription-\$(params.commit-sha)"
+            mkdir -p "\$DEST"
+            rm -rf /workspace/evidence/.trivy-cache
+            cp -r /workspace/evidence/. "\$DEST/"
+            (cd "\$DEST" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS)
+            echo "evidence archived to \$DEST"
+            ls -la "\$DEST"
+            cd /workspace/evidence-archive
+            ls -1dt */ 2>/dev/null | tail -n +11 | while read -r old; do
+              echo "pruning old evidence bundle: \$old"
+              rm -rf "\$old"
+            done
       workspaces:
       - name: evidence
         workspace: evidence

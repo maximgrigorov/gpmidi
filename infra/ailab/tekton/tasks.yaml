@@ -758,7 +758,7 @@ spec:
       # Never archive the scanner cache; it is large and reproducible.
       rm -rf /workspace/evidence/.trivy-cache
       cp -r /workspace/evidence/. "$DEST/"
-      ( cd "$DEST" && find . -type f -exec sha256sum {} + > SHA256SUMS )
+      ( cd "$DEST" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS )
       echo "evidence archived to $DEST"
       ls -la "$DEST"
       # Bounded retention on a finite /data: keep the 10 most recent bundles.
