@@ -135,3 +135,5 @@ def test_real_input_pipeline_uses_hash_pinned_source_fixtures() -> None:
     assert "cp /workspace/source/services/transcription_spike/fixtures/real-input/bass-195-215.wav" in runner
     assert "cp /workspace/source/services/transcription_spike/fixtures/real-input/reference-bass.mid" in runner
     assert "curl -fsSLo" not in runner
+    assert "name: NUMBA_CACHE_DIR" in runner
+    assert "value: /workspace/evidence/phase3-real-input/.numba-cache" in runner

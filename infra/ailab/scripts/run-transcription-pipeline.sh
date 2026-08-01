@@ -217,6 +217,9 @@ spec:
             chown -R 65532:65532 "\$out"
         - name: infer
           image: \$(params.model-image)
+          env:
+          - name: NUMBA_CACHE_DIR
+            value: /workspace/evidence/phase3-real-input/.numba-cache
           command: ["/bin/sh", "-c"]
           args:
           - |
