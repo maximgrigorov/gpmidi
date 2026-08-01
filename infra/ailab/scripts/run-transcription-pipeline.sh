@@ -2,7 +2,7 @@
 # Build, audit, and execute the Phase 3 Basic Pitch candidate through Tekton.
 # Usage:
 #   KUBECONFIG=/path/to/kubeconfig run-transcription-pipeline.sh \
-#     <commit-sha> <ci-image> <input-wav-url> <reference-midi-url>
+#     <commit-sha> <ci-image>
 set -euo pipefail
 
 NAMESPACE=${NAMESPACE:-gpmidi-ml}
@@ -16,18 +16,14 @@ INPUT_SHA256=d3e5cec64a13fc8c35050f84b9e67f30124d8bb4010295ff7524fd9ccc0cbb1f
 REFERENCE_SHA256=82250c89783273ce847500a7f9a582e6df74e9e2ea8be3af296f480d2f1b8ed9
 
 usage() {
-  echo "usage: $0 <commit-sha> <ci-image> <input-wav-url> <reference-midi-url>" >&2
+  echo "usage: $0 <commit-sha> <ci-image>" >&2
   exit 2
 }
 
 sha=${1:-}
 ci_image=${2:-}
-input_url=${3:-}
-reference_url=${4:-}
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || usage
 [[ $ci_image =~ ^[A-Za-z0-9._:/@-]+$ ]] || usage
-[[ $input_url =~ ^http://[A-Za-z0-9._:/-]+$ ]] || usage
-[[ $reference_url =~ ^http://[A-Za-z0-9._:/-]+$ ]] || usage
 if [[ -n $SOURCE_PVC || -n $EVIDENCE_PVC ]]; then
   [[ $SOURCE_PVC =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || usage
   [[ $EVIDENCE_PVC =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || usage
@@ -76,10 +72,7 @@ spec:
       type: string
     - name: ci-image
       type: string
-    - name: input-url
-      type: string
-    - name: reference-url
-      type: string
+
     workspaces:
     - name: source
     - name: evidence
@@ -194,20 +187,13 @@ spec:
         value: \$(params.ci-image)
       - name: model-image
         value: ${REGISTRY}/${OWNER}/basic-pitch@\$(tasks.build-basic-pitch.results.digest)
-      - name: input-url
-        value: \$(params.input-url)
-      - name: reference-url
-        value: \$(params.reference-url)
       taskSpec:
         params:
         - name: ci-image
           type: string
         - name: model-image
           type: string
-        - name: input-url
-          type: string
-        - name: reference-url
-          type: string
+
         workspaces:
         - name: source
         - name: evidence
@@ -222,8 +208,8 @@ spec:
             set -euo pipefail
             out=/workspace/evidence/phase3-real-input
             mkdir -p "\$out"
-            curl -fsSLo "\$out/input.wav" '\$(params.input-url)'
-            curl -fsSLo "\$out/reference.mid" '\$(params.reference-url)'
+            cp /workspace/source/services/transcription_spike/fixtures/real-input/bass-195-215.wav "\$out/input.wav"
+            cp /workspace/source/services/transcription_spike/fixtures/real-input/reference-bass.mid "\$out/reference.mid"
             printf '%s  %s\n' '${INPUT_SHA256}' "\$out/input.wav" \
               | sha256sum -c -
             printf '%s  %s\n' '${REFERENCE_SHA256}' "\$out/reference.mid" \
@@ -324,10 +310,7 @@ spec:
     value: ${sha}
   - name: ci-image
     value: ${ci_image}
-  - name: input-url
-    value: ${input_url}
-  - name: reference-url
-    value: ${reference_url}
+
   taskRunTemplate:
     serviceAccountName: tekton-build
     podTemplate:

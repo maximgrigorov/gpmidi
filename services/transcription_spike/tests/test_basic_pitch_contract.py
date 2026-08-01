@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-RUNTIME = Path(__file__).parents[1] / "runtimes" / "basic-pitch" / "run.py"
+SERVICE_ROOT = Path(__file__).parents[1]
+REPO_ROOT = Path(__file__).parents[3]
+RUNTIME = SERVICE_ROOT / "runtimes" / "basic-pitch" / "run.py"
+REAL_INPUT_FIXTURES = SERVICE_ROOT / "fixtures" / "real-input"
+PIPELINE_RUNNER = REPO_ROOT / "infra" / "ailab" / "scripts" / "run-transcription-pipeline.sh"
 
 
 def load_runtime():
@@ -117,3 +121,17 @@ def test_cli_help_does_not_require_basic_pitch_installed() -> None:
     assert completed.returncode == 0
     assert "--input" in completed.stdout
     assert "--output" in completed.stdout
+
+
+def test_real_input_pipeline_uses_hash_pinned_source_fixtures() -> None:
+    expected = {
+        "bass-195-215.wav": "d3e5cec64a13fc8c35050f84b9e67f30124d8bb4010295ff7524fd9ccc0cbb1f",
+        "reference-bass.mid": "82250c89783273ce847500a7f9a582e6df74e9e2ea8be3af296f480d2f1b8ed9",
+    }
+    for name, digest in expected.items():
+        assert hashlib.sha256((REAL_INPUT_FIXTURES / name).read_bytes()).hexdigest() == digest
+
+    runner = PIPELINE_RUNNER.read_text(encoding="utf-8")
+    assert "cp /workspace/source/services/transcription_spike/fixtures/real-input/bass-195-215.wav" in runner
+    assert "cp /workspace/source/services/transcription_spike/fixtures/real-input/reference-bass.mid" in runner
+    assert "curl -fsSLo" not in runner
