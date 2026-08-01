@@ -10,7 +10,7 @@ docker build --pull=false -t gpmidi/basic-pitch:0.4.0-phase3 .
 
 The build verifies the bundled TFLite model against SHA-256 `3db297d54af8e01c6e5618245c956b1d71b6a2b978cb2dedb527173186552676`.
 
-## Isolated invocation
+## Local development invocation
 
 ```bash
 docker run --rm \
@@ -26,7 +26,13 @@ docker run --rm \
   --output /work/output.mid
 ```
 
-AILab must publish and invoke the image by immutable registry digest, not by this local development tag.
+This tag-based command is only a local smoke test. The bounded adapter API rejects both mutable tags and bare local `sha256:...` image IDs. AILab must publish and invoke the image by a repository-qualified immutable registry digest such as `registry.example/gpmidi/basic-pitch@sha256:...`.
+
+The adapter assigns every run a unique container name and executes an explicit `docker rm -f <run-name>` cleanup after timeout in addition to terminating the runner process group. This prevents a daemon-owned container from surviving a killed Docker client.
+
+## Host privilege boundary
+
+Access to a rootful Docker daemon/socket is effectively root-equivalent on the runner host. Container controls such as non-root `--user`, dropped capabilities, read-only rootfs, and `--network none` constrain the model process; they do **not** reduce the host privileges of the account controlling the Docker daemon. Operational deployment should use rootless Docker or rootless Podman and must not expose the daemon socket to unrelated workloads.
 
 ## Verified synthetic smoke — 2026-08-01
 

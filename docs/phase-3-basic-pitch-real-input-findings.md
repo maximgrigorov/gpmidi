@@ -20,13 +20,15 @@ The source WAV digest matches the Phase 2 Project API `stem.bass` evidence. The 
 - Adapter: Basic Pitch `0.4.0`
 - Serialization: TFLite
 - Model SHA-256: `3db297d54af8e01c6e5618245c956b1d71b6a2b978cb2dedb527173186552676`
-- Local immutable image ID: `sha256:f5fac828aca074fe7441910b11463e0aad73d44906539a52ef2f81575adb9d8e`
+- Historical local image ID: `sha256:f5fac828aca074fe7441910b11463e0aad73d44906539a52ef2f81575adb9d8e` (development evidence only; not accepted as an operational image reference)
 - Runtime controls: `--network none`, read-only rootfs, all capabilities dropped, no-new-privileges, 2 GiB memory, 2 CPUs, 256 PIDs
 - Runtime duration through bounded runner: 27.551 seconds
 - Output MIDI: 1,526 bytes, 78 predicted events
 - Output MIDI SHA-256: `e6687e5855c00d0b81fa9c0754bc33d53d46aed919ccf3cd6daff449e29ce246`
 
 The manual isolated invocation and bounded-runner invocation produced byte-identical MIDI.
+
+No repository-qualified registry digest was available during this local spike. Therefore the recorded image ID proves which local image ran but is not portable deployment provenance. The operational adapter now requires `repository@sha256:...`; publishing that image is an AILab prerequisite.
 
 ## Metrics
 
@@ -56,6 +58,23 @@ For the 24 onset-matched pairs at 100 ms, pitch interval counts included:
 **Musical quality gate: fail for default Basic Pitch settings.** The baseline over-predicts events and has substantial octave errors. No octave correction, quantization or GP-derived repair was applied, because this phase must measure the model rather than conceal its errors.
 
 Basic Pitch remains a reproducible baseline and should not be promoted to automatic restoration. Next comparison should use at least one drum-specific candidate and, if bass work continues, a parameter sweep or a second bass-capable model evaluated on the same fixed source-seconds window.
+
+## Reproduction
+
+The committed evaluation driver performs the source-window selection, prediction `+195 s` timeline shift, exact-pitch evaluation, onset-only relabeling, and onset-pair interval histogram:
+
+```bash
+cd services/transcription_spike
+PYTHONPATH=. python -m transcription_spike.real_input_evaluation \
+  --reference-midi /path/to/original-suno-bass.mid \
+  --prediction-midi /path/to/basic-pitch-output.mid \
+  --prediction-offset 195 \
+  --window-start 195 \
+  --window-end 215 \
+  --output-json evaluation.json
+```
+
+For a full WAV-to-report run, replace `--prediction-midi` with `--audio`, and provide `--image repository@sha256:...` plus `--artifact-dir`. Re-running the committed driver against the identified local source/prediction artifacts reproduced all reported 50 ms and 100 ms F1/TP values and the complete 100 ms interval histogram.
 
 ## Evidence artifacts
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -123,11 +125,103 @@ def test_workspace_placeholder_supports_container_style_commands(tmp_path: Path)
     assert result.artifact_path.read_bytes() == b"MThd-workspace"
 
 
+def test_process_created_output_symlink_is_rejected_without_reading_target(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.mid"
+    outside.write_bytes(b"host-only-content")
+    script = write_script(
+        tmp_path / "symlink.py",
+        "import os,sys\nos.symlink(sys.argv[3], sys.argv[2])\n",
+    )
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"audio")
+    adapter = spec(
+        script,
+        command=(sys.executable, str(script), "{input}", "{output}", str(outside)),
+    )
+
+    with pytest.raises(AdapterError) as caught:
+        run_external_adapter(adapter, audio_path=audio, artifact_dir=tmp_path / "artifacts")
+
+    assert caught.value.code == "output_missing"
+    assert not list((tmp_path / "artifacts").glob("*.mid"))
+    assert outside.read_bytes() == b"host-only-content"
+
+
+def test_process_cannot_redirect_manifest_write_with_predictable_symlink(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.json"
+    outside.write_text("do-not-change", encoding="utf-8")
+    script = write_script(
+        tmp_path / "manifest_symlink.py",
+        "import hashlib,os,pathlib,sys\n"
+        "src,dst=map(pathlib.Path,sys.argv[1:3])\n"
+        "digest=hashlib.sha256(src.read_bytes()).hexdigest()[:16]\n"
+        "name=f'.fake-model-1.2.3-{digest}.mid.manifest.json.tmp'\n"
+        "os.symlink(sys.argv[3], dst.parent.parent/name)\n"
+        "dst.write_bytes(b'MThd-safe')\n",
+    )
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"audio")
+    adapter = spec(
+        script,
+        command=(sys.executable, str(script), "{input}", "{output}", str(outside)),
+    )
+
+    result = run_external_adapter(adapter, audio_path=audio, artifact_dir=tmp_path / "artifacts")
+
+    assert outside.read_text(encoding="utf-8") == "do-not-change"
+    assert json.loads(result.manifest_path.read_text(encoding="utf-8"))["output_bytes"] == 9
+    assert not result.manifest_path.is_symlink()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group behavior is POSIX-specific")
+def test_timeout_terminates_descendants_and_runs_runtime_cleanup(tmp_path: Path) -> None:
+    marker = tmp_path / "orphan-wrote"
+    cleanup_marker = tmp_path / "cleanup-ran"
+    child = write_script(
+        tmp_path / "child.py",
+        "import pathlib,sys,time\ntime.sleep(0.5)\npathlib.Path(sys.argv[1]).write_text('orphan')\n",
+    )
+    parent = write_script(
+        tmp_path / "parent.py",
+        "import subprocess,sys,time\nsubprocess.Popen([sys.executable,sys.argv[1],sys.argv[2]])\ntime.sleep(5)\n",
+    )
+    cleanup = write_script(
+        tmp_path / "cleanup.py",
+        "import pathlib,sys\nassert sys.argv[2].startswith('transcription-run-')\npathlib.Path(sys.argv[1]).write_text('clean')\n",
+    )
+    audio = tmp_path / "source.wav"
+    audio.write_bytes(b"audio")
+    adapter = spec(
+        parent,
+        command=(sys.executable, str(parent), str(child), str(marker), "{workspace}"),
+        cleanup_command=(sys.executable, str(cleanup), str(cleanup_marker), "{run_id}"),
+        timeout_seconds=0.1,
+    )
+
+    with pytest.raises(AdapterError, match="timeout"):
+        run_external_adapter(adapter, audio_path=audio, artifact_dir=tmp_path / "artifacts")
+
+    time.sleep(0.6)
+    assert not marker.exists()
+    assert cleanup_marker.read_text() == "clean"
+
+
 def test_spec_rejects_unknown_command_placeholder(tmp_path: Path) -> None:
     script = write_script(tmp_path / "noop.py", "pass\n")
 
     with pytest.raises(ValueError, match="unsupported placeholder"):
         spec(script, command=(sys.executable, str(script), "{workspace}", "{network}"))
+
+
+def test_cleanup_placeholders_cannot_complete_an_incomplete_run_command(tmp_path: Path) -> None:
+    script = write_script(tmp_path / "noop.py", "pass\n")
+
+    with pytest.raises(ValueError, match="command must contain"):
+        spec(
+            script,
+            command=(sys.executable, str(script), "{input}"),
+            cleanup_command=(sys.executable, str(script), "{workspace}", "{run_id}"),
+        )
 
 
 def test_spec_rejects_unsafe_or_incomplete_contracts(tmp_path: Path) -> None:

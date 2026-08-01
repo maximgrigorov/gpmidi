@@ -7,7 +7,7 @@ from .adapters import AdapterSpec
 
 BASIC_PITCH_VERSION = "0.4.0"
 BASIC_PITCH_MODEL_SHA256 = "3db297d54af8e01c6e5618245c956b1d71b6a2b978cb2dedb527173186552676"
-_IMMUTABLE_IMAGE = re.compile(r"^(?:sha256:|.+@sha256:)[0-9a-f]{64}$")
+_IMMUTABLE_IMAGE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 
 
 def basic_pitch_docker_spec(
@@ -18,6 +18,8 @@ def basic_pitch_docker_spec(
     group_id: int | None = None,
 ) -> AdapterSpec:
     """Build a bounded local Docker adapter spec for the pinned Basic Pitch runtime."""
+    if image_reference.startswith("sha256:"):
+        raise ValueError("Basic Pitch image reference must be repository-qualified")
     if not _IMMUTABLE_IMAGE.fullmatch(image_reference):
         raise ValueError("Basic Pitch image reference must be immutable")
     if not docker_binary:
@@ -36,6 +38,8 @@ def basic_pitch_docker_spec(
             docker_binary,
             "run",
             "--rm",
+            "--name",
+            "{run_id}",
             "--network",
             "none",
             "--read-only",
@@ -61,6 +65,7 @@ def basic_pitch_docker_spec(
             "--output",
             "/work/output.mid",
         ),
+        cleanup_command=(docker_binary, "rm", "-f", "{run_id}"),
         output_suffix=".mid",
         timeout_seconds=900.0,
         max_output_bytes=10 * 1024 * 1024,
