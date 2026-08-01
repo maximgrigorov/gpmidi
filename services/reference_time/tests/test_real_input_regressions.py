@@ -6,7 +6,6 @@ import io
 import zipfile
 
 import pytest
-
 from reference_time.audio_evidence import apply_audio_evidence_to_measures
 from reference_time.consensus import build_consensus
 from reference_time.gp_grid import extract_gp_grid
