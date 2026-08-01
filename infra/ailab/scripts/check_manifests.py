@@ -116,6 +116,8 @@ def main(argv: list[str]) -> int:
     workloads: dict[str, dict] = {}
     cronjobs: dict[str, dict] = {}
     policies: list[dict] = []
+    event_listeners: set[str] = set()
+    services: set[str] = set()
 
     for doc in docs:
         kind = doc.get("kind")
@@ -142,6 +144,21 @@ def main(argv: list[str]) -> int:
             check_workload(kind, name, pod_spec, failures, require_no_token=False)
         elif kind == "NetworkPolicy":
             policies.append(doc)
+        elif kind == "EventListener":
+            event_listeners.add(name)
+        elif kind == "Service":
+            services.add(name)
+
+    # Tekton Triggers creates and owns ``el-<listener>`` Services. Declaring the
+    # same Service in Git races the controller, leaves Ready=False with
+    # AlreadyExists, and can churn the namespace Service quota.
+    for listener in sorted(event_listeners):
+        generated_service = f"el-{listener}"
+        if generated_service in services:
+            failures.append(
+                f"Service/{generated_service}: must be controller-owned by "
+                f"EventListener/{listener}, not declared explicitly"
+            )
 
     # Every application workload must be selected by at least one NetworkPolicy.
     for name, doc in sorted(workloads.items()):

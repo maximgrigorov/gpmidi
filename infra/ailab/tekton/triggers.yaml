@@ -141,17 +141,7 @@ spec:
     - ref: gitea-push
     template:
       ref: gpmidi-ci
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: el-gitea-listener
-  namespace: gpmidi-ml
-spec:
-  type: ClusterIP
-  selector:
-    eventlistener: gitea-listener
-  ports:
-  - protocol: TCP
-    port: 8080
-    targetPort: 8080
+
+# Tekton Triggers creates and owns Service/el-gitea-listener. Do not declare
+# that Service here: duplicate ownership makes EventListener reconciliation
+# fail with AlreadyExists and can churn the namespace Service quota.
