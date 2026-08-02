@@ -48,7 +48,7 @@ RUN python -m pip install \
       soxr==0.3.7 \
       tqdm==4.66.1
 
-WORKDIR /app
+WORKDIR /opt/idm
 COPY run.py /app/run.py
 RUN chmod -R a=rX /opt/idm /app
 
