@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 SERVICE_ROOT = Path(__file__).parents[1]
 RUNTIME = SERVICE_ROOT / "runtimes" / "adtof-pytorch" / "run.py"
@@ -95,3 +96,59 @@ def test_container_contract_pins_source_and_runs_non_root() -> None:
     assert "torch==2.7.1+cpu" in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert '["python", "/app/run.py"]' in dockerfile
+
+
+def test_transcribe_exports_activations_confidence_custom_thresholds_and_fixed_audio_correction(
+    tmp_path: Path,
+) -> None:
+    runtime = load_runtime()
+    audio = tmp_path / "drums.wav"
+    audio.write_bytes(b"RIFF-audio")
+    checkpoint = tmp_path / "adtof.pth"
+    checkpoint.write_bytes(b"checkpoint")
+    output = tmp_path / "events.json"
+    activations_output = tmp_path / "activations.npz"
+    activations = np.zeros((1, 40, 5), dtype=np.float32)
+    activations[0, 20, 0] = 0.9
+
+    runtime.transcribe(
+        audio,
+        output,
+        checkpoint_path=checkpoint,
+        expected_checkpoint_sha256=hashlib.sha256(b"checkpoint").hexdigest(),
+        infer_fn=lambda _audio, _checkpoint: activations,
+        thresholds=(0.5, 0.5, 0.5, 0.5, 0.5),
+        timestamp_correction_seconds=-0.14,
+        activations_output=activations_output,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["timestamp_correction_seconds"] == -0.14
+    assert payload["thresholds"] == [0.5] * 5
+    assert payload["events"] == [
+        {
+            "confidence": pytest.approx(0.9),
+            "instrument": "kick",
+            "midi_note": 35,
+            "time_seconds": pytest.approx(0.06),
+            "velocity": 100,
+        }
+    ]
+    stored = np.load(activations_output)
+    assert np.array_equal(stored["activations"], activations)
+    assert stored["fps"].item() == 100
+    assert stored["labels"].tolist() == [35, 38, 47, 42, 49]
+
+
+def test_timestamp_correction_cannot_move_events_before_zero() -> None:
+    runtime = load_runtime()
+    activations = np.zeros((1, 20, 5), dtype=np.float32)
+    activations[0, 5, 0] = 0.9
+
+    events = runtime.events_from_activations(
+        activations,
+        thresholds=(0.5,) * 5,
+        timestamp_correction_seconds=-0.14,
+    )
+
+    assert events == []

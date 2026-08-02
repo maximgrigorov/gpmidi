@@ -7,6 +7,8 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 UPSTREAM_REPOSITORY = "https://github.com/xavriley/ADTOF-pytorch"
 UPSTREAM_COMMIT = "85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9"
 UPSTREAM_SOURCE_SHA256 = "28602a3bd89836240d519396b566966c52b6439e2f3cda61d8a674433b350b56"
@@ -52,10 +54,9 @@ def events_from_peaks(peaks: Mapping[int, Sequence[float]]) -> list[dict[str, in
     return sorted(events, key=lambda event: (float(event["time_seconds"]), int(event["midi_note"])))
 
 
-def _infer(input_path: Path, checkpoint_path: Path) -> Mapping[int, Sequence[float]]:
+def _infer(input_path: Path, checkpoint_path: Path) -> np.ndarray:
     import torch
     from adtof_pytorch import (
-        PeakPicker,
         calculate_n_bins,
         create_frame_rnn_model,
         load_audio_for_model,
@@ -68,8 +69,72 @@ def _infer(input_path: Path, checkpoint_path: Path) -> Mapping[int, Sequence[flo
     model.eval().to(device)
     audio = load_audio_for_model(str(input_path)).to(device)
     with torch.no_grad():
-        activations = model(audio).cpu().numpy()
-    return PeakPicker(thresholds=THRESHOLDS, fps=FPS).pick(activations, labels=LABELS)[0]
+        return model(audio).cpu().numpy()
+
+
+def _fallback_peak_times(
+    activations: np.ndarray, thresholds: tuple[float, ...]
+) -> Mapping[int, Sequence[float]]:
+    """Unit-test fallback; production uses the pinned upstream PeakPicker."""
+    values = np.asarray(activations)
+    matrix = values[0] if values.ndim == 3 else values
+    if matrix.ndim != 2 or matrix.shape[1] != len(LABELS):
+        raise ValueError(f"expected activations shaped (1, frames, {len(LABELS)})")
+    result: dict[int, list[float]] = {}
+    for column, (label, threshold) in enumerate(zip(LABELS, thresholds, strict=True)):
+        series = matrix[:, column]
+        frames = [
+            frame
+            for frame in range(1, len(series) - 1)
+            if series[frame] >= threshold
+            and series[frame] > series[frame - 1]
+            and series[frame] >= series[frame + 1]
+        ]
+        result[label] = [frame / FPS for frame in frames]
+    return result
+
+
+def _peak_times(
+    activations: np.ndarray, thresholds: tuple[float, ...]
+) -> Mapping[int, Sequence[float]]:
+    try:
+        from adtof_pytorch import PeakPicker
+    except ImportError:
+        return _fallback_peak_times(activations, thresholds)
+    return PeakPicker(thresholds=thresholds, fps=FPS).pick(activations, labels=LABELS)[0]
+
+
+def events_from_activations(
+    activations: np.ndarray,
+    *,
+    thresholds: tuple[float, ...] = THRESHOLDS,
+    timestamp_correction_seconds: float = 0.0,
+) -> list[dict[str, object]]:
+    if len(thresholds) != len(LABELS):
+        raise ValueError(f"expected {len(LABELS)} thresholds")
+    values = np.asarray(activations)
+    matrix = values[0] if values.ndim == 3 else values
+    peaks = _peak_times(values, thresholds)
+    events: list[dict[str, object]] = []
+    for midi_note, times in peaks.items():
+        if midi_note not in INSTRUMENTS:
+            raise ValueError(f"unsupported drum note: {midi_note}")
+        column = LABELS.index(int(midi_note))
+        for raw_time in times:
+            corrected = float(raw_time) + timestamp_correction_seconds
+            if corrected < 0:
+                continue
+            frame = min(max(round(float(raw_time) * FPS), 0), matrix.shape[0] - 1)
+            events.append(
+                {
+                    "confidence": round(float(matrix[frame, column]), 6),
+                    "instrument": INSTRUMENTS[midi_note],
+                    "midi_note": int(midi_note),
+                    "time_seconds": round(corrected, 6),
+                    "velocity": FIXED_VELOCITY,
+                }
+            )
+    return sorted(events, key=lambda event: (float(event["time_seconds"]), int(event["midi_note"])))
 
 
 def transcribe(
@@ -78,7 +143,10 @@ def transcribe(
     *,
     checkpoint_path: Path,
     expected_checkpoint_sha256: str = CHECKPOINT_SHA256,
-    infer_fn: Callable[[Path, Path], Mapping[int, Sequence[float]]] = _infer,
+    infer_fn: Callable[[Path, Path], Mapping[int, Sequence[float]] | np.ndarray] = _infer,
+    thresholds: tuple[float, ...] = THRESHOLDS,
+    timestamp_correction_seconds: float = 0.0,
+    activations_output: Path | None = None,
 ) -> dict[str, Any]:
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -89,10 +157,30 @@ def transcribe(
         raise FileNotFoundError("ADTOF-pytorch checkpoint is unavailable")
     if output_path.suffix.lower() != ".json":
         raise ValueError("output must be a JSON path")
+    if len(thresholds) != len(LABELS):
+        raise ValueError(f"expected {len(LABELS)} thresholds")
     if sha256_file(checkpoint_path) != expected_checkpoint_sha256:
         raise RuntimeError("checkpoint digest mismatch")
 
-    events = events_from_peaks(infer_fn(input_path, checkpoint_path))
+    inference = infer_fn(input_path, checkpoint_path)
+    if isinstance(inference, Mapping):
+        events = events_from_peaks(inference)
+    else:
+        activations = np.asarray(inference)
+        events = events_from_activations(
+            activations,
+            thresholds=thresholds,
+            timestamp_correction_seconds=timestamp_correction_seconds,
+        )
+        if activations_output is not None:
+            activations_output = Path(activations_output)
+            activations_output.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(
+                activations_output,
+                activations=activations,
+                fps=np.asarray(FPS),
+                labels=np.asarray(LABELS),
+            )
     payload = {
         "adapter": "adtof-pytorch",
         "checkpoint_sha256": expected_checkpoint_sha256,
@@ -100,13 +188,17 @@ def transcribe(
         "fixed_velocity": FIXED_VELOCITY,
         "fps": FPS,
         "labels": list(LABELS),
-        "thresholds": list(THRESHOLDS),
+        "thresholds": list(thresholds),
+        "timestamp_correction_seconds": timestamp_correction_seconds,
         "upstream_commit": UPSTREAM_COMMIT,
         "upstream_repository": UPSTREAM_REPOSITORY,
         "upstream_source_sha256": UPSTREAM_SOURCE_SHA256,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     return {
         "adapter": payload["adapter"],
         "checkpoint_sha256": expected_checkpoint_sha256,
@@ -120,12 +212,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--checkpoint", required=True, type=Path)
+    parser.add_argument(
+        "--thresholds",
+        default=",".join(str(value) for value in THRESHOLDS),
+        help="kick,snare,tom,hi-hat,cymbal thresholds",
+    )
+    parser.add_argument("--timestamp-correction-seconds", type=float, default=0.0)
+    parser.add_argument("--activations-output", type=Path)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    summary = transcribe(args.input, args.output, checkpoint_path=args.checkpoint)
+    thresholds = tuple(float(value) for value in args.thresholds.split(","))
+    summary = transcribe(
+        args.input,
+        args.output,
+        checkpoint_path=args.checkpoint,
+        thresholds=thresholds,
+        timestamp_correction_seconds=args.timestamp_correction_seconds,
+        activations_output=args.activations_output,
+    )
     print(json.dumps(summary, sort_keys=True, allow_nan=False))
     return 0
 
