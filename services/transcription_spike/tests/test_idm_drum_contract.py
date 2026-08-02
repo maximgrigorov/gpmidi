@@ -115,5 +115,7 @@ def test_container_contract_pins_upstream_and_runs_non_root() -> None:
     assert "d209125b1053dfa1dea19deba0e3bc908761326c5a7253f77b525e34e7cf7827" in dockerfile
     assert "5856a9bee7c6d503842795756d238dc8470f6f3e010e9e4f33ede0362850cb4c" in dockerfile
     assert "https://download.pytorch.org/whl/cpu" in dockerfile
+    assert "PYTHONPATH=/opt/idm" in dockerfile
+    assert "pip install /opt/idm" not in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert '["python", "/app/run.py"]' in dockerfile

@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/opt/idm \
     HOME=/tmp
 
 RUN apt-get update \
@@ -25,7 +26,27 @@ RUN curl -fsSL -o /tmp/idm.tar.gz \
 RUN python -m pip install \
       --index-url https://download.pytorch.org/whl/cpu \
       torch==2.1.1+cpu torchaudio==2.1.1+cpu \
-    && python -m pip install /opt/idm
+    && python -m pip install \
+      auraloss==0.4.0 \
+      beautifulsoup4==4.12.2 \
+      einops==0.7.0 \
+      hydra-core==1.3.2 \
+      librosa==0.9.2 \
+      lightning==2.1.2 \
+      lightning-utilities==0.10.0 \
+      matplotlib==3.8.2 \
+      mir_eval==0.7 \
+      numpy==1.23.4 \
+      omegaconf==2.3.0 \
+      pandas==2.1.3 \
+      pyyaml==6.0.1 \
+      rich==13.7.0 \
+      rootutils==1.0.7 \
+      scikit-learn==1.3.2 \
+      scipy==1.10.1 \
+      soundfile==0.12.1 \
+      soxr==0.3.7 \
+      tqdm==4.66.1
 
 WORKDIR /app
 COPY run.py /app/run.py
