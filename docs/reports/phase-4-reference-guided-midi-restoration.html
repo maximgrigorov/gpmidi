@@ -1,259 +1,309 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><title>GPMIDI Phase 4 — Reference-guided MIDI restoration</title><style>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><title>GPMIDI — Фаза 4: восстановление MIDI с опорой на референс</title><style>
 :root{--bg:#0e1116;--paper:#151a21;--paper2:#1b222c;--ink:#eef2f6;--muted:#9da9b7;--line:#2c3642;--accent:#7ee787;--blue:#79c0ff;--amber:#e3b341;--red:#ff7b72;--max:850px;color-scheme:dark}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.68 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.progress{position:fixed;z-index:9;top:0;left:0;height:3px;background:var(--accent);width:0}.hero{border-bottom:1px solid var(--line);background:radial-gradient(circle at 85% 10%,#1d3b2a 0,transparent 34%),linear-gradient(180deg,#121821,#0e1116);padding:72px 20px 54px}.hero-inner,.layout{max-width:1180px;margin:auto}.kicker{font:700 12px/1.2 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}h1{font-size:clamp(36px,6.5vw,64px);line-height:1.02;letter-spacing:-.05em;max-width:880px;margin:20px 0 22px}.lead{font-size:clamp(18px,3vw,25px);line-height:1.45;max-width:800px;color:#cbd5df}.badges{display:flex;gap:10px;flex-wrap:wrap;margin:28px 0}.badge{border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:13px;background:#111820}.badge.go{border-color:#2d6d3d;color:var(--accent)}.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{min-height:44px;display:inline-flex;align-items:center;padding:0 16px;border-radius:7px;text-decoration:none!important;font-weight:700;background:var(--accent);color:#07110a!important}.btn.secondary{background:transparent;color:var(--ink)!important;border:1px solid var(--line)}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;max-width:100%;gap:1px;background:var(--line);border:1px solid var(--line);margin-top:42px;overflow:hidden}.metric{min-width:0;background:#121820;padding:20px;overflow-wrap:anywhere}.metric b{display:block;font:700 clamp(25px,4vw,38px)/1 ui-monospace,monospace;color:var(--blue)}.metric span{display:block;color:var(--muted);font-size:13px;margin-top:8px}.layout{display:grid;grid-template-columns:250px minmax(0,var(--max));gap:54px;padding:54px 20px 100px}.toc{position:sticky;top:22px;align-self:start;max-height:calc(100vh - 44px);overflow:auto;border-left:1px solid var(--line);padding-left:16px}.toc-title{font:700 12px ui-monospace,monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px}.toc a{display:block;color:var(--muted);text-decoration:none;font-size:13px;line-height:1.35;padding:6px 0}.toc a:hover{color:var(--ink)}.toc-l3{padding-left:12px!important}article{min-width:0}article>h1:first-child,article>p:nth-child(2){display:none}h2{font-size:clamp(28px,5vw,42px);line-height:1.12;letter-spacing:-.035em;margin:74px 0 22px;padding-top:8px}h3{font-size:23px;line-height:1.25;margin:42px 0 12px;color:#dce5ef}p{margin:0 0 20px;color:#c8d1dc}strong{color:#fff}a{color:var(--blue);text-decoration-thickness:1px;text-underline-offset:3px}code{font:14px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d2a8ff;background:#202631;padding:.15em .35em;border-radius:4px;overflow-wrap:anywhere}pre{background:#090c10;border:1px solid var(--line);border-radius:8px;padding:17px;overflow:auto;margin:22px 0}pre code{padding:0;background:none;color:#d9e2ec;white-space:pre}ul,ol{padding-left:23px;margin:0 0 22px}li{padding:3px 0;color:#c8d1dc}li::marker{color:var(--accent)}hr{border:0;border-top:1px solid var(--line);margin:55px 0}.callout{border:1px solid #376a42;background:#102219;padding:20px;border-radius:8px;margin:28px 0}.callout b{color:var(--accent)}.tradeoff{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:28px 0}.tradeoff>div{background:var(--paper);border:1px solid var(--line);padding:18px;border-radius:8px}.tradeoff h3{margin:0 0 8px;font-size:18px}.up{color:var(--accent)}.down{color:var(--red)}.footer{border-top:1px solid var(--line);padding:30px 20px;color:var(--muted);font-size:13px}.footer div{max-width:1180px;margin:auto}@media(max-width:900px){.layout{display:block}.toc{position:relative;max-height:none;margin:0 0 50px}.metrics{grid-template-columns:1fr 1fr}}@media(max-width:560px){body{font-size:16px}.hero{padding-top:52px}.metrics{grid-template-columns:1fr}.metric{padding:15px}.metric b{font-size:25px}.layout{padding-top:34px}.tradeoff{grid-template-columns:1fr}h2{margin-top:58px}pre{margin-left:-8px;margin-right:-8px;border-radius:5px}.btn{width:100%;justify-content:center}}@media print{.progress,.toc,.actions{display:none}.hero{padding:20px;background:#fff}.layout{display:block;padding:20px}.hero-inner,article{max-width:none}body{background:#fff;color:#111;font-size:11pt}p,li{color:#222}h1,h2,h3,strong{color:#000}.metrics{grid-template-columns:repeat(4,1fr)}.metric{background:#fff}.metric b{color:#000}a{color:#000}.layout{max-width:none}h2{break-after:avoid}pre{white-space:pre-wrap;background:#fff;color:#000}}
-</style></head><body><div class="progress" id="progress"></div><header class="hero"><div class="hero-inner"><div class="kicker">GPMIDI · Phase 4 technical report</div><h1>Безопасная реставрация MIDI из аудио-атак</h1><p class="lead">Полный разбор Spring Melody: от загадочных −145 мс и честной calibration/holdout схемы до детерминированного Type‑1 MIDI overlay с rollback.</p><div class="badges"><span class="badge go">GO · supervised restoration</span><span class="badge">NO-GO · model-only replacement</span><span class="badge">61 tests passed</span><span class="badge">2 Aug 2026</span></div><div class="actions"><a class="btn" href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-restoration.mid">Скачать ADTOF MIDI</a><a class="btn secondary" href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-restoration.mid">Скачать control MIDI</a></div><div class="metrics"><div class="metric"><b>−140 ms</b><span>независимо объяснённый WAV↔MIDI offset</span></div><div class="metric"><b>75.0%</b><span>holdout precision после calibration</span></div><div class="metric"><b>872</b><span>ADTOF-события в audition overlay</span></div><div class="metric"><b>363</b><span>сохранённые tempo events</span></div></div></div></header><main class="layout"><nav class="toc" aria-label="Содержание"><div class="toc-title">Содержание</div><a class="toc-l2" href="#executive-conclusion">Executive conclusion</a><a class="toc-l2" href="#1-why-phase-4-exists">1. Why Phase 4 exists</a><a class="toc-l2" href="#2-terminology-in-plain-language">2. Terminology in plain language</a><a class="toc-l3" href="#onset">Onset</a><a class="toc-l3" href="#latency-timestamp-offset">Latency / timestamp offset</a><a class="toc-l3" href="#spectral-flux">Spectral flux</a><a class="toc-l3" href="#threshold">Threshold</a><a class="toc-l3" href="#precision">Precision</a><a class="toc-l3" href="#recall">Recall</a><a class="toc-l3" href="#f1">F1</a><a class="toc-l3" href="#calibration-holdout-and-untouched-split">Calibration, holdout and untouched split</a><a class="toc-l3" href="#tick-and-ppq">Tick and PPQ</a><a class="toc-l3" href="#tempo-map">Tempo map</a><a class="toc-l3" href="#type-1-midi">Type-1 MIDI</a><a class="toc-l3" href="#articulation">Articulation</a><a class="toc-l3" href="#candidate-patch">Candidate patch</a><a class="toc-l3" href="#overlay">Overlay</a><a class="toc-l3" href="#mapping-confidence">Mapping confidence</a><a class="toc-l2" href="#3-safe-gate-and-rollback-baseline">3. Safe gate and rollback baseline</a><a class="toc-l2" href="#4-independent-latency-experiment">4. Independent latency experiment</a><a class="toc-l3" href="#question">Question</a><a class="toc-l3" href="#model-side-audit">Model-side audit</a><a class="toc-l3" href="#independent-measurement">Independent measurement</a><a class="toc-l3" href="#sign-convention">Sign convention</a><a class="toc-l3" href="#limitation">Limitation</a><a class="toc-l2" href="#5-threshold-calibration-without-leakage">5. Threshold calibration without leakage</a><a class="toc-l3" href="#holdout-result-100-200-s">Holdout result (100–200 s)</a><a class="toc-l3" href="#final-untouched-result-200-301-9-s">Final untouched result (200–301.9 s)</a><a class="toc-l3" href="#decision">Decision</a><a class="toc-l2" href="#6-what-phase-4-actually-implements">6. What Phase 4 actually implements</a><a class="toc-l3" href="#velocity-policy">Velocity policy</a><a class="toc-l3" href="#tempo-map-correction-discovered-during-verification">Tempo-map correction discovered during verification</a><a class="toc-l2" href="#7-e2e-artifacts">7. E2E artifacts</a><a class="toc-l3" href="#adtof-calibrated-restoration-experimental-model-candidate">ADTOF calibrated restoration — experimental model candidate</a><a class="toc-l3" href="#source-midi-transfer-control-upper-bound-path">Source-MIDI transfer — control / upper-bound path</a><a class="toc-l3" href="#downloads">Downloads</a><a class="toc-l2" href="#8-verification-performed">8. Verification performed</a><a class="toc-l2" href="#9-what-we-learned-musically">9. What we learned musically</a><a class="toc-l2" href="#10-go-no-go-rollback">10. Go / no-go / rollback</a><a class="toc-l3" href="#go">GO</a><a class="toc-l3" href="#no-go">NO-GO</a><a class="toc-l3" href="#rollback">Rollback</a><a class="toc-l2" href="#11-recommended-next-experiment">11. Recommended next experiment</a></nav><article><h1 id="phase-4-reference-guided-midi-restoration">Phase 4 — Reference-guided MIDI restoration</h1>
-<p><strong>Spring Melody drum PoC · 2 August 2026</strong></p>
-<h2 id="executive-conclusion">Executive conclusion</h2>
-<p>Phase 4 is technically viable <strong>as a review-first restoration assistant</strong>, not as an automatic replacement for the trusted Guitar Pro → MIDI converter.</p>
-<p>The experiment resolved the largest Phase 3 uncertainty: the apparent <code>−145 ms</code> ADTOF timing correction is not a hidden delay inside the neural network. An independent audio-versus-MIDI measurement, using no ADTOF predictions, found the same physical offset in every third of the song: the rendered drum WAV is approximately <strong>140 ms later</strong> than the reference MIDI. Therefore an event correction of <strong>−140 ms</strong> is justified for this specific asset pair.</p>
-<p>ADTOF threshold calibration improved holdout precision from <strong>63.9% to 75.0%</strong>, while recall fell from <strong>87.6% to 73.9%</strong> and micro-F1 changed only from <strong>73.9% to 74.4%</strong>. On the final untouched section, micro-F1 fell from <strong>60.4% to 54.9%</strong>, driven mainly by hi-hat recall collapsing to 10%. The calibrated profile is therefore an experimental profile for this artifact, <strong>not a global default</strong>.</p>
-<p>The implemented restoration layer:</p>
+</style></head><body><div class="progress" id="progress"></div><header class="hero"><div class="hero-inner"><div class="kicker">GPMIDI · Технический отчёт по фазе 4</div><h1>Безопасное восстановление MIDI с опорой на референс</h1><p class="lead">Полный разбор Spring Melody, карта фаз 0–5 и честные границы результата: от смещения −140 мс до детерминированного MIDI-оверлея с безопасным откатом.</p><div class="badges"><span class="badge go">GO · восстановление с проверкой человеком</span><span class="badge">NO-GO · автоматическая замена моделью</span><span class="badge">61 тест пройден</span><span class="badge">2 августа 2026</span></div><div class="actions"><a class="btn" href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-restoration.mid">Скачать MIDI ADTOF</a><a class="btn secondary" href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-restoration.mid">Скачать контрольный MIDI</a></div><div class="metrics"><div class="metric"><b>−140 мс</b><span>независимо объяснённое смещение WAV↔MIDI</span></div><div class="metric"><b>75,0 %</b><span>точность на holdout после калибровки</span></div><div class="metric"><b>872</b><span>события ADTOF в демонстрационном оверлее</span></div><div class="metric"><b>363</b><span>сохранённые события карты темпа</span></div></div></div></header><main class="layout"><nav class="toc" aria-label="Содержание"><div class="toc-title">Содержание</div><a class="toc-l2" href="#section-1">Краткий итог</a><a class="toc-l2" href="#section-2">Карта проекта: что означают фазы 0–5</a><a class="toc-l3" href="#section-3">Фаза 0 — подготовка AILab</a><a class="toc-l3" href="#section-4">Фаза 1 — проекты и хранилище ассетов</a><a class="toc-l3" href="#section-5">Фаза 2 — сопоставление временных сеток</a><a class="toc-l3" href="#section-6">Фаза 3 — эксперимент с транскрипцией</a><a class="toc-l3" href="#section-7">Фаза 4 — безопасное восстановление</a><a class="toc-l3" href="#section-8">Фаза 5 — осторожное обогащение исполнения</a><a class="toc-l3" href="#section-9">Фазы 6 и далее</a><a class="toc-l2" href="#section-10">1. Зачем нужна фаза 4</a><a class="toc-l2" href="#section-11">2. Терминология простым языком</a><a class="toc-l3" href="#section-12">Атака (Onset)</a><a class="toc-l3" href="#section-13">Задержка / смещение временной метки (Latency / timestamp offset)</a><a class="toc-l3" href="#section-14">Спектральный поток (Spectral flux)</a><a class="toc-l3" href="#section-15">Порог (Threshold)</a><a class="toc-l3" href="#section-16">Точность (Precision)</a><a class="toc-l3" href="#section-17">Полнота (Recall)</a><a class="toc-l3" href="#section-18">F1 (F1-score)</a><a class="toc-l3" href="#section-19">Калибровка, holdout и untouched-сегмент (Calibration, holdout and untouched split)</a><a class="toc-l3" href="#section-20">Тик и PPQ (Tick and PPQ)</a><a class="toc-l3" href="#section-21">Карта темпа (Tempo map)</a><a class="toc-l3" href="#section-22">MIDI Type-1 (Type-1 MIDI)</a><a class="toc-l3" href="#section-23">Артикуляция (Articulation)</a><a class="toc-l3" href="#section-24">Кандидат-патч (Candidate patch)</a><a class="toc-l3" href="#section-25">Оверлей (Overlay)</a><a class="toc-l3" href="#section-26">Уверенность сопоставления (Mapping confidence)</a><a class="toc-l2" href="#section-27">3. Безопасный контроль и базовая линия отката</a><a class="toc-l2" href="#section-28">4. Независимый эксперимент по задержке</a><a class="toc-l3" href="#section-29">Вопрос</a><a class="toc-l3" href="#section-30">Аудит со стороны модели</a><a class="toc-l3" href="#section-31">Независимое измерение</a><a class="toc-l3" href="#section-32">Соглашение о знаках</a><a class="toc-l3" href="#section-33">Ограничение</a><a class="toc-l2" href="#section-34">5. Калибровка порогов без утечки данных</a><a class="toc-l3" href="#section-35">Результат на holdout (100–200 с)</a><a class="toc-l3" href="#section-36">Результат на финальном untouched (200–301,9 с)</a><a class="toc-l3" href="#section-37">Решение</a><a class="toc-l2" href="#section-38">6. Что на самом деле реализует фаза 4</a><a class="toc-l3" href="#section-39">Политика велосити</a><a class="toc-l3" href="#section-40">Исправление карты темпа, обнаруженное при проверке</a><a class="toc-l2" href="#section-41">7. E2E-артефакты</a><a class="toc-l3" href="#section-42">Восстановление ADTOF с калибровкой — экспериментальный кандидат модели</a><a class="toc-l3" href="#section-43">Передача из эталонного MIDI — контроль / верхняя граница пути</a><a class="toc-l3" href="#section-44">Скачивание</a><a class="toc-l2" href="#section-45">8. Проведённая проверка</a><a class="toc-l2" href="#section-46">9. Музыкальные выводы</a><a class="toc-l2" href="#section-47">10. Решение контрольной точки: go / no-go / rollback</a><a class="toc-l3" href="#section-48">GO</a><a class="toc-l3" href="#section-49">NO-GO</a><a class="toc-l3" href="#section-50">Rollback</a><a class="toc-l2" href="#section-51">11. Рекомендуемый следующий эксперимент</a></nav><article class="article"><h2 id="section-1">Краткий итог</h2>
+<p>Фаза 4 технически жизнеспособна <strong>как помощник по восстановлению с обязательной проверкой человеком (review-first restoration assistant)</strong>, а не как автоматическая замена проверенного конвертера Guitar Pro → MIDI.</p>
+<p>Эксперимент устранил главную неопределённость фазы 3: найденная коррекция ADTOF на <code>−145 мс</code> не является скрытой задержкой внутри нейросети. Независимое сопоставление аудио и MIDI, выполненное без предсказаний ADTOF, выявило одно и то же физическое смещение во всех трёх частях композиции: WAV-рендер ударных запаздывает относительно референсного MIDI примерно на <strong>140 мс</strong>. Следовательно, коррекция событий на <strong>−140 мс</strong> обоснована именно для этой пары ассетов.</p>
+<p>Калибровка порогов ADTOF повысила точность (precision) на holdout-выборке с <strong>63,9 % до 75,0 %</strong>, однако полнота (recall) снизилась с <strong>87,6 % до 73,9 %</strong>, а микро-F1 изменилась лишь с <strong>73,9 % до 74,4 %</strong>. На финальной неиспользованной при калибровке части (untouched split) микро-F1 снизилась с <strong>60,4 % до 54,9 %</strong>, в основном из-за катастрофического падения полноты для хай-хэта до 10 %. Таким образом, полученный профиль калибровки является экспериментальным для данного ассета и <strong>не должен использоваться как глобальное значение по умолчанию</strong>.</p>
+<p>Реализованный слой восстановления:</p>
 <ol>
-<li>reads source-time events;</li>
-<li>maps each event into the destination Guitar Pro tick grid;</li>
-<li>creates an immutable candidate patch;</li>
-<li>requires explicit measure-level approval;</li>
-<li>writes only a separate Type-1 MIDI overlay;</li>
-<li>never modifies the source Guitar Pro revision.</li>
+<li>считывает события во времени исходного аудио;</li>
+<li>отображает каждое событие на сетку тиков Guitar Pro;</li>
+<li>создаёт неизменяемый кандидат-патч (candidate patch);</li>
+<li>требует явного одобрения на уровне такта;</li>
+<li>записывает только отдельный MIDI-оверлей типа Type-1;</li>
+<li>никогда не изменяет исходную ревизию Guitar Pro.</li>
 </ol>
-<p>The final E2E audition artifacts preserve the original 363-event tempo map, are deterministically reproducible, contain no negative MIDI delta times, and last approximately 300.2 seconds.</p>
-<p><strong>Gate decision:</strong> GO for supervised Phase 4 iteration; NO-GO for model-only automatic replacement.</p>
-<hr>
-<h2 id="1-why-phase-4-exists">1. Why Phase 4 exists</h2>
-<p>Phase 3 answered “can a drum transcription model detect useful attacks?” but did not yet answer “can those attacks become a safe, editable and musically meaningful MIDI part on the Guitar Pro score grid?”</p>
-<p>The difficult part is not merely writing MIDI notes. Three coordinate systems must agree:</p>
+<p>Финальные E2E-артефакты для прослушивания сохраняют исходную карту темпа из 363 событий, детерминированно воспроизводимы, не содержат отрицательных MIDI-дельта-времён и имеют длительность около <strong>300,2 с</strong>.</p>
+<p><strong>Решение по контрольной точке (gate decision):</strong> GO для продолжения фазы 4 с обязательной проверкой человеком; NO-GO для автоматической замены результата одной лишь моделью.</p>
+<h2 id="section-2">Карта проекта: что означают фазы 0–5</h2>
+<p>Номер фазы относится не ко всему проекту gpmidi, а к отдельной программе <strong>Reference-Guided MIDI Restoration</strong> — восстановлению MIDI с опорой на аудио, stems, распознанные Suno MIDI и Guitar Pro. В утверждённом архитектурном плане определены фазы <strong>0–5</strong>. Фаз 6 и далее в согласованной дорожной карте пока нет.</p>
+<h3 id="section-3">Фаза 0 — подготовка AILab</h3>
+<p><strong>Статус: завершена, принята и объединена.</strong> Подготовлена воспроизводимая база AILab: k3s, GPU runtime, хранилище на <code>/data</code>, ingress, namespace, RBAC и проверки сохранности PVC. Это инфраструктурный фундамент, а не музыкальный алгоритм.</p>
+<h3 id="section-4">Фаза 1 — проекты и хранилище ассетов</h3>
+<p><strong>Статус: завершена и принята.</strong> Реализованы долговечные Project, загрузка файлов по ролям, SHA-256, дедупликация, ревизии Guitar Pro, manifest/provenance, cache keys, API и web UI. Эта фаза ничего не распознаёт и не меняет MIDI: она гарантирует, что исходники, результаты и их происхождение не потеряются и не перепутаются.</p>
+<h3 id="section-5">Фаза 2 — сопоставление временных сеток</h3>
+<p><strong>Статус: реализована и независимо перепроверена в ветке <code>feat/reference-time-vertical-slice</code>, но не объединена в <code>main</code>.</strong> Она строит карту между плавающим временем исходного Suno/WAV и выровненной сеткой Guitar Pro, выдаёт соответствия по тактам, confidence и предупреждения. MIDI и Guitar Pro на этой фазе не изменяются.</p>
+<h3 id="section-6">Фаза 3 — эксперимент с транскрипцией</h3>
+<p><strong>Статус: проведена как evidence-only spike в <code>feat/transcription-spike</code>.</strong> Проверялись реальные модели, а не обещания из README:</p>
 <ul>
-<li><strong>audio time</strong> — seconds in the rendered WAV;</li>
-<li><strong>source musical time</strong> — the performance represented by the reference assets;</li>
-<li><strong>destination score time</strong> — measures and ticks in the Guitar Pro revision.</li>
+<li>Basic Pitch для баса воспроизводимо запускается, но на Spring Melody дал слишком слабое качество для автоматического восстановления;</li>
+<li>Inverse Drum Machine технически запускается, но музыкально оказался слабым;</li>
+<li>ADTOF-pytorch показал лучший результат для ударных после коррекции времени, но остаётся исследовательским comparator из-за лицензии и ограниченного словаря из пяти классов.</li>
 </ul>
-<p>A transcription event that is correct in seconds can still land in the wrong measure after repeats, gaps or structural differences. A correct drum class can still lose articulation if five model classes are treated as a complete drum vocabulary. And an apparently good score can be misleading if thresholds were tuned on the same fragment used for evaluation.</p>
-<p>Phase 4 therefore deliberately treats model output as <strong>candidate evidence</strong>, not authoritative score content.</p>
-<h2 id="2-terminology-in-plain-language">2. Terminology in plain language</h2>
-<h3 id="onset">Onset</h3>
-<p>The instant at which a sound starts. For a drum hit this is the attack transient, not the full ringing duration.</p>
-<h3 id="latency-timestamp-offset">Latency / timestamp offset</h3>
-<p>A constant displacement between two timelines. A prediction at <code>10.00 s</code> that corresponds to a reference hit at <code>9.86 s</code> has a <code>+140 ms</code> displacement relative to the reference and needs a <code>−140 ms</code> correction.</p>
-<h3 id="spectral-flux">Spectral flux</h3>
-<p>A simple audio transient measure: how quickly the spectrum changes between adjacent frames. Drum attacks usually create sharp positive peaks. It provides an independent clock check because it uses the WAV itself rather than ADTOF predictions.</p>
-<h3 id="threshold">Threshold</h3>
-<p>The minimum model confidence required before an activation becomes an event. Raising it usually removes false hits but may also miss quiet real hits.</p>
-<h3 id="precision">Precision</h3>
-<p>Of all predicted hits, the fraction that were correct: <code>TP / (TP + FP)</code>. High precision means less MIDI cleanup.</p>
-<h3 id="recall">Recall</h3>
-<p>Of all real reference hits, the fraction recovered: <code>TP / (TP + FN)</code>. High recall means fewer missing notes.</p>
-<h3 id="f1">F1</h3>
-<p>The harmonic mean of precision and recall. It is useful when both matter, but it can hide different failure modes; therefore precision and recall are reported separately.</p>
-<h3 id="calibration-holdout-and-untouched-split">Calibration, holdout and untouched split</h3>
+<p>Итог фазы 3: пригодные атаки ударных получать можно, но сырой вывод модели нельзя автоматически считать готовой партией.</p>
+<h3 id="section-7">Фаза 4 — безопасное восстановление</h3>
+<p><strong>Статус: выполнен первый вертикальный срез для ударных; вся фаза ещё не завершена.</strong> Именно этот отчёт описывает сделанную часть: независимую проверку смещения времени, калибровку порогов, перенос событий на сетку Guitar Pro, неизменяемый candidate patch, отдельный MIDI overlay и безопасный rollback.</p>
+<p>До полного закрытия фазы 4 ещё нужны:</p>
 <ul>
-<li><strong>Calibration (0–100 s):</strong> thresholds may be selected here.</li>
-<li><strong>Holdout (100–200 s):</strong> used once to see whether the selection transfers.</li>
-<li><strong>Final untouched (200–301.9 s):</strong> not used for selection; this is the strongest generalization check.</li>
+<li>реальная проверка человеком выбранных тактов вместо механического одобрения для E2E;</li>
+<li>измерение времени ручной правки;</li>
+<li>более богатое восстановление артикуляций ударных;</li>
+<li>отдельный рабочий срез для баса;</li>
+<li>проверка на нескольких композициях, а не только на Spring Melody;</li>
+<li>интеграция review/approval в пользовательский интерфейс без автоматического изменения Guitar Pro.</li>
 </ul>
-<p>This separation prevents <strong>data leakage</strong>: silently tuning settings using the same data later presented as proof.</p>
-<h3 id="tick-and-ppq">Tick and PPQ</h3>
-<p>A tick is an integer position on a MIDI musical grid. PPQ (“pulses per quarter note”) is the grid resolution. The overlay uses <strong>960 PPQ</strong>, so one quarter note occupies 960 ticks.</p>
-<h3 id="tempo-map">Tempo map</h3>
-<p>A sequence of tempo changes. Spring Melody has 363 tempo events around 75 BPM. A MIDI file with correct notes but a fake constant 120 BPM is not a valid standalone audition file. The final artifacts copy and rescale the original tempo map.</p>
-<h3 id="type-1-midi">Type-1 MIDI</h3>
-<p>A Standard MIDI File with multiple tracks: here one metadata/tempo track and one drum track.</p>
-<h3 id="articulation">Articulation</h3>
-<p>A distinct playing technique or drum sound, represented here by a MIDI pitch/class. The reference MIDI contains 13 pitches; ADTOF exposes only five broad classes. Five-class detection therefore cannot reconstruct the full expressive drum vocabulary by itself.</p>
-<h3 id="candidate-patch">Candidate patch</h3>
-<p>A reviewable JSON proposal. It records source time, destination measure/tick, pitch, velocity, confidence and source identities. It is not an applied edit.</p>
-<h3 id="overlay">Overlay</h3>
-<p>A separate MIDI file containing approved candidates. It can be auditioned or imported without mutating the Guitar Pro source.</p>
-<h3 id="mapping-confidence">Mapping confidence</h3>
-<p>Confidence that a source-time region corresponds to a destination score measure. Model confidence answers “is this probably a drum hit?”; mapping confidence answers “is this probably the correct destination region?” Combined candidate confidence is their product.</p>
-<h2 id="3-safe-gate-and-rollback-baseline">3. Safe gate and rollback baseline</h2>
-<p>The trusted baseline remains the existing Guitar Pro → MIDI path on <code>origin/main</code> at:</p>
-<pre><code>aac15ba3afb3cf7eeb3c702ed03d5fbe39c31035</code></pre>
-<p>The experimental work is isolated on <code>feat/transcription-spike</code>. Before this report, the published feature head was:</p>
-<pre><code>cb41901ea92c742bd0f79cdb57e0e354b4c475a7</code></pre>
-<p>Safety invariants enforced in code:</p>
+<h3 id="section-8">Фаза 5 — осторожное обогащение исполнения</h3>
+<p><strong>Статус: не начата.</strong> По утверждённому плану сюда относятся только опциональные изменения поверх уже восстановленной партии: вариации с учётом секций и повторов, rhythm-guitar restore/variation, варианты A/B/C и прослушивание в Logic/Kontakt. Эта фаза не должна начинаться, пока фаза 4 не докажет, что восстановление уменьшает ручную работу и не разрушает исходную композицию.</p>
+<h3 id="section-9">Фазы 6 и далее</h3>
+<p><strong>Пока не определены и не согласованы.</strong> Придумывать им номера задним числом было бы нечестно. После измеримого результата фаз 4–5 можно отдельно спроектировать продолжение — например, многокомпозиционную валидацию, полноценный workflow ревизий в UI и эксплуатационное доведение, — но сегодня это возможные направления, а не обещанный roadmap.</p>
+<hr />
+<h2 id="section-10">1. Зачем нужна фаза 4</h2>
+<p>Фаза 3 ответила на вопрос «может ли модель транскрипции ударных обнаружить полезные атаки?», но пока не ответила на вопрос «могут ли эти атаки стать безопасной, редактируемой и музыкально осмысленной MIDI-партией на сетке Guitar Pro?»</p>
+<p>Сложность заключается не только в записи MIDI-нот. Три системы координат должны совпадать:</p>
 <ul>
-<li>Guitar Pro input is never modified;</li>
+<li><strong>время аудио</strong> — секунды в синтезированном WAV;</li>
+<li><strong>музыкальное время источника</strong> — исполнение, представленное эталонными ассетами;</li>
+<li><strong>время целевой партитуры</strong> — такты и тики в ревизии Guitar Pro.</li>
+</ul>
+<p>Событие транскрипции, корректное по времени в секундах, может всё равно попасть в неверный такт из-за повторов, пропусков или структурных различий. Правильно распознанный широкий класс ударных всё равно может потерять конкретную артикуляцию, если считать пять классов модели полным словарём установки. Даже внешне хороший результат может вводить в заблуждение, если пороги настроили на том же фрагменте, который затем предъявили для оценки.</p>
+<p>Поэтому фаза 4 намеренно рассматривает вывод модели как <strong>набор кандидатов, подкреплённых свидетельствами</strong>, а не как достоверное содержимое партитуры.</p>
+<hr />
+<h2 id="section-11">2. Терминология простым языком</h2>
+<h3 id="section-12">Атака (Onset)</h3>
+<p>Момент начала звука. Для удара на барабане это атаковый переход, а не полная длительность звучания.</p>
+<h3 id="section-13">Задержка / смещение временной метки (Latency / timestamp offset)</h3>
+<p>Постоянное смещение между двумя временными шкалами. Предсказание в <code>10,00 с</code>, соответствующее эталонному удару в <code>9,86 с</code>, имеет смещение <code>+140 мс</code> относительно эталона и требует коррекции на <code>−140 мс</code>.</p>
+<h3 id="section-14">Спектральный поток (Spectral flux)</h3>
+<p>Простая мера переходного процесса в аудио: насколько быстро меняется спектр между соседними кадрами. Атаки ударных обычно создают резкие положительные пики. Это обеспечивает независимую проверку времени, поскольку использует сам WAV, а не предсказания ADTOF.</p>
+<h3 id="section-15">Порог (Threshold)</h3>
+<p>Минимальная уверенность модели, необходимая для того, чтобы активация стала событием. Повышение порога обычно устраняет ложные срабатывания, но может также пропустить тихие реальные удары.</p>
+<h3 id="section-16">Точность (Precision)</h3>
+<p>Доля корректных среди всех предсказанных ударов: <code>TP / (TP + FP)</code>. Высокая точность означает меньше ручной правки MIDI.</p>
+<h3 id="section-17">Полнота (Recall)</h3>
+<p>Доля восстановленных среди всех реальных эталонных ударов: <code>TP / (TP + FN)</code>. Высокая полнота означает меньше пропущенных нот.</p>
+<h3 id="section-18">F1 (F1-score)</h3>
+<p>Гармоническое среднее точности и полноты. Полезно, когда важны оба показателя, но может скрывать различные режимы сбоев; поэтому точность и полнота сообщаются отдельно.</p>
+<h3 id="section-19">Калибровка, holdout и untouched-сегмент (Calibration, holdout and untouched split)</h3>
+<ul>
+<li><strong>Калибровка (0–100 с):</strong> здесь можно выбирать пороги.</li>
+<li><strong>Holdout (100–200 с):</strong> используется один раз для проверки, переносится ли выборка.</li>
+<li><strong>Финальный untouched (200–301,9 с):</strong> не использовался при выборе; это наиболее строгая проверка обобщения.</li>
+</ul>
+<p>Такое разделение предотвращает <strong>утечку данных (data leakage)</strong>: незаметную настройку параметров с использованием тех же данных, которые позже предъявляются как доказательство.</p>
+<h3 id="section-20">Тик и PPQ (Tick and PPQ)</h3>
+<p>Тик — целочисленная позиция на музыкальной сетке MIDI. PPQ (pulses per quarter note, импульсов на четверть) — разрешение этой сетки. Оверлей использует <strong>960 PPQ</strong>, поэтому одна четвертная нота занимает 960 тиков.</p>
+<h3 id="section-21">Карта темпа (Tempo map)</h3>
+<p>Последовательность изменений темпа. Spring Melody содержит 363 события темпа при значениях около 75 BPM. MIDI-файл с правильными нотами, но с подставленным постоянным темпом 120 BPM непригоден для корректного автономного прослушивания. Финальные артефакты копируют и масштабируют исходную карту темпа.</p>
+<h3 id="section-22">MIDI Type-1 (Type-1 MIDI)</h3>
+<p>Стандартный MIDI-файл с несколькими треками: здесь один трек метаданных/темпа и один трек ударных.</p>
+<h3 id="section-23">Артикуляция (Articulation)</h3>
+<p>Отдельная техника исполнения или звук ударного, представленный здесь MIDI-пичем (классом). Эталонный MIDI содержит 13 пичей; ADTOF выдаёт только пять широких классов. Обнаружение пяти классов, следовательно, не может восстановить полный выразительный словарь ударных самостоятельно.</p>
+<h3 id="section-24">Кандидат-патч (Candidate patch)</h3>
+<p>Обзорное JSON-предложение. Оно фиксирует исходное время, целевой такт/тик, пич, велосити, уверенность и исходные идентификаторы. Это не применённое редактирование.</p>
+<h3 id="section-25">Оверлей (Overlay)</h3>
+<p>Отдельный MIDI-файл, содержащий одобренные кандидаты. Его можно прослушать или импортировать без изменения исходного Guitar Pro.</p>
+<h3 id="section-26">Уверенность сопоставления (Mapping confidence)</h3>
+<p>Оценка того, насколько уверенно временной участок источника соответствует такту целевой партитуры. Уверенность модели отвечает на вопрос «это, вероятно, настоящий удар?»; уверенность сопоставления — «это, вероятно, правильный такт назначения?». Итоговая уверенность кандидата равна произведению этих двух значений.</p>
+<hr />
+<h2 id="section-27">3. Безопасный контроль и базовая линия отката</h2>
+<p>Проверенная базовая линия остаётся существующим путём Guitar Pro → MIDI на <code>origin/main</code>:</p>
+<pre><code class="language-text">aac15ba3afb3cf7eeb3c702ed03d5fbe39c31035
+</code></pre>
+<p>Экспериментальная работа изолирована в ветке <code>feat/transcription-spike</code>. До подготовки этого отчёта опубликованная вершина ветки была:</p>
+<pre><code class="language-text">cb41901ea92c742bd0f79cdb57e0e354b4c475a7
+</code></pre>
+<p>Безопасные инварианты, реализованные в коде:</p>
+<ul>
+<li>Исходный Guitar Pro не изменяется;</li>
 <li><code>default_action = review_required</code>;</li>
-<li>candidates begin with <code>status = proposed</code>;</li>
-<li>no decision produces an empty overlay;</li>
-<li>source gaps and low-confidence mappings cannot become candidates;</li>
-<li>output is a separate Type-1 MIDI file;</li>
-<li>velocity randomization/humanization is not applied;</li>
-<li>the legacy converter remains the default and rollback.</li>
+<li>кандидаты начинаются со статуса <code>status = proposed</code>;</li>
+<li>ни одно решение не создаёт пустой оверлей;</li>
+<li>интервалы-пропуски в источнике и ненадёжные сопоставления не становятся кандидатами;</li>
+<li>выход — отдельный MIDI-файл типа Type-1;</li>
+<li>рандомизация/«человечность» велосити не применяется;</li>
+<li>унаследованный конвертер остаётся по умолчанию и путём отката.</li>
 </ul>
-<p>For the downloadable audition files, all mapped measures were mechanically approved only to exercise the complete export path. This is <strong>not</strong> a claim that a human approved every musical decision.</p>
-<h2 id="4-independent-latency-experiment">4. Independent latency experiment</h2>
-<h3 id="question">Question</h3>
-<p>Was the Phase 3 <code>−145 ms</code> optimum caused by ADTOF internals, or by the relationship between the supplied WAV and MIDI?</p>
-<h3 id="model-side-audit">Model-side audit</h3>
-<p>ADTOF operates on a 100 fps grid: one frame every 10 ms. Its centered STFT and convolution path do not explain a stable 145 ms shift, and peak picking does not intentionally add 145 ms.</p>
-<h3 id="independent-measurement">Independent measurement</h3>
-<p>The WAV was transformed into positive spectral flux. The algorithm then sampled that audio-only transient score around reference MIDI event times while sweeping candidate lags. <strong>ADTOF predictions were not used.</strong></p>
-<p>Results:</p>
+<p>Для скачиваемых демонстрационных MIDI все сопоставленные такты были механически одобрены только ради проверки полного пути экспорта. Это <strong>не означает</strong>, что каждое музыкальное решение действительно проверил человек.</p>
+<hr />
+<h2 id="section-28">4. Независимый эксперимент по задержке</h2>
+<h3 id="section-29">Вопрос</h3>
+<p>Было ли оптимальное значение <code>−145 мс</code> фазы 3 вызвано внутренними особенностями ADTOF или соотношением между предоставленными WAV и MIDI?</p>
+<h3 id="section-30">Аудит со стороны модели</h3>
+<p>ADTOF работает на сетке 100 кадров/с: один кадр каждые 10 мс. Центрированный STFT и свёрточный путь не объясняют устойчивое смещение на 145 мс, а отбор пиков не предполагает намеренного добавления 145 мс.</p>
+<h3 id="section-31">Независимое измерение</h3>
+<p>WAV был преобразован в положительный спектральный поток. Затем алгоритм измерял полученную только из аудио силу транзиентов в окрестности временных меток референсных MIDI-событий, перебирая возможные сдвиги. <strong>Предсказания ADTOF не использовались.</strong></p>
+<p>Результаты:</p>
 <ul>
-<li><code>0–100 s</code>: best lag <code>+140 ms</code>, 176 reference events;</li>
-<li><code>100–200 s</code>: best lag <code>+140 ms</code>, 410 reference events;</li>
-<li><code>200–301.9 s</code>: best lag <code>+140 ms</code>, 357 reference events.</li>
+<li><code>0–100 с</code>: оптимальный лаг <code>+140 мс</code>, 176 эталонных событий;</li>
+<li><code>100–200 с</code>: оптимальный лаг <code>+140 мс</code>, 410 эталонных событий;</li>
+<li><code>200–301,9 с</code>: оптимальный лаг <code>+140 мс</code>, 357 эталонных событий.</li>
 </ul>
-<p>The same result appears in all three independent windows. The top lag is also consistently stronger than the next 10 ms bin. This stability supports an asset-level WAV↔MIDI offset rather than model latency.</p>
-<h3 id="sign-convention">Sign convention</h3>
-<p>The audio transient occurs about 140 ms <strong>after</strong> the MIDI timestamp. To place model events on the MIDI timeline, subtract 140 ms:</p>
-<pre><code>corrected_event_time = predicted_audio_time − 0.140 s</code></pre>
-<p>The earlier ADTOF sweep preferred <code>−145 ms</code>; a 5 ms discrepancy is below the model’s 10 ms frame spacing and is not evidence for a separate model delay.</p>
-<h3 id="limitation">Limitation</h3>
-<p>The correction is justified for this exact WAV/MIDI asset pair. It must not become a universal ADTOF constant without repeating the independent clock check on other assets.</p>
-<h2 id="5-threshold-calibration-without-leakage">5. Threshold calibration without leakage</h2>
-<p>Threshold order:</p>
-<pre><code>kick, snare, tom, hi-hat, cymbal</code></pre>
-<p>Baseline profile:</p>
-<pre><code>0.22, 0.24, 0.32, 0.22, 0.30</code></pre>
-<p>Selected on the calibration window only:</p>
-<pre><code>0.44, 0.36, 0.12, 0.54, 0.50</code></pre>
-<p>Selection objectives reflected cleanup priorities:</p>
+<p>Один и тот же результат появляется во всех трёх независимых окнах. Лучший лаг также последовательно сильнее следующего 10-мс-интервала. Эта стабильность подтверждает смещение WAV↔MIDI на уровне ассета, а не задержку модели.</p>
+<h3 id="section-32">Соглашение о знаках</h3>
+<p>Аудиотранзиент возникает примерно на 140 мс <strong>позже</strong>, чем соответствующая временная метка MIDI. Чтобы перенести события модели на временную шкалу MIDI, нужно вычесть 140 мс:</p>
+<pre><code class="language-text">corrected_event_time = predicted_audio_time − 0.140 s
+</code></pre>
+<p>Ранее выполненный перебор ADTOF предпочитал <code>−145 мс</code>; расхождение в 5 мс ниже 10-мс шага кадров модели и не является доказательством отдельной задержки модели.</p>
+<h3 id="section-33">Ограничение</h3>
+<p>Коррекция обоснована только для этой конкретной пары WAV/MIDI. Она не должна становиться универсальной константой ADTOF без повторения независимой проверки времени на других ассетах.</p>
+<hr />
+<h2 id="section-34">5. Калибровка порогов без утечки данных</h2>
+<p>Порядок классов:</p>
+<pre><code class="language-text">kick, snare, tom, hi-hat, cymbal
+</code></pre>
+<p>Базовый профиль:</p>
+<pre><code class="language-text">0.22, 0.24, 0.32, 0.22, 0.30
+</code></pre>
+<p>Выбранный только на окне калибровки:</p>
+<pre><code class="language-text">0.44, 0.36, 0.12, 0.54, 0.50
+</code></pre>
+<p>Цели выборки отражали приоритеты очистки:</p>
 <ul>
-<li>kick/snare: balanced F1;</li>
-<li>hi-hat/cymbal: precision-weighted F0.5 to reduce floods of false hits;</li>
-<li>tom: recall-weighted F2 because the baseline missed most toms.</li>
+<li>kick/snare: сбалансированная F1;</li>
+<li>hi-hat/cymbal: F0.5 с весом точности для сокращения потока ложных ударов;</li>
+<li>tom: F2 с весом полноты, поскольку базовый профиль пропускал большинство томов.</li>
 </ul>
-<h3 id="holdout-result-100-200-s">Holdout result (100–200 s)</h3>
+<h3 id="section-35">Результат на holdout (100–200 с)</h3>
 <ul>
-<li>precision: <code>0.6388 → 0.7500</code> (<strong>+11.1 percentage points</strong>);</li>
-<li>recall: <code>0.8756 → 0.7390</code> (<strong>−13.7 points</strong>);</li>
-<li>F1: <code>0.7387 → 0.7445</code> (<strong>+0.6 points</strong>).</li>
+<li>точность: <code>0,6388 → 0,7500</code> (<strong>+11,1 процентных пункта</strong>);</li>
+<li>полнота: <code>0,8756 → 0,7390</code> (<strong>−13,7 пунктов</strong>);</li>
+<li>F1: <code>0,7387 → 0,7445</code> (<strong>+0,6 пункта</strong>).</li>
 </ul>
-<p>Notable classes:</p>
+<p>Особо выделяющиеся классы:</p>
 <ul>
-<li>hi-hat precision: <code>0.464 → 0.659</code>, but recall <code>0.745 → 0.403</code>;</li>
-<li>cymbal precision: <code>0.520 → 0.727</code>, but recall <code>0.813 → 0.500</code>;</li>
-<li>tom recall: <code>0.500 → 0.556</code>, while precision fell <code>0.474 → 0.357</code>;</li>
-<li>snare remained excellent: F1 <code>0.970 → 0.976</code>.</li>
+<li>точность хай-хэта: <code>0,464 → 0,659</code>, но полнота <code>0,745 → 0,403</code>;</li>
+<li>точность тарелок: <code>0,520 → 0,727</code>, но полнота <code>0,813 → 0,500</code>;</li>
+<li>полнота томов: <code>0,500 → 0,556</code>, при этом точность упала <code>0,474 → 0,357</code>;</li>
+<li>снейр остался отличным: F1 <code>0,970 → 0,976</code>.</li>
 </ul>
-<h3 id="final-untouched-result-200-301-9-s">Final untouched result (200–301.9 s)</h3>
+<h3 id="section-36">Результат на финальном untouched (200–301,9 с)</h3>
 <ul>
-<li>precision: <code>0.5287 → 0.5823</code> (<strong>+5.4 points</strong>);</li>
-<li>recall: <code>0.7034 → 0.5198</code> (<strong>−18.4 points</strong>);</li>
-<li>F1: <code>0.6036 → 0.5493</code> (<strong>−5.4 points</strong>).</li>
+<li>точность: <code>0,5287 → 0,5823</code> (<strong>+5,4 пункта</strong>);</li>
+<li>полнота: <code>0,7034 → 0,5198</code> (<strong>−18,4 пункта</strong>);</li>
+<li>F1: <code>0,6036 → 0,5493</code> (<strong>−5,4 пункта</strong>).</li>
 </ul>
-<p>The largest failure is hi-hat:</p>
+<p>Наибольший сбой — хай-хэт:</p>
 <ul>
-<li>precision <code>0.420 → 0.320</code>;</li>
-<li>recall <code>0.544 → 0.100</code>;</li>
-<li>F1 <code>0.474 → 0.152</code>.</li>
+<li>точность <code>0,420 → 0,320</code>;</li>
+<li>полнота <code>0,544 → 0,100</code>;</li>
+<li>F1 <code>0,474 → 0,152</code>.</li>
 </ul>
-<p>Tom and cymbal improve in some respects, but the full profile does not generalize. The useful lesson is not “calibration failed”; it is that <strong>a single global threshold per class is too coarse for this song’s changing sections</strong>, especially for hi-hat.</p>
-<h3 id="decision">Decision</h3>
-<p>The selected thresholds are retained as an evidence-backed experimental profile used to create one audition artifact. They are <strong>not promoted to production defaults</strong>. Next calibration should use several songs/sections or section-aware thresholds, and must preserve a fresh untouched test set.</p>
-<h2 id="6-what-phase-4-actually-implements">6. What Phase 4 actually implements</h2>
-<p>For every source event inside an accepted structural mapping:</p>
+<p>Тома и тарелки улучшаются в некоторых аспектах, но полный профиль не обобщается. Полезный вывод — не «калибровка провалилась», а то, что <strong>единый глобальный порог на класс слишком груб для меняющихся секций этой композиции</strong>, особенно для хай-хэта.</p>
+<h3 id="section-37">Решение</h3>
+<p>Выбранные пороги сохранены как экспериментальный профиль, подкреплённый измерениями и использованный для создания одного MIDI-артефакта для прослушивания. Они <strong>не становятся рабочими значениями по умолчанию</strong>. Следующая калибровка должна использовать несколько композиций или секций либо пороги с учётом секций и обязательно сохранять отдельный финальный тестовый набор, которого настройка не касалась.</p>
+<hr />
+<h2 id="section-38">6. Что на самом деле реализует фаза 4</h2>
+<p>Для каждого события источника внутри принятого структурного сопоставления:</p>
 <ol>
-<li>find the corresponding source interval and GP tick interval;</li>
-<li>compute the linear scale from seconds to destination ticks;</li>
-<li>preserve the event’s relative position inside that interval;</li>
-<li>preserve MIDI pitch/articulation and velocity when available;</li>
-<li>combine event confidence with mapping confidence;</li>
-<li>emit an immutable candidate with a deterministic ID.</li>
+<li>найти соответствующий исходный интервал и интервал тиков GP;</li>
+<li>вычислить линейный масштаб из секунд в целевые тики;</li>
+<li>сохранить относительную позицию события внутри этого интервала;</li>
+<li>сохранить номер MIDI-ноты/артикуляцию и velocity, если они доступны;</li>
+<li>объединить уверенность события с уверенностью сопоставления;</li>
+<li>сгенерировать неизменяемый кандидат с детерминированным ID.</li>
 </ol>
-<p>Conceptually:</p>
-<pre><code>target_tick = gp_start
+<p>Концептуально:</p>
+<pre><code class="language-text">target_tick = gp_start
             + round((event_seconds − source_start)
             × (gp_end − gp_start)
-            / (source_end − source_start))</code></pre>
-<p>Mappings marked as gaps, unsupported mapping types, missing pitches and mappings below confidence <code>0.5</code> are rejected rather than guessed.</p>
-<h3 id="velocity-policy">Velocity policy</h3>
-<p>Two explicit strategies exist:</p>
+            / (source_end − source_start))
+</code></pre>
+<p>Сопоставления, помеченные как пропуски, неподдерживаемые типы сопоставлений, события без номера MIDI-ноты и сопоставления с уверенностью ниже <code>0,5</code> отклоняются: система не пытается их угадывать.</p>
+<h3 id="section-39">Политика велосити</h3>
+<p>Существует две явные стратегии:</p>
 <ul>
-<li><code>preserve</code>: retain source velocity;</li>
-<li><code>confidence</code>: deterministic <code>30 + 97 × confidence</code>, clamped to MIDI 1–127.</li>
+<li><code>preserve</code>: сохранить исходную велосити;</li>
+<li><code>confidence</code>: детерминированная <code>30 + 97 × confidence</code>, ограниченная MIDI-диапазоном 1–127.</li>
 </ul>
-<p>The second strategy makes an ADTOF audition less flat, but confidence is not the same as musical dynamics. It remains experimental. No random timing or velocity humanization is introduced.</p>
-<h3 id="tempo-map-correction-discovered-during-verification">Tempo-map correction discovered during verification</h3>
-<p>The first generated overlays had a constant 120 BPM metadata event. Their ticks were structurally correct for DAW import into an existing tempo project, but standalone playback was too fast. Verification caught this presentation-layer defect.</p>
-<p>The compiler now accepts a reference tempo MIDI, copies tempo/time-signature/key-signature metadata, and rescales metadata ticks from 480 PPQ to 960 PPQ. The final artifacts contain all <strong>363</strong> source tempo events and play for approximately <strong>300.2 s</strong>, close to the source performance length.</p>
-<h2 id="7-e2e-artifacts">7. E2E artifacts</h2>
-<h3 id="adtof-calibrated-restoration-experimental-model-candidate">ADTOF calibrated restoration — experimental model candidate</h3>
+<p>Вторая стратегия делает MIDI-демо ADTOF менее плоским, но уверенность модели не равна музыкальной динамике. Стратегия остаётся экспериментальной. Случайная humanization времени или velocity не применяется.</p>
+<h3 id="section-40">Исправление карты темпа, обнаруженное при проверке</h3>
+<p>Первые сгенерированные оверлеи имели постоянное событие темпа 120 BPM. Их тики были структурно корректны для импорта в DAW в существующий проект с темпом, но автономное воспроизведение было слишком быстрым. Проверка выявила эту ошибку на уровне представления.</p>
+<p>Компилятор теперь принимает эталонный MIDI темпа, копирует метаданные темпа/знака такта/знака ключа и масштабирует метаданные тики с 480 PPQ до 960 PPQ. Финальные артефакты содержат все <strong>363</strong> исходных события темпа и воспроизводятся около <strong>300,2 с</strong>, близко к длительности исходного исполнения.</p>
+<hr />
+<h2 id="section-41">7. E2E-артефакты</h2>
+<h3 id="section-42">Восстановление ADTOF с калибровкой — экспериментальный кандидат модели</h3>
 <ul>
-<li>mapped notes: <strong>872</strong>;</li>
-<li>mapped measures containing events: <strong>78</strong>;</li>
-<li>pitch vocabulary: <strong>5</strong> (<code>35, 38, 42, 47, 49</code>);</li>
-<li>class counts: kick 402, snare 168, hi-hat 158, tom 92, cymbal 52;</li>
-<li>velocity range: <strong>44–118</strong> using deterministic confidence mapping;</li>
-<li>mapping-confidence median: approximately <strong>0.783</strong>;</li>
-<li>duration: <strong>300.193 s</strong>;</li>
-<li>tempo events: <strong>363</strong>;</li>
+<li>перенесённых нот: <strong>872</strong>;</li>
+<li>тактов с перенесёнными событиями: <strong>78</strong>;</li>
+<li>словарь MIDI-нот: <strong>5</strong> (<code>35, 38, 42, 47, 49</code>);</li>
+<li>количество классов: kick 402, snare 168, hi-hat 158, tom 92, cymbal 52;</li>
+<li>диапазон velocity: <strong>44–118</strong> при детерминированном преобразовании уверенности;</li>
+<li>медиана уверенности сопоставления: примерно <strong>0,783</strong>;</li>
+<li>длительность: <strong>300,193 с</strong>;</li>
+<li>событий темпа: <strong>363</strong>;</li>
 <li>SHA-256: <code>1767310b872f40b7e63c54c17045b6cde32e83cc7a9e5d2c69d53a271bcab64b</code>.</li>
 </ul>
-<p>Interpretation: this is the interesting ML result. It demonstrates that model attacks can be corrected, mapped onto the score grid and exported safely. It is not yet a realistic final drum performance because five classes cannot preserve the source’s full articulation vocabulary and the threshold profile fails to generalize in the last section.</p>
-<h3 id="source-midi-transfer-control-upper-bound-path">Source-MIDI transfer — control / upper-bound path</h3>
+<p>Интерпретация: это самый интересный ML-результат эксперимента. Он показывает, что атаки модели можно скорректировать, перенести на сетку партитуры и безопасно экспортировать. Это ещё не реалистичная финальная партия ударных: пять классов не сохраняют полный словарь артикуляций источника, а профиль порогов не переносится на последнюю секцию композиции.</p>
+<h3 id="section-43">Передача из эталонного MIDI — контроль / верхняя граница пути</h3>
 <ul>
-<li>source notes: <strong>945</strong>;</li>
-<li>mapped notes: <strong>939</strong>;</li>
-<li>safely rejected: <strong>6</strong> beyond accepted mapping coverage;</li>
-<li>mapped measures containing events: <strong>80</strong>;</li>
-<li>pitch vocabulary: <strong>13</strong>;</li>
-<li>velocity range: <strong>51–51</strong>, preserved from source;</li>
-<li>duration: <strong>300.200 s</strong>;</li>
-<li>tempo events: <strong>363</strong>;</li>
+<li>исходных нот: <strong>945</strong>;</li>
+<li>перенесённых нот: <strong>939</strong>;</li>
+<li>безопасно отклонено: <strong>6</strong> за пределами надёжно сопоставленного диапазона;</li>
+<li>тактов с перенесёнными событиями: <strong>80</strong>;</li>
+<li>словарь MIDI-нот: <strong>13</strong>;</li>
+<li>диапазон велосити: <strong>51–51</strong>, сохранённый из источника;</li>
+<li>длительность: <strong>300,200 с</strong>;</li>
+<li>событий темпа: <strong>363</strong>;</li>
 <li>SHA-256: <code>fd6381752e2dbb4f98a83e0bd8467840fbab5276e74e31045dc93a84ad409730</code>.</li>
 </ul>
-<p>Interpretation: this is not an ML win and must not be confused with ADTOF output. It is a control proving that the Phase 4 transfer layer can retain a much richer articulation vocabulary when the source events contain it. It also reveals that “realistic” dynamics cannot be recovered from this particular reference MIDI because every source velocity is 51.</p>
-<h3 id="downloads">Downloads</h3>
+<p>Интерпретация: это не победа ML, и этот результат нельзя смешивать с выводом ADTOF. Это контрольный путь, показывающий, что слой переноса фазы 4 сохраняет гораздо более богатый словарь артикуляций, если они присутствуют в исходных событиях. Одновременно он доказывает, что «реалистичную» динамику нельзя восстановить из данного референсного MIDI: velocity всех исходных нот равна 51.</p>
+<h3 id="section-44">Скачивание</h3>
 <ul>
-<li>ADTOF MIDI: <code><a href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-restoration.mid">http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-restoration.mid</a></code></li>
-<li>ADTOF candidate patch: <code><a href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-patch.json">http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-patch.json</a></code></li>
-<li>Source-transfer MIDI: <code><a href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-restoration.mid">http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-restoration.mid</a></code></li>
-<li>Source-transfer patch: <code><a href="http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-patch.json">http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-patch.json</a></code></li>
+<li>MIDI ADTOF: <code>http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-restoration.mid</code></li>
+<li>Кандидат-патч ADTOF: <code>http://192.168.40.254/shared/gpmidi-phase4/spring-drums-adtof-calibrated-patch.json</code></li>
+<li>MIDI передачи из источника: <code>http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-restoration.mid</code></li>
+<li>Патч передачи из источника: <code>http://192.168.40.254/shared/gpmidi-phase4/spring-drums-source-midi-patch.json</code></li>
 </ul>
-<h2 id="8-verification-performed">8. Verification performed</h2>
+<hr />
+<h2 id="section-45">8. Проведённая проверка</h2>
 <ul>
-<li>transcription-spike test suite: <strong>61 passed</strong>;</li>
-<li>Ruff: <strong>all checks passed</strong>;</li>
-<li>Python bytecode compilation: passed;</li>
-<li>actual CLI E2E run for both artifacts: passed;</li>
-<li>second independent rebuild: byte-for-byte identical patches and MIDI files;</li>
-<li>MIDI type: 1;</li>
+<li>тестовый набор transcription-spike: <strong>61 прошло</strong>;</li>
+<li>Ruff: <strong>все проверки прошли</strong>;</li>
+<li>компиляция байт-кода Python: прошло;</li>
+<li>фактический CLI E2E-запуск обоих артефактов: прошёл;</li>
+<li>вторая независимая пересборка: идентичные патчи и MIDI-файлы по байтам;</li>
+<li>тип MIDI: 1;</li>
 <li>PPQ: 960;</li>
-<li>tempo events: 363 in each artifact;</li>
-<li>negative delta times: 0;</li>
-<li>downloadable files regenerated from the current code.</li>
+<li>событий темпа: 363 в каждом артефакте;</li>
+<li>отрицательных дельта-времён: 0;</li>
+<li>загружаемые файлы перегенерированы из текущего кода.</li>
 </ul>
-<p>The initial test attempt accidentally used a virtual environment without Pydantic and failed during collection. This was an environment selection error, not a product regression. Rerunning in the project-capable environment produced 61/61 passing tests.</p>
-<h2 id="9-what-we-learned-musically">9. What we learned musically</h2>
+<p>Первая попытка теста случайно использовала виртуальное окружение без Pydantic и завершилась во время сбора. Это была ошибка выбора окружения, а не регрессия продукта. Повторный запуск в окружении, поддерживающем проект, дал 61/61 проходящих тестов.</p>
+<hr />
+<h2 id="section-46">9. Музыкальные выводы</h2>
 <ol>
-<li><strong>Timing is now the least mysterious part.</strong> The 140 ms correction has an independent physical explanation and remains stable across the song.</li>
-<li><strong>Detection quality is section-dependent.</strong> A global hi-hat threshold that looks cleaner in one section can erase most hits in another.</li>
-<li><strong>Five classes are a bottleneck.</strong> The control has 13 pitches, while ADTOF emits five. Full articulation restoration requires either a richer model, post-classification, or transfer from a richer symbolic reference.</li>
-<li><strong>Confidence is not expression.</strong> Turning confidence into velocity creates audible variation but not necessarily intentional accents or groove.</li>
-<li><strong>Reference-guided mapping is valuable even when ML is imperfect.</strong> It isolates uncertain model events from the trusted score and makes review local, reversible and deterministic.</li>
+<li><strong>Время — теперь наименее загадственная часть.</strong> Коррекция 140 мс имеет независимое физическое объяснение и остаётся стабильной по всей композиции.</li>
+<li><strong>Качество обнаружения зависит от секции.</strong> Глобальный порог хай-хэта, который выглядит чище в одной секции, может уничтожить большинство ударов в другой.</li>
+<li><strong>Пять классов — узкое место.</strong> Контроль имеет 13 пичей, тогда как ADTOF выдаёт пять. Полное восстановление артикуляции требует либо более богатой модели, либо пост-классификации, либо передачи из более богатого символического источника.</li>
+<li><strong>Уверенность модели — не выразительность исполнения.</strong> Преобразование уверенности в velocity создаёт слышимую вариацию, но не обязательно осмысленные акценты или groove.</li>
+<li><strong>Сопоставление с опорой на референс полезно даже при несовершенном ML.</strong> Оно изолирует сомнительные события модели от доверенной партитуры и делает проверку локальной, обратимой и детерминированной.</li>
 </ol>
-<h2 id="10-go-no-go-rollback">10. Go / no-go / rollback</h2>
-<h3 id="go">GO</h3>
+<hr />
+<h2 id="section-47">10. Решение контрольной точки: go / no-go / rollback</h2>
+<h3 id="section-48">GO</h3>
 <ul>
-<li>continue Phase 4 as a supervised candidate-generation workflow;</li>
-<li>use the −140 ms correction for this identified Spring Melody WAV/MIDI pair;</li>
-<li>retain class-specific thresholds as an experiment profile;</li>
-<li>review candidates measure by measure;</li>
-<li>pursue richer articulation and dynamics separately from onset timing.</li>
+<li>продолжить фазу 4 как рабочий процесс генерации кандидатов с ручным контролем;</li>
+<li>использовать коррекцию −140 мс для этой идентифицированной пары WAV/MIDI Spring Melody;</li>
+<li>сохранить класс-специфичные пороги как экспериментальный профиль;</li>
+<li>проверять кандидаты такт за тактом;</li>
+<li>развивать более богатую артикуляцию и динамику отдельно от коррекции времени атаки.</li>
 </ul>
-<h3 id="no-go">NO-GO</h3>
+<h3 id="section-49">NO-GO</h3>
 <ul>
-<li>do not auto-apply model output to Guitar Pro;</li>
-<li>do not promote this threshold profile globally;</li>
-<li>do not describe the five-class ADTOF artifact as a complete realistic drum part;</li>
-<li>do not treat confidence-derived velocity as recovered performance dynamics;</li>
-<li>do not remove the existing Guitar Pro → MIDI path.</li>
+<li>не применять автоматически вывод модели к Guitar Pro;</li>
+<li>не продвигать этот профиль порогов глобально;</li>
+<li>не описывать артефакт ADTOF из пяти классов как полную реалистичную драм-партию;</li>
+<li>не рассматривать велосити, полученную из уверенности, как восстановленную динамику исполнения;</li>
+<li>не удалять существующий путь Guitar Pro → MIDI.</li>
 </ul>
-<h3 id="rollback">Rollback</h3>
-<p>Rollback is immediate: ignore/delete the candidate patch and overlay and continue using the trusted <code>origin/main</code> converter baseline. No source GP revision or production data is modified by Phase 4.</p>
-<h2 id="11-recommended-next-experiment">11. Recommended next experiment</h2>
-<p>The next highest-value slice is deliberately narrow:</p>
+<h3 id="section-50">Rollback</h3>
+<p>Откат мгновенный: достаточно игнорировать или удалить кандидат-патч и оверлей и продолжить использовать проверенную базовую версию конвертера из <code>origin/main</code>. Фаза 4 не изменяет исходную ревизию GP и рабочие данные.</p>
+<hr />
+<h2 id="section-51">11. Рекомендуемый следующий эксперимент</h2>
+<p>Следующий наиболее ценный эксперимент намеренно узок:</p>
 <ol>
-<li>choose 8–12 musically diverse measures, including the failing late hi-hat section;</li>
-<li>have a human mark accepted/missing/extra hits and articulation corrections;</li>
-<li>compare three sources on exactly those measures:</li>
+<li>выбрать 8–12 музыкально разнообразных тактов, включая неудачную позднюю секцию хай-хэта;</li>
+<li>поручить человеку отметить принятые/пропущенные/лишние удары и исправления артикуляции;</li>
+<li>сравнить три источника именно на этих тактах:
+<ul>
+<li>базовый Guitar Pro/MIDI;</li>
+<li>кандидаты ADTOF из пяти классов;</li>
+<li>контроль передачи из эталонного MIDI;</li>
+</ul>
+</li>
+<li>добавить более богатый классификатор артикуляции ударных или детерминированное контекстное переназначение только там, где доказано вредное свёртывание пяти классов;</li>
+<li>оценивать время редактирования на такт, а не только F1;</li>
+<li>сохранить «человечность» опциональной и только для ударных.</li>
 </ol>
-<p>- baseline Guitar Pro/MIDI; - five-class ADTOF candidates; - source-MIDI transfer control;</p>
-<ol>
-<li>add a richer drum articulation classifier or deterministic contextual remapping only where five-class collapse is proven harmful;</li>
-<li>evaluate edit time per measure, not only F1;</li>
-<li>keep humanization opt-in and drums-only.</li>
-</ol>
-<p>The practical success criterion should be: <strong>does the candidate overlay reduce manual editing time while preserving score safety?</strong> That is more aligned with the PoC goal than chasing a single aggregate F1 number.</p></article></main><footer class="footer"><div>GPMIDI hobby PoC · Evidence-backed report · Source and artifacts are linked from the feature branch.</div></footer><script>addEventListener('scroll',()=>{const d=document.documentElement;document.getElementById('progress').style.width=(100*d.scrollTop/(d.scrollHeight-d.clientHeight))+'%'});</script></body></html>
+<p>Практический критерий успеха: <strong>уменьшает ли кандидат-оверлей время ручного редактирования, не подвергая риску исходную партитуру?</strong> Это лучше соответствует цели PoC, чем погоня за одним агрегатным значением F1.</p>
+</article></main><footer class="footer"><div>GPMIDI hobby PoC · Отчёт на основе воспроизводимых измерений · Исходники и артефакты находятся в feature branch.</div></footer><script>addEventListener('scroll',()=>{const d=document.documentElement;document.getElementById('progress').style.width=(100*d.scrollTop/(d.scrollHeight-d.clientHeight))+'%'});</script></body></html>
