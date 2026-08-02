@@ -17,19 +17,32 @@ Phase 3 runtimes are isolated from the stable converter and `reference-time` ser
 
 The model is a measurement baseline, not a restoration dependency. Its output is retained as evidence and must be evaluated against the corresponding Suno bass MIDI in source seconds before any Phase 4 decision.
 
-## Drum candidates — not yet accepted
+## Drum candidates — feasibility checked, none accepted
 
 ### Omnizart
 
 - Upstream: <https://github.com/Music-and-Culture-Technology-Lab/omnizart>
 - Repository code license: MIT.
-- Current status: candidate only. Checkpoint provenance/license, pinned modern runtime and real inference have not yet passed acceptance.
+- Inspected version: `0.6.3`, commit `bcd8cb44d4da66ce87df10b6abee5c35a8cc2886`.
+- Checkpoint distribution: upstream `checkpoints-20211001` release; the four
+  drum checkpoint file digests are recorded in
+  `docs/phase-3-drum-candidate-feasibility.md`.
+- Current status: no-go for the current minimal path. Source/checkpoint
+  distribution appears MIT-covered, but the upstream setup performs nested
+  dependency installs while resolving metadata, so a reproducible hash-locked
+  install was not achieved. No inference or image is claimed.
 
 ### ADTLib
 
 - Upstream: <https://github.com/CarlSouthall/ADTLib>
-- Repository describes the code as BSD-licensed.
-- Current status: candidate only. Bundled checkpoint license and current Python/runtime compatibility still require verification.
+- Inspected commit: `8e429f38736e7c8ef94e06314eaa1d1ac7dd30fe`.
+- Repository `LICENSE.txt` is BSD-2-Clause, but package classifiers also say
+  `Free for non-commercial use`; bundled checkpoint rights/provenance are not
+  separately documented.
+- Runtime imports Python-2.7-era TensorFlow 1 `tensorflow.contrib.rnn`.
+- Current status: no-go as a permissive product candidate pending author
+  clarification of licensing/model rights; modern runtime compatibility also
+  fails the minimal-path gate.
 
 ### ADTOF
 

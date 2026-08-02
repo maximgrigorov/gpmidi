@@ -170,10 +170,12 @@ not product quality. Full hashes and metrics are in
 
 ## Next
 
-Phase 3 Tasks 5–7: record drum-candidate code/checkpoint licensing and runtime
-feasibility, then compare only genuinely runnable candidates on hash-identified
-Spring Melody drum excerpts. Do not enter Phase 4 until the per-class drum
-evidence and a separate review support a go decision.
+Phase 3 Task 5 feasibility is recorded in
+`docs/phase-3-drum-candidate-feasibility.md`: neither Omnizart nor ADTLib passed
+the minimal permissive runnable gate, so no drum metrics are claimed. The next
+step is a modern permissive candidate with explicitly licensed weights, or an
+explicitly approved Omnizart drum-only repack spike. Do not enter Phase 4 until
+per-class drum evidence and a separate review support a go decision.
 
 ## Operational state
 
