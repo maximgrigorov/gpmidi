@@ -146,11 +146,11 @@ PipelineRun `phase3-idm-readback-ln7cj` verified the event evidence SHA-256
 `e0817ebedc40774a15cc9ab5d4448bc8c3ea4ca5e66f6c5a9949e53e8a5e85fb`
 and checked event ordering, instrument classes and MIDI velocity bounds.
 
-This changes the drum status from "no runnable candidate" to "one technically
-runnable candidate". It does not change the product decision: the upstream
-demo has no matching reference MIDI, so transcription precision and recall are
-unknown. The next gate is inference on the fixed Spring Melody drum WAV and
-evaluation against the corresponding original Suno drum MIDI in source seconds.
+This changed the drum status from "no runnable candidate" to "one technically
+runnable candidate". Subsequent Spring Melody evidence is recorded in
+`docs/phase-3-drum-real-input-findings.md`: IDM emitted 671 events, with raw
+source-time F1@50 ms 0.013639 and best disclosed offset-sensitivity F1 0.338710
+at -140 ms. It remains a musical-quality no-go at the tested settings.
 
 ## Second runnable research comparator: ADTOF-pytorch
 
@@ -171,3 +171,11 @@ ADTOF-pytorch is research-only: the port contains no LICENSE and the checkpoint
 is a conversion of upstream ADTOF weights. Upstream declares CC BY-NC-SA 4.0
 while its package metadata also mentions GPLv3. The runtime therefore does not
 alter the production/commercial gate even if its technical evaluation is good.
+
+The subsequent complete Spring Melody run emitted 1,291 events. Raw source-time
+F1@50 ms is 0.017017; a clearly separated offset-sensitivity sweep peaks at F1
+0.616211 at -145 ms. This is substantially better than IDM after the same
+diagnostic treatment, especially for kick and snare, but the offset lacks an
+independently justified runtime contract and the licensing boundary is
+unchanged. Pipeline, digest, hashes and per-class metrics are recorded in
+`docs/phase-3-drum-real-input-findings.md`.

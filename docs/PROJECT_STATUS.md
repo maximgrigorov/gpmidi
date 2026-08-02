@@ -1,7 +1,7 @@
 # Project status — Reference-Guided MIDI Restoration
 
 **Last evidence update:** 2026-08-02
-**Current milestone:** Phase 1 accepted. Phase 2 implemented and re-verified on its feature branch after a clean-context audit; **not merged**. Phase 3 transcription spike is in progress on `feat/transcription-spike`; the first bass baseline is technically reproducible but is a musical-quality no-go.
+**Current milestone:** Phase 1 accepted. Phase 2 implemented and re-verified on its feature branch after a clean-context audit; **not merged**. Phase 3 transcription spike has reproducible bass and drum evidence on `feat/transcription-spike`; every tested product candidate remains a musical-quality no-go.
 
 ## Completed
 
@@ -170,14 +170,17 @@ not product quality. Full hashes and metrics are in
 
 ## Next
 
-Phase 3 Task 5 initially rejected Omnizart and ADTLib as minimal runnable paths.
-A subsequent Inverse Drum Machine spike passed the technical runtime gate on
-AILab: its pinned Apache-2.0 checkpoint loaded and emitted structurally valid
-events from upstream demo audio. This does not establish transcription quality,
-because that demo has no matching reference MIDI. The next gate is Spring
-Melody drum-stem inference and per-class comparison with the original Suno drum
-MIDI. Do not enter Phase 4 until that real-input evidence and a separate review
-support a go decision.
+Phase 3 Task 5 now has an apples-to-apples real-input comparison on the complete
+Spring Melody drum stem. Inverse Drum Machine emitted 671 events and ADTOF-
+pytorch emitted 1,291, both from digest-pinned CPU images with hash-verified
+input and independent evidence readback. Against 942 reference attacks in the
+shared five-class taxonomy, raw source-time F1@50 ms is 0.013639 for IDM and
+0.017017 for ADTOF. Diagnostic offset sweeps peak at 0.338710 (-140 ms) and
+0.616211 (-145 ms), respectively, but no fixed timestamp correction is yet
+justified. ADTOF is also research/non-commercial only under the current license
+evidence. Therefore Phase 4 remains blocked: IDM is permissive but insufficiently
+accurate, while ADTOF is the stronger research comparator but not a product
+dependency. Full evidence is in `docs/phase-3-drum-real-input-findings.md`.
 
 ## Operational state
 
