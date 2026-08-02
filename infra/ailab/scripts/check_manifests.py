@@ -160,6 +160,31 @@ def main(argv: list[str]) -> int:
                 f"EventListener/{listener}, not declared explicitly"
             )
 
+    # Workspace PVCs are quota-bound (20 claims in gpmidi-ml), while each normal
+    # PipelineRun can allocate two claims. A time-only seven-day policy exhausted
+    # the quota during one acceptance session. Keep the pruning contract fail-closed:
+    # frequent execution plus a bounded number of completed runs.
+    prune = cronjobs.get("tekton-prune")
+    if prune:
+        schedule = (prune.get("spec") or {}).get("schedule")
+        pod_spec = (
+            ((((prune.get("spec") or {}).get("jobTemplate") or {}).get("spec") or {})
+            .get("template") or {}).get("spec") or {}
+        )
+        scripts = "\n".join(
+            str(arg)
+            for container in pod_spec.get("containers") or []
+            for arg in container.get("args") or []
+        )
+        if schedule != "*/15 * * * *":
+            failures.append(
+                "CronJob/tekton-prune: schedule must be */15 * * * * for PVC quota safety"
+            )
+        if "RETAIN_COMPLETED_RUNS=4" not in scripts:
+            failures.append(
+                "CronJob/tekton-prune: must retain at most four completed PipelineRuns"
+            )
+
     # Every application workload must be selected by at least one NetworkPolicy.
     for name, doc in sorted(workloads.items()):
         labels = (
