@@ -17,7 +17,22 @@ Phase 3 runtimes are isolated from the stable converter and `reference-time` ser
 
 The model is a measurement baseline, not a restoration dependency. Its output is retained as evidence and must be evaluated against the corresponding Suno bass MIDI in source seconds before any Phase 4 decision.
 
-## Drum candidates — feasibility checked, none accepted
+## Drum candidates — one runtime candidate pending real-input verification
+
+### Inverse Drum Machine (IDM)
+
+- Upstream: <https://github.com/bernardo-torres/inverse-drum-machine>
+- Inspected commit: `456656868538205ef756912c7cf5b0fd936de8af`.
+- Repository license: Apache-2.0.
+- The pretrained `idm-44-train-kits` checkpoint is bundled in the same licensed
+  repository, not downloaded from a separately licensed model host.
+- Checkpoint SHA-256:
+  `5856a9bee7c6d503842795756d238dc8470f6f3e010e9e4f33ede0362850cb4c`.
+- Scope: nine drum classes; the spike exports unaligned source-second events
+  and General MIDI mappings as evidence JSON.
+- Current status: code/license/provenance and unit contract gates pass. It is
+  not accepted as a product dependency until real AILab inference and
+  reference-MIDI evaluation pass.
 
 ### Omnizart
 
