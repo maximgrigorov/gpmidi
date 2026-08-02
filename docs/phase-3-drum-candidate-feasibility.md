@@ -151,3 +151,23 @@ runnable candidate". It does not change the product decision: the upstream
 demo has no matching reference MIDI, so transcription precision and recall are
 unknown. The next gate is inference on the fixed Spring Melody drum WAV and
 evaluation against the corresponding original Suno drum MIDI in source seconds.
+
+## Second runnable research comparator: ADTOF-pytorch
+
+Claude's follow-up candidate search identified Xavier Riley's PyTorch port of
+ADTOF as the lowest-friction second runtime. Independent inspection pinned
+commit `85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9`, source archive SHA-256
+`28602a3bd89836240d519396b566966c52b6439e2f3cda61d8a674433b350b56`,
+and bundled checkpoint SHA-256
+`1bc986e596ec47ba0b44916f87cd4a39f0b2bec23596df3fb5d0e87749217320`.
+
+AILab PipelineRun `phase3-adtof-research-smoke-8jxgb` reproduced CPU inference
+on the upstream test WAV. It emitted 136 MIDI events over pitches
+35/38/42/47/49, all at fixed velocity 100, and produced MIDI SHA-256
+`bc5d62431a762af4c90165aca0f320b75ebadc2d5ab0b531b439f66378acf18c`.
+This is a runtime pass, not a musical-quality pass.
+
+ADTOF-pytorch is research-only: the port contains no LICENSE and the checkpoint
+is a conversion of upstream ADTOF weights. Upstream declares CC BY-NC-SA 4.0
+while its package metadata also mentions GPLv3. The runtime therefore does not
+alter the production/commercial gate even if its technical evaluation is good.

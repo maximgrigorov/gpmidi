@@ -61,8 +61,21 @@ The model is a measurement baseline, not a restoration dependency. Its output is
   clarification of licensing/model rights; modern runtime compatibility also
   fails the minimal-path gate.
 
-### ADTOF
+### ADTOF / ADTOF-pytorch
 
-- Upstream: <https://github.com/MZehren/ADTOF>
-- Repository license: CC BY-NC-SA 4.0.
-- Current status: research-only comparator. It must not become a production or commercial dependency without a separate licensing decision.
+- Upstream ADTOF: <https://github.com/MZehren/ADTOF>.
+- PyTorch port: <https://github.com/xavriley/ADTOF-pytorch>, inspected commit
+  `85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9`.
+- ADTOF-pytorch has no LICENSE file. Its bundled 3,617,805-byte checkpoint is a
+  numeric conversion of the upstream ADTOF weights.
+- Checkpoint SHA-256:
+  `1bc986e596ec47ba0b44916f87cd4a39f0b2bec23596df3fb5d0e87749217320`.
+- Upstream ADTOF declares CC BY-NC-SA 4.0 while `setup.py` also advertises GPLv3.
+- Runtime scope: research-only five-class comparator; source-second events for
+  kick, snare, tom, merged hi-hat and merged cymbal, with fixed velocity 100.
+- Current status: exact-source CPU inference was reproduced on AILab. The
+  upstream test WAV produced 136 structurally valid events. This proves runtime
+  feasibility only, not musical quality or commercial usability.
+
+Do not use either ADTOF implementation as a production or commercial dependency
+without explicit licensing clarification from the authors and legal review.
