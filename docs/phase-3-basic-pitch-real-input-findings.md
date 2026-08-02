@@ -1,6 +1,6 @@
 # Phase 3 Basic Pitch real-input findings
 
-Date: 2026-08-01
+Date: 2026-08-01; AILab operational evidence accepted 2026-08-02
 
 ## Scope and identity
 
@@ -20,7 +20,8 @@ The source WAV digest matches the Phase 2 Project API `stem.bass` evidence. The 
 - Adapter: Basic Pitch `0.4.0`
 - Serialization: TFLite
 - Model SHA-256: `3db297d54af8e01c6e5618245c956b1d71b6a2b978cb2dedb527173186552676`
-- Historical local image ID: `sha256:f5fac828aca074fe7441910b11463e0aad73d44906539a52ef2f81575adb9d8e` (development evidence only; not accepted as an operational image reference)
+- Historical local image ID: `sha256:f5fac828aca074fe7441910b11463e0aad73d44906539a52ef2f81575adb9d8e` (development evidence only)
+- Accepted AILab image: `192.168.30.2:3300/mgrigorov/basic-pitch@sha256:959e6ddede613624f42ffc06d5b667bc05cb9290c4ca1dea40ea292917aedd77`
 - Runtime controls: `--network none`, read-only rootfs, all capabilities dropped, no-new-privileges, 2 GiB memory, 2 CPUs, 256 PIDs
 - Runtime duration through bounded runner: 27.551 seconds
 - Output MIDI: 1,526 bytes, 78 predicted events
@@ -28,7 +29,11 @@ The source WAV digest matches the Phase 2 Project API `stem.bass` evidence. The 
 
 The manual isolated invocation and bounded-runner invocation produced byte-identical MIDI.
 
-No repository-qualified registry digest was available during this local spike. Therefore the recorded image ID proves which local image ran but is not portable deployment provenance. The operational adapter now requires `repository@sha256:...`; publishing that image is an AILab prerequisite.
+The historical local run did not have portable image provenance. That boundary is
+now closed by AILab PipelineRun `phase3-transcription-cx59p`, which built and
+audited the exact commit and ran the real input by the repository-qualified digest
+above. The runtime output and evaluation hashes are byte-identical to the values
+recorded below.
 
 ## Metrics
 
@@ -78,7 +83,29 @@ For a full WAV-to-report run, replace `--prediction-midi` with `--audio`, and pr
 
 ## Evidence artifacts
 
-Local evidence root:
+Accepted AILab evidence:
+
+- exact commit: `9b3ca7d9c4b5f5e7d40bc3d8ae8dea51fcca582d`;
+- PipelineRun: `phase3-transcription-cx59p` (`True / Succeeded`);
+- all TaskRuns succeeded: clone, transcription tests, image build, image audit,
+  real input and evidence publication;
+- retained bundle: `phase3-transcription-9b3ca7d9c4b5f5e7d40bc3d8ae8dea51fcca582d`
+  on the `tekton-evidence` PVC;
+- independent readback PipelineRun: `phase3-evidence-readback-sdxz9`
+  (`True / Succeeded`), including successful `sha256sum -c SHA256SUMS`;
+- input/reference/prediction/runtime/evaluation/provenance SHA-256 respectively:
+  `d3e5cec64a13fc8c35050f84b9e67f30124d8bb4010295ff7524fd9ccc0cbb1f`,
+  `82250c89783273ce847500a7f9a582e6df74e9e2ea8be3af296f480d2f1b8ed9`,
+  `e6687e5855c00d0b81fa9c0754bc33d53d46aed919ccf3cd6daff449e29ce246`,
+  `48c668ba3374a620aacb3cefc80f0f89669fd7b9eac88c7ee6a664067bf6a827`,
+  `5a5c335452a9238e761a044fecbd1b9bbdb5749019b6aac08b9e52175e6840b4`,
+  `9256bf4d09f4a66410996210ec655ab779e7c42bc1491173538ed550a56aafdd`.
+
+The namespace egress NetworkPolicy permits TaskRun egress. Accordingly this run
+must not be described as network-isolated even though inference used the accepted
+bounded runtime controls.
+
+Historical local evidence root:
 
 `/home/hermes/shared/spring-melody-phase3/`
 

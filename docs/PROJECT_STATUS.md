@@ -1,7 +1,7 @@
 # Project status — Reference-Guided MIDI Restoration
 
-**Last independent review:** 2026-07-31
-**Current milestone:** Phase 1 accepted. Phase 2 implemented and re-verified on its feature branch after a clean-context audit; **not merged**. Phase 3 not started.
+**Last evidence update:** 2026-08-02
+**Current milestone:** Phase 1 accepted. Phase 2 implemented and re-verified on its feature branch after a clean-context audit; **not merged**. Phase 3 transcription spike is in progress on `feat/transcription-spike`; the first bass baseline is technically reproducible but is a musical-quality no-go.
 
 ## Completed
 
@@ -65,7 +65,7 @@ Therefore the **first prerequisite in the next Cursor task** is to establish AIL
 
 **Branch:** `feat/reference-time-vertical-slice`
 **Status:** implemented and independently re-verified on the branch after a
-clean-context audit. **Not merged to `main`. Phase 3 not started.**
+clean-context audit. **Not merged to `main`.**
 
 The previous branch state was audited and rejected. Every defect below was
 reproduced before being fixed, and the fixes are pinned by tests rather than by
@@ -141,14 +141,45 @@ Full evidence, including per-scenario observations and archived gate logs:
 `tekton-evidence` PVC bundle `manual-candidate-9ebe854f…` with `SHA256SUMS`.
 <!-- PHASE2-EVIDENCE-END -->
 
+### Phase 3 — Transcription spike (feature branch)
+
+**Branch:** `feat/transcription-spike`
+**Status:** Tasks 1–4 implemented and independently exercised. This phase is
+evidence-only: it does not mutate GP or MIDI assets and does not use the rewritten
+GP measure grid as timing ground truth.
+
+Authoritative Basic Pitch AILab run:
+
+- PipelineRun `phase3-transcription-cx59p`: `True / Succeeded`;
+- exact source commit `9b3ca7d9c4b5f5e7d40bc3d8ae8dea51fcca582d`;
+- immutable image `192.168.30.2:3300/mgrigorov/basic-pitch@sha256:959e6ddede613624f42ffc06d5b667bc05cb9290c4ca1dea40ea292917aedd77`;
+- image audit: `linux/amd64`, runtime user `65532:65532`, no fixable CRITICAL;
+- retained evidence bundle `phase3-transcription-9b3ca7d9c4b5f5e7d40bc3d8ae8dea51fcca582d`
+  on `tekton-evidence`;
+- independent readback PipelineRun `phase3-evidence-readback-sdxz9` succeeded
+  and verified the archive with `sha256sum -c SHA256SUMS`.
+
+On the fixed Spring Melody bass window `[195, 215)` seconds the reference has
+58 events and Basic Pitch predicts 78. At 50 ms exact-pitch matching gives
+TP=14, FP=64, FN=44, precision=0.179487, recall=0.241379 and F1=0.205882.
+Onset-only matching gives F1=0.294118, with frequent octave-down (`-12`)
+errors. Therefore Basic Pitch 0.4.0 at the tested defaults is a **no-go for
+automatic bass restoration**. The successful pipeline proves reproducibility,
+not product quality. Full hashes and metrics are in
+`docs/phase-3-basic-pitch-real-input-findings.md`.
+
 ## Next
 
-Phase 2 acceptance review. Phase 3 (MIDI restoration using the measure mappings) not started.
+Phase 3 Tasks 5–7: record drum-candidate code/checkpoint licensing and runtime
+feasibility, then compare only genuinely runnable candidates on hash-identified
+Spring Melody drum excerpts. Do not enter Phase 4 until the per-class drum
+evidence and a separate review support a go decision.
 
 ## Operational state
 
-AILab is running. The Tekton delivery path is installed and active in namespace
-`gpmidi-ml`. A push to `main` on Gitea is authenticated by shared-secret signature
+AILab is powered on only for scheduled work and is shut down after all dependent
+evidence and Git readback are complete. The Tekton delivery path is installed in
+namespace `gpmidi-ml`. A push to `main` on Gitea is authenticated by shared-secret signature
 and validated for repository, ref and commit shape before a PipelineRun is created;
 a feature candidate is validated by `infra/ailab/scripts/run-pipeline.sh`, which
 labels the run `manual-candidate` so evidence never misrepresents it as a main
