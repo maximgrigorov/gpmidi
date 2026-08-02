@@ -1,0 +1,190 @@
+{
+  "fps": 100,
+  "lag_estimates": [
+    {
+      "best_lag_seconds": 0.14,
+      "reference_events": 176,
+      "top_lags": [
+        {
+          "lag_seconds": 0.14,
+          "mean_flux_score": 5.528919188322361
+        },
+        {
+          "lag_seconds": 0.13,
+          "mean_flux_score": 5.004029266348097
+        },
+        {
+          "lag_seconds": -0.26,
+          "mean_flux_score": 4.178469504285034
+        },
+        {
+          "lag_seconds": -0.25,
+          "mean_flux_score": 3.2956188148973298
+        },
+        {
+          "lag_seconds": -0.06,
+          "mean_flux_score": 3.1809975400986104
+        },
+        {
+          "lag_seconds": -0.07,
+          "mean_flux_score": 1.818125949484159
+        },
+        {
+          "lag_seconds": -0.05,
+          "mean_flux_score": 1.20356124893481
+        },
+        {
+          "lag_seconds": -0.27,
+          "mean_flux_score": 1.0543304652526748
+        },
+        {
+          "lag_seconds": 0.15,
+          "mean_flux_score": 0.8338183513876124
+        },
+        {
+          "lag_seconds": 0.27,
+          "mean_flux_score": 0.6617485407847028
+        }
+      ],
+      "window_seconds": [
+        0.0,
+        100.0
+      ]
+    },
+    {
+      "best_lag_seconds": 0.14,
+      "reference_events": 410,
+      "top_lags": [
+        {
+          "lag_seconds": 0.14,
+          "mean_flux_score": 10.38859188540515
+        },
+        {
+          "lag_seconds": 0.13,
+          "mean_flux_score": 9.587918451012111
+        },
+        {
+          "lag_seconds": -0.26,
+          "mean_flux_score": 9.097690877766484
+        },
+        {
+          "lag_seconds": -0.25,
+          "mean_flux_score": 8.233269660450643
+        },
+        {
+          "lag_seconds": -0.06,
+          "mean_flux_score": 6.094395110487263
+        },
+        {
+          "lag_seconds": -0.05,
+          "mean_flux_score": 3.0788185802144055
+        },
+        {
+          "lag_seconds": -0.07,
+          "mean_flux_score": 2.7141326856684627
+        },
+        {
+          "lag_seconds": 0.15,
+          "mean_flux_score": 2.5300620846726667
+        },
+        {
+          "lag_seconds": -0.27,
+          "mean_flux_score": 2.0630173037185857
+        },
+        {
+          "lag_seconds": -0.24,
+          "mean_flux_score": 1.9773174618225267
+        }
+      ],
+      "window_seconds": [
+        100.0,
+        200.0
+      ]
+    },
+    {
+      "best_lag_seconds": 0.14,
+      "reference_events": 357,
+      "top_lags": [
+        {
+          "lag_seconds": 0.14,
+          "mean_flux_score": 10.41960339204019
+        },
+        {
+          "lag_seconds": -0.06,
+          "mean_flux_score": 9.428174302149259
+        },
+        {
+          "lag_seconds": -0.25,
+          "mean_flux_score": 8.873399933618172
+        },
+        {
+          "lag_seconds": 0.13,
+          "mean_flux_score": 7.530709995151599
+        },
+        {
+          "lag_seconds": -0.05,
+          "mean_flux_score": 6.333540433399583
+        },
+        {
+          "lag_seconds": -0.26,
+          "mean_flux_score": 6.315464306665655
+        },
+        {
+          "lag_seconds": 0.15,
+          "mean_flux_score": 4.209503851512396
+        },
+        {
+          "lag_seconds": -0.07,
+          "mean_flux_score": 3.694646342743207
+        },
+        {
+          "lag_seconds": -0.24,
+          "mean_flux_score": 3.6553937723054495
+        },
+        {
+          "lag_seconds": -0.02,
+          "mean_flux_score": 1.7493159749776044
+        }
+      ],
+      "window_seconds": [
+        200.0,
+        301.9
+      ]
+    }
+  ],
+  "local_peak_deltas": [
+    {
+      "count": 176,
+      "delta_p25_seconds": -0.19675521927087347,
+      "delta_p50_seconds": -0.056699071875016216,
+      "delta_p75_seconds": 0.13535663489578553,
+      "window_seconds": [
+        0.0,
+        100.0
+      ]
+    },
+    {
+      "count": 410,
+      "delta_p25_seconds": -0.20337591406261168,
+      "delta_p50_seconds": 0.12972442395824402,
+      "delta_p75_seconds": 0.13621143749990594,
+      "window_seconds": [
+        100.0,
+        200.0
+      ]
+    },
+    {
+      "count": 357,
+      "delta_p25_seconds": -0.09717111875005457,
+      "delta_p50_seconds": -0.05531675000028713,
+      "delta_p75_seconds": 0.13616639583310075,
+      "window_seconds": [
+        200.0,
+        301.9
+      ]
+    }
+  ],
+  "method": "audio positive spectral flux sampled at MIDI event times; ADTOF predictions unused",
+  "midi_events": 945,
+  "sample_rate": 48000
+}

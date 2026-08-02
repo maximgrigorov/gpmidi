@@ -1,0 +1,58 @@
+{
+  "artifacts": {
+    "adtof_midi": {
+      "bytes": 10015,
+      "duration_seconds": 300.19260599999967,
+      "midi_type": 1,
+      "negative_delta_count": 0,
+      "note_count": 872,
+      "path": "/srv/shared/http/gpmidi-phase4/spring-drums-adtof-calibrated-restoration.mid",
+      "pitch_count": 5,
+      "pitches": [
+        35,
+        38,
+        42,
+        47,
+        49
+      ],
+      "sha256": "1767310b872f40b7e63c54c17045b6cde32e83cc7a9e5d2c69d53a271bcab64b",
+      "tempo_event_count": 363,
+      "ticks_per_beat": 960,
+      "tracks": 2,
+      "velocity_max": 118,
+      "velocity_min": 44
+    },
+    "source_midi": {
+      "bytes": 10688,
+      "duration_seconds": 300.1998676583344,
+      "midi_type": 1,
+      "negative_delta_count": 0,
+      "note_count": 939,
+      "path": "/srv/shared/http/gpmidi-phase4/spring-drums-source-midi-restoration.mid",
+      "pitch_count": 13,
+      "pitches": [
+        36,
+        37,
+        38,
+        41,
+        42,
+        43,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        81
+      ],
+      "sha256": "fd6381752e2dbb4f98a83e0bd8467840fbab5276e74e31045dc93a84ad409730",
+      "tempo_event_count": 363,
+      "ticks_per_beat": 960,
+      "tracks": 2,
+      "velocity_max": 51,
+      "velocity_min": 51
+    }
+  },
+  "deterministic_rebuild": true,
+  "schema_version": "phase4-e2e-verification-v1"
+}

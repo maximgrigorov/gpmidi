@@ -1,0 +1,516 @@
+{
+  "baseline_metrics": {
+    "calibration": {
+      "cymbal": {
+        "error_p50": 0.005721300000004703,
+        "f1": 0.13114754098360656,
+        "fn": 0,
+        "fp": 53,
+        "precision": 0.07017543859649122,
+        "predictions": 57,
+        "recall": 1.0,
+        "references": 4,
+        "tp": 4
+      },
+      "hi_hat": {
+        "error_p50": 0.007720488541671955,
+        "f1": 0.1801801801801802,
+        "fn": 8,
+        "fp": 83,
+        "precision": 0.10752688172043011,
+        "predictions": 93,
+        "recall": 0.5555555555555556,
+        "references": 18,
+        "tp": 10
+      },
+      "kick": {
+        "error_p50": 0.0045440833333287856,
+        "f1": 0.7090909090909091,
+        "fn": 0,
+        "fp": 32,
+        "precision": 0.5492957746478874,
+        "predictions": 71,
+        "recall": 1.0,
+        "references": 39,
+        "tp": 39
+      },
+      "micro": {
+        "f1": 0.36405529953917054,
+        "fn": 97,
+        "fp": 179,
+        "precision": 0.3062015503875969,
+        "recall": 0.44886363636363635,
+        "tp": 79
+      },
+      "snare": {
+        "error_p50": 0.010390333333333501,
+        "f1": 0.8679245283018867,
+        "fn": 1,
+        "fp": 6,
+        "precision": 0.7931034482758621,
+        "predictions": 29,
+        "recall": 0.9583333333333334,
+        "references": 24,
+        "tp": 23
+      },
+      "tom": {
+        "error_p50": 0.01062063958333681,
+        "f1": 0.060606060606060615,
+        "fn": 88,
+        "fp": 5,
+        "precision": 0.375,
+        "predictions": 8,
+        "recall": 0.03296703296703297,
+        "references": 91,
+        "tp": 3
+      }
+    },
+    "final_untouched": {
+      "cymbal": {
+        "error_p50": 0.0047127468749437185,
+        "f1": 0.3529411764705882,
+        "fn": 2,
+        "fp": 20,
+        "precision": 0.23076923076923078,
+        "predictions": 26,
+        "recall": 0.75,
+        "references": 8,
+        "tp": 6
+      },
+      "hi_hat": {
+        "error_p50": 0.0066149999999254305,
+        "f1": 0.4741144414168937,
+        "fn": 73,
+        "fp": 120,
+        "precision": 0.42028985507246375,
+        "predictions": 207,
+        "recall": 0.54375,
+        "references": 160,
+        "tp": 87
+      },
+      "kick": {
+        "error_p50": 0.003864812500012249,
+        "f1": 0.7673469387755102,
+        "fn": 2,
+        "fp": 55,
+        "precision": 0.6308724832214765,
+        "predictions": 149,
+        "recall": 0.9791666666666666,
+        "references": 96,
+        "tp": 94
+      },
+      "micro": {
+        "f1": 0.6036363636363636,
+        "fn": 105,
+        "fp": 222,
+        "precision": 0.5286624203821656,
+        "recall": 0.7033898305084746,
+        "tp": 249
+      },
+      "snare": {
+        "error_p50": 0.007826986458269403,
+        "f1": 0.8648648648648648,
+        "fn": 1,
+        "fp": 14,
+        "precision": 0.7741935483870968,
+        "predictions": 62,
+        "recall": 0.9795918367346939,
+        "references": 49,
+        "tp": 48
+      },
+      "tom": {
+        "error_p50": 0.006996841666619957,
+        "f1": 0.411764705882353,
+        "fn": 27,
+        "fp": 13,
+        "precision": 0.5185185185185185,
+        "predictions": 27,
+        "recall": 0.34146341463414637,
+        "references": 41,
+        "tp": 14
+      }
+    },
+    "holdout": {
+      "cymbal": {
+        "error_p50": 0.0065186666666363635,
+        "f1": 0.6341463414634146,
+        "fn": 3,
+        "fp": 12,
+        "precision": 0.52,
+        "predictions": 25,
+        "recall": 0.8125,
+        "references": 16,
+        "tp": 13
+      },
+      "hi_hat": {
+        "error_p50": 0.00705514791664541,
+        "f1": 0.5721649484536082,
+        "fn": 38,
+        "fp": 128,
+        "precision": 0.46443514644351463,
+        "predictions": 239,
+        "recall": 0.7449664429530202,
+        "references": 149,
+        "tp": 111
+      },
+      "kick": {
+        "error_p50": 0.006301467708297537,
+        "f1": 0.8563049853372434,
+        "fn": 0,
+        "fp": 49,
+        "precision": 0.7487179487179487,
+        "predictions": 195,
+        "recall": 1.0,
+        "references": 146,
+        "tp": 146
+      },
+      "micro": {
+        "f1": 0.7386831275720165,
+        "fn": 51,
+        "fp": 203,
+        "precision": 0.6387900355871886,
+        "recall": 0.875609756097561,
+        "tp": 359
+      },
+      "snare": {
+        "error_p50": 0.009288658333325372,
+        "f1": 0.9696969696969696,
+        "fn": 1,
+        "fp": 4,
+        "precision": 0.9523809523809523,
+        "predictions": 84,
+        "recall": 0.9876543209876543,
+        "references": 81,
+        "tp": 80
+      },
+      "tom": {
+        "error_p50": 0.010369083333330309,
+        "f1": 0.4864864864864865,
+        "fn": 9,
+        "fp": 10,
+        "precision": 0.47368421052631576,
+        "predictions": 19,
+        "recall": 0.5,
+        "references": 18,
+        "tp": 9
+      }
+    }
+  },
+  "baseline_thresholds": [
+    0.22,
+    0.24,
+    0.32,
+    0.22,
+    0.3
+  ],
+  "calibrated_metrics": {
+    "calibration": {
+      "cymbal": {
+        "error_p50": 0.005721300000004703,
+        "f1": 0.21621621621621626,
+        "fn": 0,
+        "fp": 29,
+        "precision": 0.12121212121212122,
+        "predictions": 33,
+        "recall": 1.0,
+        "references": 4,
+        "tp": 4
+      },
+      "hi_hat": {
+        "error_p50": 0.009435643750009604,
+        "f1": 0.28571428571428575,
+        "fn": 13,
+        "fp": 12,
+        "precision": 0.29411764705882354,
+        "predictions": 17,
+        "recall": 0.2777777777777778,
+        "references": 18,
+        "tp": 5
+      },
+      "kick": {
+        "error_p50": 0.004614104166670074,
+        "f1": 0.7450980392156863,
+        "fn": 1,
+        "fp": 25,
+        "precision": 0.6031746031746031,
+        "predictions": 63,
+        "recall": 0.9743589743589743,
+        "references": 39,
+        "tp": 38
+      },
+      "micro": {
+        "f1": 0.4573170731707318,
+        "fn": 101,
+        "fp": 77,
+        "precision": 0.4934210526315789,
+        "recall": 0.42613636363636365,
+        "tp": 75
+      },
+      "snare": {
+        "error_p50": 0.010390333333333501,
+        "f1": 0.9199999999999999,
+        "fn": 1,
+        "fp": 3,
+        "precision": 0.8846153846153846,
+        "predictions": 26,
+        "recall": 0.9583333333333334,
+        "references": 24,
+        "tp": 23
+      },
+      "tom": {
+        "error_p50": 0.008579999999994925,
+        "f1": 0.09615384615384616,
+        "fn": 86,
+        "fp": 8,
+        "precision": 0.38461538461538464,
+        "predictions": 13,
+        "recall": 0.054945054945054944,
+        "references": 91,
+        "tp": 5
+      }
+    },
+    "final_untouched": {
+      "cymbal": {
+        "error_p50": 0.0047127468749437185,
+        "f1": 0.5,
+        "fn": 4,
+        "fp": 4,
+        "precision": 0.5,
+        "predictions": 8,
+        "recall": 0.5,
+        "references": 8,
+        "tp": 4
+      },
+      "hi_hat": {
+        "error_p50": 0.018090093749989933,
+        "f1": 0.15238095238095237,
+        "fn": 144,
+        "fp": 34,
+        "precision": 0.32,
+        "predictions": 50,
+        "recall": 0.1,
+        "references": 160,
+        "tp": 16
+      },
+      "kick": {
+        "error_p50": 0.003864812500012249,
+        "f1": 0.7704918032786885,
+        "fn": 2,
+        "fp": 54,
+        "precision": 0.6351351351351351,
+        "predictions": 148,
+        "recall": 0.9791666666666666,
+        "references": 96,
+        "tp": 94
+      },
+      "micro": {
+        "f1": 0.5492537313432835,
+        "fn": 170,
+        "fp": 132,
+        "precision": 0.5822784810126582,
+        "recall": 0.519774011299435,
+        "tp": 184
+      },
+      "snare": {
+        "error_p50": 0.007926389583275295,
+        "f1": 0.8703703703703702,
+        "fn": 2,
+        "fp": 12,
+        "precision": 0.7966101694915254,
+        "predictions": 59,
+        "recall": 0.9591836734693877,
+        "references": 49,
+        "tp": 47
+      },
+      "tom": {
+        "error_p50": 0.006965856249962599,
+        "f1": 0.5,
+        "fn": 18,
+        "fp": 28,
+        "precision": 0.45098039215686275,
+        "predictions": 51,
+        "recall": 0.5609756097560976,
+        "references": 41,
+        "tp": 23
+      }
+    },
+    "holdout": {
+      "cymbal": {
+        "error_p50": 0.0072426666666416395,
+        "f1": 0.5925925925925926,
+        "fn": 8,
+        "fp": 3,
+        "precision": 0.7272727272727273,
+        "predictions": 11,
+        "recall": 0.5,
+        "references": 16,
+        "tp": 8
+      },
+      "hi_hat": {
+        "error_p50": 0.0070635739582769475,
+        "f1": 0.5,
+        "fn": 89,
+        "fp": 31,
+        "precision": 0.6593406593406593,
+        "predictions": 91,
+        "recall": 0.40268456375838924,
+        "references": 149,
+        "tp": 60
+      },
+      "kick": {
+        "error_p50": 0.006245268749950128,
+        "f1": 0.8605341246290802,
+        "fn": 1,
+        "fp": 46,
+        "precision": 0.7591623036649214,
+        "predictions": 191,
+        "recall": 0.9931506849315068,
+        "references": 146,
+        "tp": 145
+      },
+      "micro": {
+        "f1": 0.7444717444717444,
+        "fn": 107,
+        "fp": 101,
+        "precision": 0.75,
+        "recall": 0.7390243902439024,
+        "tp": 303
+      },
+      "snare": {
+        "error_p50": 0.009288658333325372,
+        "f1": 0.975609756097561,
+        "fn": 1,
+        "fp": 3,
+        "precision": 0.963855421686747,
+        "predictions": 83,
+        "recall": 0.9876543209876543,
+        "references": 81,
+        "tp": 80
+      },
+      "tom": {
+        "error_p50": 0.010924916666667173,
+        "f1": 0.43478260869565216,
+        "fn": 8,
+        "fp": 18,
+        "precision": 0.35714285714285715,
+        "predictions": 28,
+        "recall": 0.5555555555555556,
+        "references": 18,
+        "tp": 10
+      }
+    }
+  },
+  "calibrated_thresholds": [
+    0.44,
+    0.36,
+    0.12,
+    0.54,
+    0.5
+  ],
+  "leakage_control": {
+    "final_untouched_window_seconds": [
+      200.0,
+      301.9
+    ],
+    "holdout_window_seconds": [
+      100.0,
+      200.0
+    ],
+    "selection_window_seconds": [
+      0.0,
+      100.0
+    ]
+  },
+  "schema_version": "phase4-adtof-calibration-v1",
+  "selection": {
+    "cymbal": {
+      "beta": 0.5,
+      "calibration": {
+        "error_p50": 0.005721300000004703,
+        "f1": 0.21621621621621626,
+        "fn": 0,
+        "fp": 29,
+        "precision": 0.12121212121212122,
+        "predictions": 33,
+        "recall": 1.0,
+        "references": 4,
+        "tp": 4
+      },
+      "objective": 0.14705882352941177,
+      "threshold": 0.5
+    },
+    "hi_hat": {
+      "beta": 0.5,
+      "calibration": {
+        "error_p50": 0.009435643750009604,
+        "f1": 0.28571428571428575,
+        "fn": 13,
+        "fp": 12,
+        "precision": 0.29411764705882354,
+        "predictions": 17,
+        "recall": 0.2777777777777778,
+        "references": 18,
+        "tp": 5
+      },
+      "objective": 0.29069767441860467,
+      "threshold": 0.54
+    },
+    "kick": {
+      "beta": 1.0,
+      "calibration": {
+        "error_p50": 0.004614104166670074,
+        "f1": 0.7450980392156863,
+        "fn": 1,
+        "fp": 25,
+        "precision": 0.6031746031746031,
+        "predictions": 63,
+        "recall": 0.9743589743589743,
+        "references": 39,
+        "tp": 38
+      },
+      "objective": 0.7450980392156863,
+      "threshold": 0.44
+    },
+    "snare": {
+      "beta": 1.0,
+      "calibration": {
+        "error_p50": 0.010390333333333501,
+        "f1": 0.9199999999999999,
+        "fn": 1,
+        "fp": 3,
+        "precision": 0.8846153846153846,
+        "predictions": 26,
+        "recall": 0.9583333333333334,
+        "references": 24,
+        "tp": 23
+      },
+      "objective": 0.9199999999999999,
+      "threshold": 0.36
+    },
+    "tom": {
+      "beta": 2.0,
+      "calibration": {
+        "error_p50": 0.008579999999994925,
+        "f1": 0.09615384615384616,
+        "fn": 86,
+        "fp": 8,
+        "precision": 0.38461538461538464,
+        "predictions": 13,
+        "recall": 0.054945054945054944,
+        "references": 91,
+        "tp": 5
+      },
+      "objective": 0.0663129973474801,
+      "threshold": 0.12
+    }
+  },
+  "threshold_order": [
+    "kick",
+    "snare",
+    "tom",
+    "hi_hat",
+    "cymbal"
+  ],
+  "timestamp_correction_seconds": -0.14,
+  "timestamp_correction_source": "audio spectral-flux versus MIDI; model predictions not used"
+}

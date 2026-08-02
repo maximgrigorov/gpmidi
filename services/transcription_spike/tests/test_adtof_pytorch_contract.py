@@ -5,8 +5,8 @@ import importlib.util
 import json
 from pathlib import Path
 
-import pytest
 import numpy as np
+import pytest
 
 SERVICE_ROOT = Path(__file__).parents[1]
 RUNTIME = SERVICE_ROOT / "runtimes" / "adtof-pytorch" / "run.py"

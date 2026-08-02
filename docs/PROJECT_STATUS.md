@@ -170,17 +170,28 @@ not product quality. Full hashes and metrics are in
 
 ## Next
 
-Phase 3 Task 5 now has an apples-to-apples real-input comparison on the complete
-Spring Melody drum stem. Inverse Drum Machine emitted 671 events and ADTOF-
-pytorch emitted 1,291, both from digest-pinned CPU images with hash-verified
-input and independent evidence readback. Against 942 reference attacks in the
-shared five-class taxonomy, raw source-time F1@50 ms is 0.013639 for IDM and
-0.017017 for ADTOF. Diagnostic offset sweeps peak at 0.338710 (-140 ms) and
-0.616211 (-145 ms), respectively, but no fixed timestamp correction is yet
-justified. ADTOF is also research/non-commercial only under the current license
-evidence. Therefore Phase 4 remains blocked: IDM is permissive but insufficiently
-accurate, while ADTOF is the stronger research comparator but not a product
-dependency. Full evidence is in `docs/phase-3-drum-real-input-findings.md`.
+Phase 3 Task 5 established the initial drum-model comparison; Phase 4 has now
+resolved the timing ambiguity and implemented a supervised restoration slice.
+An audio-only spectral-flux measurement, independent of model predictions,
+found the WAV approximately 140 ms later than the reference MIDI in each of
+three song windows. The Spring asset pair therefore uses a justified -140 ms
+event correction; it is not a universal model constant.
+
+Thresholds selected only on `[0, 100)` seconds improved holdout micro precision
+from 0.638790 to 0.750000 and micro F1 from 0.738683 to 0.744472, but final
+untouched micro F1 fell from 0.603636 to 0.549254. The profile remains
+experimental and is not a global default.
+
+The Phase 4 implementation emits immutable, review-required candidate patches
+and separate Type-1 MIDI overlays without mutating Guitar Pro. Real E2E
+artifacts contain 872 ADTOF candidates or 939/945 source-MIDI control events,
+retain the 363-event tempo map, and rebuild byte-for-byte deterministically.
+The gate is **GO for supervised restoration** and **NO-GO for model-only
+automatic replacement**. The trusted `origin/main` Guitar Pro-to-MIDI path
+remains the rollback. Full terminology, methodology, metrics, caveats and
+artifact hashes are in
+`docs/phase-4-reference-guided-midi-restoration-report.md`; the mobile report is
+`docs/reports/phase-4-reference-guided-midi-restoration.html`.
 
 ## Operational state
 
