@@ -170,12 +170,14 @@ not product quality. Full hashes and metrics are in
 
 ## Next
 
-Phase 3 Task 5 feasibility is recorded in
-`docs/phase-3-drum-candidate-feasibility.md`: neither Omnizart nor ADTLib passed
-the minimal permissive runnable gate, so no drum metrics are claimed. The next
-step is a modern permissive candidate with explicitly licensed weights, or an
-explicitly approved Omnizart drum-only repack spike. Do not enter Phase 4 until
-per-class drum evidence and a separate review support a go decision.
+Phase 3 Task 5 initially rejected Omnizart and ADTLib as minimal runnable paths.
+A subsequent Inverse Drum Machine spike passed the technical runtime gate on
+AILab: its pinned Apache-2.0 checkpoint loaded and emitted structurally valid
+events from upstream demo audio. This does not establish transcription quality,
+because that demo has no matching reference MIDI. The next gate is Spring
+Melody drum-stem inference and per-class comparison with the original Suno drum
+MIDI. Do not enter Phase 4 until that real-input evidence and a separate review
+support a go decision.
 
 ## Operational state
 

@@ -30,9 +30,11 @@ The model is a measurement baseline, not a restoration dependency. Its output is
   `5856a9bee7c6d503842795756d238dc8470f6f3e010e9e4f33ede0362850cb4c`.
 - Scope: nine drum classes; the spike exports unaligned source-second events
   and General MIDI mappings as evidence JSON.
-- Current status: code/license/provenance and unit contract gates pass. It is
-  not accepted as a product dependency until real AILab inference and
-  reference-MIDI evaluation pass.
+- Current status: pinned CPU inference was verified on AILab using the
+  upstream demo audio; the model emitted 78 structurally valid events and an
+  independent Tekton readback verified the evidence. This is a runtime pass,
+  not a musical-quality pass. Spring Melody inference and matching-reference
+  MIDI evaluation remain required before any product decision.
 
 ### Omnizart
 

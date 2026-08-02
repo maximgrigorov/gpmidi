@@ -128,3 +128,26 @@ package and explicitly licensed pretrained weights, or an explicitly approved
 Omnizart drum-only repack spike. The candidate must pass pinned install, model
 hash verification, inference, parsed MIDI and per-class real-input evaluation
 before it counts.
+
+## Subsequent runnable candidate: Inverse Drum Machine
+
+After the initial no-go review, Inverse Drum Machine (IDM) was selected as a
+modern candidate whose Apache-2.0 repository includes the pretrained
+checkpoint. The runtime is pinned to upstream commit
+`456656868538205ef756912c7cf5b0fd936de8af`; the checkpoint SHA-256 is
+`5856a9bee7c6d503842795756d238dc8470f6f3e010e9e4f33ede0362850cb4c`.
+
+AILab PipelineRun `phase3-idm-drum-gsb98` built exact gpmidi commit
+`9bfed03d1073743a1fb602b1ebce6164d4ffb1e3` and completed clone, build and
+inference successfully. The immutable image digest is
+`sha256:99c007476bb946fc728dc804b31b1e3a1520eda57bc7475b820085f194acaf72`.
+On the upstream demo audio it emitted 78 source-second events. Independent
+PipelineRun `phase3-idm-readback-ln7cj` verified the event evidence SHA-256
+`e0817ebedc40774a15cc9ab5d4448bc8c3ea4ca5e66f6c5a9949e53e8a5e85fb`
+and checked event ordering, instrument classes and MIDI velocity bounds.
+
+This changes the drum status from "no runnable candidate" to "one technically
+runnable candidate". It does not change the product decision: the upstream
+demo has no matching reference MIDI, so transcription precision and recall are
+unknown. The next gate is inference on the fixed Spring Melody drum WAV and
+evaluation against the corresponding original Suno drum MIDI in source seconds.
