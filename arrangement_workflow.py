@@ -20,7 +20,6 @@ from typing import Any, Iterable
 
 from mido import MidiFile, MidiTrack
 
-from articulation_config import config_for_track_type
 from arrangement_processing import (
     apply_expression_plan,
     build_arrangement_context,
@@ -28,6 +27,7 @@ from arrangement_processing import (
     musical_note_signature,
     validate_plan,
 )
+from articulation_config import config_for_track_type
 from gp_import import parse_song
 from gp_to_shreddage import (
     TICKS_PER_BEAT,

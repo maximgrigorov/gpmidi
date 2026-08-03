@@ -23,10 +23,10 @@ from flask import (
 from mido import MidiFile
 from werkzeug.utils import secure_filename
 
-from articulation_config import config_for_track_type
 from arrangement_processing import (
     build_arrangement_context,
 )
+from articulation_config import config_for_track_type
 from gp_import import parse_song
 from gp_to_shreddage import (
     PITCH_BEND_RANGE_ST,
