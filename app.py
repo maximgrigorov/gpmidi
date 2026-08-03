@@ -984,7 +984,22 @@ def apply_arrangement(job_id: str):
     copied: list[str] = []
     try:
         apply_manifest = apply_arrangement_plan(
-            source_path, plan_path, temp_dir, approved=True, seed=int(job.get("seed", 7)))
+            source_path, plan_path, temp_dir,
+            approved=True,
+            seed=int(job.get("seed", 7)),
+            render_options={
+                "humanize": bool(job.get("humanize")),
+                "ghost_notes": bool(job.get("ghost_notes")),
+                "auto_sustain_vibrato": bool(job.get("auto_sustain_vibrato")),
+                "fret_noise_on_hand_shift": bool(job.get("fret_noise_on_hand_shift")),
+                "expand_gp_hidden_32nds": bool(job.get("expand_gp_hidden_32nds")),
+                "preserve_gp_played_offsets": bool(job.get("preserve_gp_played_offsets")),
+            },
+            included_track_indices={
+                int(track["index"]) for track in job.get("tracks", [])
+                if track.get("index") is not None
+            } or None,
+        )
         for artifact in sorted(temp_dir.iterdir()):
             if not artifact.is_file():
                 continue

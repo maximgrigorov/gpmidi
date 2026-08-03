@@ -25,7 +25,10 @@ def raw_plan():
         "schema_version": 1,
         "summary": "draft",
         "global_velocity_shift": 0,
-        "measure_energy": [],
+        "measure_energy": [
+            {"measure": measure, "velocity_shift": 0, "accents": []}
+            for measure in range(1, 5)
+        ],
         "tracks": [
             {"track": "Guitar Solo", "role": "support", "velocity_shift": 8, "variance": 5,
              "velocity_processing": True, "minimum_velocity": 1},
@@ -65,7 +68,7 @@ def test_defaults_and_configured(monkeypatch):
 
 
 def test_musical_prompt_requests_complete_production_plan_without_automatic_apply():
-    instructions = provider.INSTRUCTIONS
+    instructions = " ".join(provider.INSTRUCTIONS.split())
     assert "production-quality whole-song" in instructions
     assert "every measure from 1 through measure_count" in instructions
     assert "exactly one tracks entry for every input track" in instructions
@@ -147,6 +150,21 @@ def test_empty_output_is_failure(monkeypatch):
     reply.json.return_value["output"] = []
     monkeypatch.setattr(provider.requests, "post", MagicMock(return_value=reply))
     with pytest.raises(provider.OpenAIDraftError, match="request or response failed"):
+        provider.create_openai_draft(context(), config())
+
+
+def test_incomplete_plan_missing_solo_track_fails_closed(monkeypatch):
+    incomplete = raw_plan()
+    incomplete["measure_energy"] = [
+        {"measure": measure, "velocity_shift": 0, "accents": []}
+        for measure in range(1, 5)
+    ]
+    incomplete["tracks"] = [
+        item for item in incomplete["tracks"] if item["track"] != "Guitar Solo"
+    ]
+    monkeypatch.setattr(provider.requests, "post", MagicMock(return_value=response(incomplete)))
+
+    with pytest.raises(provider.OpenAIDraftError, match="complete"):
         provider.create_openai_draft(context(), config())
 
 

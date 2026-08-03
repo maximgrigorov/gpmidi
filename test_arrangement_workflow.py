@@ -5,6 +5,7 @@ from collections import Counter
 import pytest
 from mido import Message, MidiTrack
 
+import arrangement_workflow as workflow
 from arrangement_workflow import (
     assert_preservation,
     is_solo_track,
@@ -65,3 +66,74 @@ def test_preservation_requires_exact_drum_rhythm_and_allows_solo_microtiming():
     with pytest.raises(RuntimeError, match="timing"):
         assert_preservation(base, moved, track_type="DRUMS", allow_timing=False)
     assert_preservation(base, moved, track_type="GUITAR", allow_timing=True)
+
+
+def test_apply_layer_locks_missing_or_unsafe_solo_velocity_profile():
+    baseline = [{"track_name": "Guitar Solo", "track_type": "GUITAR"}]
+    plan = {
+        "global_velocity_shift": 12,
+        "measure_energy": [{"measure": 1, "velocity_shift": 12, "accents": [1]}],
+        "tracks": [],
+        "solo_humanization": {"enabled": False},
+    }
+
+    workflow._lock_solo_velocity_profiles(plan, baseline)
+
+    assert plan["tracks"] == [{
+        "track": "Guitar Solo",
+        "role": "lead",
+        "velocity_shift": 0,
+        "variance": 0,
+        "velocity_processing": False,
+    }]
+
+
+def test_render_track_propagates_job_options_to_target_renderers(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        workflow, "build_instrument_midi",
+        lambda *_a, **kw: calls.append(("instrument", kw)) or (MidiTrack(), {}),
+    )
+    monkeypatch.setattr(
+        workflow, "build_drum_midi",
+        lambda *_a, **kw: calls.append(("drums", kw)) or (MidiTrack(), {}),
+    )
+    monkeypatch.setattr(
+        workflow, "build_other_midi",
+        lambda *_a, **kw: calls.append(("other", kw)) or (MidiTrack(), {}),
+    )
+    options = {
+        "humanize": True,
+        "ghost_notes": True,
+        "auto_sustain_vibrato": True,
+        "fret_noise_on_hand_shift": True,
+        "expand_gp_hidden_32nds": True,
+        "preserve_gp_played_offsets": True,
+    }
+    source = type("Track", (), {"name": "Guitar Solo"})()
+
+    workflow._render_track(
+        object(), source, "GUITAR", solo_humanize=False, seed=19,
+        render_options=options,
+    )
+    workflow._render_track(
+        object(), source, "DRUMS", solo_humanize=False, seed=19,
+        render_options=options,
+    )
+    workflow._render_track(
+        object(), source, "OTHER", solo_humanize=False, seed=19,
+        render_options=options,
+    )
+
+    assert calls == [
+        ("instrument", {
+            "humanize": True, "humanize_seed": 19,
+            "auto_sustain_vibrato": True,
+            "fret_noise_on_hand_shift": True,
+            "performance_seed": 19,
+            "expand_gp_hidden_32nds": True,
+            "preserve_gp_played_offsets": True,
+        }),
+        ("drums", {"humanize": True, "humanize_seed": 19, "ghost_notes": True}),
+        ("other", {"expand_gp_hidden_32nds": True}),
+    ]

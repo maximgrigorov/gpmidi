@@ -160,6 +160,16 @@ def _enforce_solo_policy(plan: dict[str, Any], context: dict[str, Any]) -> None:
     plan["solo_humanization"] = {"enabled": False}
 
 
+def _require_complete_plan(plan: dict[str, Any], context: dict[str, Any]) -> None:
+    expected_tracks = {str(track.get("name", "")) for track in context.get("tracks", [])}
+    actual_tracks = {str(track.get("track", "")) for track in plan.get("tracks", [])}
+    measure_count = max(1, int(context.get("measure_count", 1)))
+    expected_measures = set(range(1, measure_count + 1))
+    actual_measures = {int(row.get("measure", 0)) for row in plan.get("measure_energy", [])}
+    if actual_tracks != expected_tracks or actual_measures != expected_measures:
+        raise OpenAIDraftError("OpenAI draft plan is incomplete")
+
+
 def create_openai_draft(context: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = dict(config or get_openai_config())
     token = str(config.get("token") or "").strip()
@@ -210,6 +220,7 @@ def create_openai_draft(context: dict[str, Any], config: dict[str, Any] | None =
         )
     except (TypeError, ValueError) as exc:
         raise OpenAIDraftError("OpenAI draft plan failed validation") from exc
+    _require_complete_plan(plan, context)
     _enforce_solo_policy(plan, context)
 
     raw_usage = result.get("usage") or {}

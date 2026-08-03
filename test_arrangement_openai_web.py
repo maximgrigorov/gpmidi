@@ -76,7 +76,10 @@ def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):
     (root / "output" / plan_name).write_text(json.dumps({"plan": {}}))
     job = {
         "id": job_id, "stored_name": "song.gp5", "original_name": "song.gp5", "seed": 7,
-        "tracks": [], "combined_name": "baseline.mid", "refingered_name": None,
+        "tracks": [{"index": 2}], "combined_name": "baseline.mid", "refingered_name": None,
+        "humanize": True, "ghost_notes": True,
+        "auto_sustain_vibrato": True, "fret_noise_on_hand_shift": True,
+        "expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": True,
         "arrangement_artifacts": [plan_name],
         "arrangement_apply_token": "apply-test-token",
         "arrangement": {"status": "draft_ready", "plan_name": plan_name},
@@ -108,6 +111,12 @@ def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):
     assert job["arrangement"]["status"] == "applied"
     assert job["arrangement_apply_token"] is None
     assert len(calls) == 1
+    assert calls[0]["render_options"] == {
+        "humanize": True, "ghost_notes": True,
+        "auto_sustain_vibrato": True, "fret_noise_on_hand_shift": True,
+        "expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": True,
+    }
+    assert calls[0]["included_track_indices"] == {2}
     assert client.post(f"/jobs/{job_id}/arrangement/apply").status_code == 302
     assert len(calls) == 1
 

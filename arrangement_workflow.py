@@ -105,32 +105,51 @@ def _copy_track(track: Iterable[Any]) -> MidiTrack:
     return MidiTrack(message.copy() for message in track)
 
 
-def _render_track(song: Any, source_track: Any, track_type: str, *, solo_humanize: bool, seed: int):
+def _render_track(
+    song: Any, source_track: Any, track_type: str, *, solo_humanize: bool,
+    seed: int, render_options: dict[str, Any] | None = None,
+):
+    options = dict(render_options or {})
+    humanize = bool(options.get("humanize") or solo_humanize)
     if track_type == "DRUMS":
-        return build_drum_midi(song, source_track, humanize=False, ghost_notes=None)
+        return build_drum_midi(
+            song, source_track,
+            humanize=bool(options.get("humanize")), humanize_seed=seed,
+            ghost_notes=True if options.get("ghost_notes") else None,
+        )
     if track_type == "OTHER":
-        return build_other_midi(song, source_track)
+        return build_other_midi(
+            song, source_track,
+            expand_gp_hidden_32nds=bool(options.get("expand_gp_hidden_32nds")),
+        )
     return build_instrument_midi(
         song, source_track, track_type,
-        humanize=bool(solo_humanize), humanize_seed=seed,
-        auto_sustain_vibrato=False,
-        fret_noise_on_hand_shift=False,
+        humanize=humanize, humanize_seed=seed,
+        auto_sustain_vibrato=bool(options.get("auto_sustain_vibrato")),
+        fret_noise_on_hand_shift=bool(options.get("fret_noise_on_hand_shift")),
         performance_seed=seed,
-        expand_gp_hidden_32nds=False,
-        preserve_gp_played_offsets=False,
+        expand_gp_hidden_32nds=bool(options.get("expand_gp_hidden_32nds")),
+        preserve_gp_played_offsets=bool(options.get("preserve_gp_played_offsets")),
     )
 
 
-def _render_baseline(song: Any) -> list[dict[str, Any]]:
+def _render_baseline(
+    song: Any, *, seed: int = 7, render_options: dict[str, Any] | None = None,
+    included_track_indices: set[int] | None = None,
+) -> list[dict[str, Any]]:
     rendered = []
     used: dict[str, int] = {}
     for index, source_track in enumerate(song.tracks, start=1):
         track_type = resolve_track_type(source_track)
-        midi_track, stats = _render_track(
-            song, source_track, track_type, solo_humanize=False, seed=7)
         base = safe_filename(source_track.name) or f"Track_{index}"
         used[base] = used.get(base, 0) + 1
         basename = base if used[base] == 1 else f"{base}_{used[base]}"
+        if included_track_indices is not None and index not in included_track_indices:
+            continue
+        midi_track, stats = _render_track(
+            song, source_track, track_type, solo_humanize=False, seed=seed,
+            render_options=render_options,
+        )
         rendered.append({
             "track_name": source_track.name or f"Track {index}",
             "track_type": track_type,
@@ -140,6 +159,27 @@ def _render_baseline(song: Any) -> list[dict[str, Any]]:
             "stats": stats,
         })
     return rendered
+
+
+def _lock_solo_velocity_profiles(
+    plan: dict[str, Any], baseline: list[dict[str, Any]],
+) -> None:
+    profiles = plan.setdefault("tracks", [])
+    by_name = {str(profile.get("track", "")): profile for profile in profiles}
+    for row in baseline:
+        name = str(row.get("track_name", ""))
+        if not is_solo_track(name, str(row.get("track_type", ""))):
+            continue
+        profile = by_name.get(name)
+        if profile is None:
+            profile = {"track": name, "role": "lead"}
+            profiles.append(profile)
+            by_name[name] = profile
+        profile.update({
+            "velocity_shift": 0,
+            "variance": 0,
+            "velocity_processing": False,
+        })
 
 
 def _save_midi(track: MidiTrack, path: Path) -> None:
@@ -225,13 +265,20 @@ def prepare(source: Path, output_dir: Path) -> dict[str, Any]:
     return manifest
 
 
-def apply(source: Path, plan_path: Path, output_dir: Path, *, approved: bool, seed: int) -> dict[str, Any]:
+def apply(
+    source: Path, plan_path: Path, output_dir: Path, *, approved: bool, seed: int,
+    render_options: dict[str, Any] | None = None,
+    included_track_indices: set[int] | None = None,
+) -> dict[str, Any]:
     require_apply_approval(approved)
     raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if isinstance(raw_plan.get("plan"), dict):
         raw_plan = raw_plan["plan"]
     song = parse_song(source)
-    baseline = _render_baseline(song)
+    baseline = _render_baseline(
+        song, seed=seed, render_options=render_options,
+        included_track_indices=included_track_indices,
+    )
     track_names = [row["track_name"] for row in baseline]
     plan = validate_plan(
         raw_plan,
@@ -239,6 +286,7 @@ def apply(source: Path, plan_path: Path, output_dir: Path, *, approved: bool, se
         measure_count=len(song.measureHeaders),
         allow_solo_humanization=True,
     )
+    _lock_solo_velocity_profiles(plan, baseline)
     _reset_output(output_dir)
     spans = measure_spans(song)
     artifacts = []
@@ -251,7 +299,7 @@ def apply(source: Path, plan_path: Path, output_dir: Path, *, approved: bool, se
         if allow_timing:
             enriched, render_stats = _render_track(
                 song, row["source_track"], row["track_type"],
-                solo_humanize=True, seed=seed,
+                solo_humanize=True, seed=seed, render_options=render_options,
             )
         else:
             enriched = _copy_track(row["midi_track"])
