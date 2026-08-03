@@ -654,6 +654,27 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
 .artifact-action form { margin: 0; }
 .actions-col { min-width: 180px; }
 
+.expression-options {
+  border-color: hsl(221, 58%, 76%);
+  background: linear-gradient(180deg, hsl(221, 80%, 98%), #fff);
+}
+.primary-option strong { color: var(--accent); }
+.advanced-options { margin-top: 8px; }
+.advanced-options > summary {
+  cursor: pointer; color: var(--fg-muted); font-size: 12px; font-weight: 600;
+  padding: 7px 2px;
+}
+.advanced-options[open] > summary { color: var(--accent); }
+.expression-result-body { display: grid; gap: 12px; padding: 14px 16px 16px; }
+.expression-metrics { display: flex; flex-wrap: wrap; gap: 7px; }
+.rewrite-cards { display: grid; gap: 8px; }
+.rewrite-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r); background: var(--bg-sunken); }
+.rewrite-card p { margin-top: 4px; }
+.rewrite-card small { display: block; margin-top: 4px; color: var(--fg-muted); }
+.expression-track-stat { display: grid; gap: 2px; }
+.expression-track-stat strong { font-variant-numeric: tabular-nums; }
+.expression-track-stat small { color: var(--fg-muted); white-space: nowrap; }
+
 /* --- Projects pages --- */
 .sidebar-nav { display: flex; flex-direction: column; gap: 6px; padding: 0 0 12px; }
 .form-stack { display: flex; flex-direction: column; gap: 8px; }

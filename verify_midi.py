@@ -93,16 +93,19 @@ def smoke_check(path, track_type=None, cfg=None):
     ks_hits = []        # keyswitch-импульсы
     active = defaultdict(list)
     stuck = 0
-    for tick, msg in events:
+    for event_index, (tick, msg) in enumerate(events):
         if msg.type == "note_on" and msg.velocity > 0:
             if msg.note in ks_notes:
-                ks_hits.append((tick, msg.note))
+                ks_hits.append((tick, msg.note, event_index))
             else:
-                active[msg.note].append((tick, msg.velocity))
+                active[msg.note].append((tick, msg.velocity, event_index))
         elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
             if active[msg.note]:
-                t0, v = active[msg.note].pop(0)
-                notes.append({"tick": t0, "note": msg.note, "vel": v, "dur": tick - t0})
+                t0, v, on_index = active[msg.note].pop(0)
+                notes.append({
+                    "tick": t0, "note": msg.note, "vel": v,
+                    "dur": tick - t0, "event_index": on_index,
+                })
     stuck = sum(len(v) for v in active.values())
 
     if not notes:
@@ -181,13 +184,23 @@ def smoke_check(path, track_type=None, cfg=None):
     if ks_hits:
         bad = 0
         min_lead = None
-        for kt, _ in ks_hits:
-            nxt = next((n["tick"] for n in notes if n["tick"] >= kt), None)
+        first_music = min(notes, key=lambda n: (n["tick"], n["event_index"]))
+        for kt, _note, ks_index in ks_hits:
+            nxt = next((n for n in notes if n["tick"] >= kt), None)
             if nxt is None:
                 continue
-            lead = nxt - kt
+            lead = nxt["tick"] - kt
             min_lead = lead if min_lead is None else min(min_lead, lead)
-            if lead <= 0:
+            # Project start has no negative tick. An explicit initial state at
+            # tick 0 is valid when its MIDI event precedes the first musical
+            # note at the same tick; Kontakt receives the KS first. Same-tick
+            # articulation changes anywhere else remain invalid.
+            initial_same_tick = (
+                kt == 0
+                and first_music["tick"] == 0
+                and ks_index < first_music["event_index"]
+            )
+            if lead <= 0 and not initial_same_tick:
                 bad += 1
         if bad:
             out.append(("ERROR", "KS_LEAD",
@@ -201,7 +214,7 @@ def smoke_check(path, track_type=None, cfg=None):
     # нотами от 8-го такта и первым KS в 58-м играл первое соло гармониками).
     if ks_notes and notes:
         first_note = notes[0]["tick"]
-        first_ks = min((t for t, _ in ks_hits), default=None)
+        first_ks = min((t for t, _note, _index in ks_hits), default=None)
         if first_ks is None or first_ks > first_note:
             out.append(("ERROR", "KS_NO_INIT",
                         "начальная артикуляция не установлена: первая нота на тике "

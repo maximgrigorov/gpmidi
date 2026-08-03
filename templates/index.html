@@ -40,63 +40,53 @@
               <span>или нажми для выбора</span>
               <small>До {{ max_size_mb }} МБ</small>
             </label>
-            <fieldset class="options">
-              <legend>Оживление</legend>
-              <label class="opt">
-                <input type="checkbox" name="humanize" id="humanizeChk">
+            <fieldset class="options expression-options">
+              <legend>Hermes expression draft</legend>
+              <label class="opt primary-option">
+                <input type="checkbox" name="prepare_arrangement_context" id="prepareArrangementContextChk">
                 <span>
-                  <strong>Оживить партии</strong>
-                  <small>Guitar Pro отдаёт 8 градаций динамики, а для барабанов вообще одну.
-                  Синтезирует velocity и микро-тайминг по профилю на инструмент.
-                  Без галочки выхлоп прежний, байт-в-байт.</small>
+                  <strong>Подготовить контекст для Hermes</strong>
+                  <small>Сначала создаётся обычный Shreddage/Hydra-ready MIDI. Затем рядом сохраняется
+                  компактный JSON для обсуждения в чате. Никакое enrichment автоматически не применяется.</small>
                 </span>
-              </label>
-              <label class="opt sub">
-                <input type="checkbox" name="ghost_notes" id="ghostChk" disabled>
-                <span>
-                  <strong>Гост-ноты по рабочему</strong>
-                  <small>Тихие удары вокруг бэкбита. Единственная опция, которая
-                  <em>меняет партию</em>, а не только подачу. Только барабаны.</small>
-                </span>
-              </label>
-              <label class="opt">
-                <input type="checkbox" name="auto_sustain_vibrato" id="autoSustainVibratoChk">
-                <span>
-                  <strong>Живые длинные solo sustain</strong>
-                  <small>Мягко вводит внутреннее вибрато Hydra через CC1 только на длинных
-                  одиночных нотах solo/lead. Аккорды, ритм и уже размеченное вибрато не трогает.</small>
-                </span>
-              </label>
-              <label class="opt">
-                <input type="checkbox" name="fret_noise_on_hand_shift" id="fretNoiseShiftChk">
-                <span>
-                  <strong>Fret-noise при переносе руки</strong>
-                  <small>Добавляет короткий C#0 только при заметном скачке позиции по грифу,
-                  а не перед каждой нотой.</small>
-                </span>
-              </label>
-              <label class="opt">
-                <input type="checkbox" name="expand_gp_hidden_32nds" id="expandGpHidden32ndsChk">
-                <span>
-                  <strong>Развернуть скрытые 32-е Guitar Pro</strong>
-                  <small>Все тональные дорожки: разносит группы одного визуального beat по
-                  playback Offset GP. Ноты внутри группы остаются настоящим аккордом.</small>
-                </span>
-              </label>
-              <label class="opt">
-                <input type="checkbox" name="preserve_gp_played_offsets" id="preserveGpPlayedOffsetsChk">
-                <span>
-                  <strong>Сохранить GP8-сдвиги атак «как сыграно»</strong>
-                  <small>Guitar и Bass: переносит индивидуальные playback Offset из Guitar Pro.
-                  Полезно, когда авторский groove относительно баса и ударных важнее строгой сетки.</small>
-                </span>
-              </label>
-              <label class="opt seed">
-                <span>Seed</span>
-                <input type="number" name="seed" value="7" min="0" max="9999">
-                <small>Один и тот же seed даёт один и тот же результат.</small>
               </label>
             </fieldset>
+
+            <details class="advanced-options">
+              <summary>Тонкие настройки конвертации</summary>
+              <fieldset class="options">
+                <legend>Опционально</legend>
+                <label class="opt">
+                  <input type="checkbox" name="humanize" id="humanizeChk">
+                  <span><strong>Локальное оживление партий</strong><small>Старый инструментальный velocity/микротайминг профиль.</small></span>
+                </label>
+                <label class="opt sub">
+                  <input type="checkbox" name="ghost_notes" id="ghostChk" disabled>
+                  <span><strong>Гост-ноты по рабочему</strong><small>Только барабаны; меняет партию.</small></span>
+                </label>
+                <label class="opt">
+                  <input type="checkbox" name="auto_sustain_vibrato" id="autoSustainVibratoChk">
+                  <span><strong>Живые длинные solo sustain</strong><small>CC1-вибрато Hydra для длинных одиночных нот.</small></span>
+                </label>
+                <label class="opt">
+                  <input type="checkbox" name="fret_noise_on_hand_shift" id="fretNoiseShiftChk">
+                  <span><strong>Fret-noise при переносе руки</strong><small>Короткий C#0 только при заметной смене позиции.</small></span>
+                </label>
+                <label class="opt">
+                  <input type="checkbox" name="expand_gp_hidden_32nds" id="expandGpHidden32ndsChk">
+                  <span><strong>Развернуть скрытые 32-е GP</strong><small>Все тональные дорожки: сохраняет аккорды, разносит только playback Offset.</small></span>
+                </label>
+                <label class="opt">
+                  <input type="checkbox" name="preserve_gp_played_offsets" id="preserveGpPlayedOffsetsChk">
+                  <span><strong>Сохранить GP8-сдвиги атак «как сыграно»</strong><small>Авторский groove Guitar/Bass вместо строгой сетки.</small></span>
+                </label>
+                <label class="opt seed">
+                  <span>Seed</span>
+                  <input type="number" name="seed" value="7" min="0" max="9999">
+                  <small>Один seed — один результат.</small>
+                </label>
+              </fieldset>
+            </details>
             <div class="hydra-setting-note" role="note">
               <strong>Hydra 3.5 · Kontakt Player 8</strong>
               <small>На вкладке <b>MAIN</b> вручную выставь
@@ -175,7 +165,7 @@
             <div>
               <h1>{{ current_job.original_name }}</h1>
               <p class="subtitle">
-                Разобрано {{ current_job.created_at }}. Клик по строке открывает piano-roll, таблицу артикуляций и мини-плеер с перемоткой.
+                Разобрано {{ current_job.created_at }}. Клик по дорожке открывает piano-roll и плеер с перемоткой.
               </p>
               <p class="mode-badges">
                 {% if current_job.humanize %}
@@ -200,6 +190,12 @@
                 {% endif %}
                 {% if current_job.playable_tabs %}
                   <span class="badge on">играбельные табы вкл</span>
+                {% endif %}
+                {% if current_job.prepare_arrangement_context %}
+                  <span class="badge on">Shreddage-ready baseline</span>
+                  <span class="badge warn">Hermes draft ожидает подтверждения</span>
+                {% else %}
+                  <span class="badge">baseline mode</span>
                 {% endif %}
               </p>
             </div>
@@ -247,6 +243,23 @@
             </article>
           </section>
 
+          {% if current_job.arrangement %}
+            <section class="panel expression-result-panel">
+              <div class="panel-head compact-head">
+                <div>
+                  <h2>Контекст для Hermes</h2>
+                  <p class="muted">Контекст собран из уже mapped MIDI. Expression ещё не применён и baseline-файлы не изменены.</p>
+                </div>
+                <div class="head-actions">
+                  <a class="btn btn-sm" href="{{ current_job.arrangement.context_url }}">Скачать context JSON</a>
+                </div>
+              </div>
+              <div class="expression-result-body">
+                <p>Статус: Hermes draft → объяснение решений в чате → явное подтверждение → отдельная enriched-сборка.</p>
+              </div>
+            </section>
+          {% endif %}
+
           {% if current_job.warnings %}
             <section class="panel notice-panel">
               <div class="panel-head compact-head">
@@ -267,7 +280,7 @@
             <div class="panel-head">
               <div>
                 <h2>Отдельные дорожки</h2>
-                <p class="muted">Кликни на строку: откроется preview, артикуляции и мини-плеер с инструментальным пресетом.</p>
+                <p class="muted">Кликни на дорожку: откроется piano-roll и плеер с инструментальным пресетом.</p>
               </div>
             </div>
             <div class="table-wrap">
@@ -277,10 +290,7 @@
                     <th>#</th>
                     <th>Трек</th>
                     <th>Тип</th>
-                    <th>Нот</th>
-                    <th>KS</th>
-                    <th>CC1</th>
-                    <th>Артикуляции</th>
+                    <th>Expression</th>
                     <th>Инструмент</th>
                     <th>Файл</th>
                     <th></th>
@@ -296,11 +306,6 @@
                       <td class="mono num">{{ track.index }}</td>
                       <td>
                         <div class="track-name">{{ track.track_name }}</div>
-                        <div class="track-tags">
-                          {% for item in track.fix_categories %}
-                            <span class="chip">{{ item }}</span>
-                          {% endfor %}
-                        </div>
                         {% if track.playable %}
                           <details class="playable-settings">
                             <summary>Параметры аппликатуры · {{ track.playable.preset }} · v{{ track.playable.version }}</summary>
@@ -332,19 +337,15 @@
                       <td>
                         <span class="badge {% if track.track_type == 'GUITAR' %}accent{% elif track.track_type == 'BASS' %}ok{% else %}warn{% endif %}">{{ track.track_type_label }}</span>
                       </td>
-                      <td class="num">{{ track.stats.notes }}</td>
-                      <td class="num">{{ track.stats.ks }}</td>
-                      <td class="num">{{ track.stats.cc1 }}</td>
                       <td>
-                        <div class="art-summary">
-                          {% if track.preview_articulations %}
-                            {% for art, count in track.preview_articulations.items() %}
-                              <span class="badge plain art-pill art-{{ art }}">{{ art }} · {{ count }}</span>
-                            {% endfor %}
-                          {% else %}
-                            <span class="muted">—</span>
-                          {% endif %}
-                        </div>
+                        {% if track.expression %}
+                          <div class="expression-track-stat">
+                            <strong>{{ track.expression.mean_velocity_before }} → {{ track.expression.mean_velocity_after }}</strong>
+                            <small>{{ track.expression.changed_notes }} vel · {{ track.expression.timing_shifted_notes }} timing</small>
+                          </div>
+                        {% else %}
+                          <span class="muted">baseline</span>
+                        {% endif %}
                       </td>
                       <td>
                         <span class="badge plain instrument-pill">{{ track.preview_instrument }}</span>
@@ -369,7 +370,7 @@
                       </td>
                     </tr>
                     <tr class="preview-row is-hidden" id="preview-{{ track.index }}">
-                      <td colspan="10">
+                      <td colspan="7">
                         <div class="preview-loading">Загружаю preview...</div>
                       </td>
                     </tr>
@@ -676,15 +677,6 @@
       if (resume) await startPlayer(player);
     }
 
-    function buildArticulationSummary(counts) {
-      const entries = Object.entries(counts || {});
-      if (!entries.length) return '<span class="muted">Нет артикуляционных событий</span>';
-      return entries
-        .sort((a, b) => b[1] - a[1])
-        .map(([art, count]) => `<span class="badge plain art-pill art-${art}">${art} · ${count}</span>`)
-        .join('');
-    }
-
     function buildPreviewMarkup(data) {
       const total = Math.max(1, data.duration_ms || 1);
       const minPitch = data.pitch_min;
@@ -702,23 +694,6 @@
         const mods = (note.modifiers || []).map(mod => `mod-${mod.replace(/[^a-z0-9]+/gi, '-')}`).join(' ');
         return `<div class="roll-note art-${note.articulation_key} ${mods}" style="left:${left}%;width:${width}%;top:${top}%;" title="${note.note_name} · ${note.articulation}"></div>`;
       }).join('');
-
-      const noteRows = data.notes.map(note => `
-        <tr>
-          <td class="mono num">${note.note_name}</td>
-          <td class="num">${note.velocity}</td>
-          <td class="num">${(note.start_ms / 1000).toFixed(2)}s</td>
-          <td class="num">${(note.duration_ms / 1000).toFixed(2)}s</td>
-          <td><span class="badge plain art-pill art-${note.articulation_key}">${note.articulation}</span></td>
-          <td>
-            <div class="modifier-list">
-              ${(note.modifiers || []).length
-                ? note.modifiers.map(mod => `<span class="badge plain modifier-pill mod-${mod.replace(/[^a-z0-9]+/gi, '-')}">${mod}</span>`).join('')
-                : '<span class="muted">—</span>'}
-            </div>
-          </td>
-        </tr>
-      `).join('');
 
       return `
         <div class="preview-shell" data-player-root>
@@ -741,26 +716,10 @@
             <span class="badge plain">диапазон ${data.pitch_min}–${data.pitch_max}</span>
             <span class="badge plain">длина ${formatMs(data.duration_ms)}</span>
           </div>
-          <div class="art-summary preview-art-summary">${buildArticulationSummary(data.articulation_counts)}</div>
           <div class="roll-frame" data-roll-frame>
             <div class="roll-grid"></div>
             <div class="roll-playhead" data-playhead></div>
             <div class="roll-notes">${bars}</div>
-          </div>
-          <div class="preview-note-table-wrap">
-            <table class="tbl preview-note-table">
-              <thead>
-                <tr>
-                  <th>Нота</th>
-                  <th>Vel</th>
-                  <th>Старт</th>
-                  <th>Длит.</th>
-                  <th>Артикуляция</th>
-                  <th>Modifiers</th>
-                </tr>
-              </thead>
-              <tbody>${noteRows}</tbody>
-            </table>
           </div>
         </div>
       `;

@@ -24,6 +24,9 @@ from mido import MidiFile
 from werkzeug.utils import secure_filename
 
 from articulation_config import config_for_track_type
+from arrangement_processing import (
+    build_arrangement_context,
+)
 from gp_import import parse_song
 from gp_to_shreddage import (
     PITCH_BEND_RANGE_ST,
@@ -541,6 +544,46 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
     return tracks, midi_tracks
 
 
+def prepare_hermes_arrangement_context(
+    song: Any,
+    tracks: list[dict[str, Any]],
+    midi_tracks: list[Any],
+    output_dir: Path,
+    original_name: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Export a draft context from mapped MIDI without changing any track."""
+    service_by_type = {
+        track_type: set(mapping) for track_type, mapping in ARTICULATION_MAPS.items()
+    }
+    rendered = [
+        {
+            "track_name": summary["track_name"],
+            "track_type": summary["track_type"],
+            "midi_track": midi_track,
+        }
+        for summary, midi_track in zip(tracks, midi_tracks)
+    ]
+    context = build_arrangement_context(song, rendered, service_notes=service_by_type)
+    stem = safe_filename(Path(original_name).stem) or "song"
+    context_name = f"{stem}_arrangement-context.json"
+    payload = {
+        "schema_version": 1,
+        "stage": "awaiting_hermes_draft",
+        "approved": False,
+        "source_midi_state": "target_library_mapped",
+        "apply_contract": "separate explicit approval required",
+        "context": context,
+    }
+    (output_dir / context_name).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "status": "awaiting_hermes_draft",
+        "source_midi_state": "target_library_mapped",
+        "applied": False,
+        "context_name": context_name,
+    }, [context_name]
+
+
 
 def summarize_song(song) -> dict[str, Any]:
     tempo = round(float(song.tempo), 3) if getattr(song, "tempo", None) else 120
@@ -580,7 +623,8 @@ def create_job(uploaded_file, humanize: bool = False,
                auto_sustain_vibrato: bool = False,
                fret_noise_on_hand_shift: bool = False,
                expand_gp_hidden_32nds: bool = False,
-               preserve_gp_played_offsets: bool = False) -> str:
+               preserve_gp_played_offsets: bool = False,
+               prepare_arrangement_context: bool = False) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -604,6 +648,16 @@ def create_job(uploaded_file, humanize: bool = False,
         expand_gp_hidden_32nds=expand_gp_hidden_32nds,
         preserve_gp_played_offsets=preserve_gp_played_offsets,
     )
+
+    arrangement = None
+    arrangement_artifacts: list[str] = []
+    if prepare_arrangement_context:
+        arrangement, arrangement_artifacts = prepare_hermes_arrangement_context(
+            song, tracks, midi_tracks, output_dir, original_name,
+        )
+        arrangement["context_url"] = url_for(
+            "download_track", job_id=job_id, filename=arrangement["context_name"]
+        )
 
     # Сборный Type 1 со всеми дорожками — из ТЕХ ЖЕ объектов, что и пофайловый
     # экспорт, поэтому разойтись они не могут. Кладём в output/ последним, чтобы
@@ -660,6 +714,9 @@ def create_job(uploaded_file, humanize: bool = False,
         "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
         "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
         "preserve_gp_played_offsets": preserve_gp_played_offsets,
+        "prepare_arrangement_context": prepare_arrangement_context,
+        "arrangement": arrangement,
+        "arrangement_artifacts": arrangement_artifacts,
     }
 
     manifest = load_manifest()
@@ -679,7 +736,12 @@ def healthz():
     process itself is serving, so an upstream outage does not restart the pod.
     """
     from flask import jsonify
-    return jsonify({"status": "ok", "sessions_root_writable": os.access(SESSIONS_ROOT, os.W_OK)})
+    return jsonify({
+        "status": "ok",
+        "sessions_root_writable": os.access(SESSIONS_ROOT, os.W_OK),
+        "arrangement_workflow": "hermes_draft_then_explicit_apply",
+        "direct_llm_enabled": False,
+    })
 
 
 @app.get("/")
@@ -727,6 +789,7 @@ def upload():
     expand_gp_hidden_32nds = request.form.get("expand_gp_hidden_32nds") == "on"
     preserve_gp_played_offsets = request.form.get("preserve_gp_played_offsets") == "on"
     playable_tabs = request.form.get("playable_tabs") == "on"
+    prepare_arrangement_context = request.form.get("prepare_arrangement_context") == "on"
     try:
         seed = int(request.form.get("seed") or 7)
     except ValueError:
@@ -740,6 +803,7 @@ def upload():
             fret_noise_on_hand_shift=fret_noise_on_hand_shift,
             expand_gp_hidden_32nds=expand_gp_hidden_32nds,
             preserve_gp_played_offsets=preserve_gp_played_offsets,
+            prepare_arrangement_context=prepare_arrangement_context,
         )
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
@@ -758,6 +822,8 @@ def upload():
         msg += " Скрытые GP 32-е на тональных дорожках развёрнуты."
     if preserve_gp_played_offsets:
         msg += " GP8-сдвиги атак Guitar/Bass сохранены."
+    if prepare_arrangement_context:
+        msg += " Контекст для Hermes подготовлен из уже mapped MIDI; enrichment не применялся."
     flash(msg, "success")
     return redirect(url_for("job_details", job_id=job_id))
 
@@ -789,6 +855,7 @@ def _job_by_id(manifest: dict[str, Any], job_id: str) -> dict[str, Any] | None:
 
 def _artifact_names(job: dict[str, Any]) -> set[str]:
     names = {value for value in (job.get("combined_name"), job.get("refingered_name")) if value}
+    names.update(job.get("arrangement_artifacts", []))
     for track in job.get("tracks", []):
         if track.get("download_name"):
             names.add(track["download_name"])
