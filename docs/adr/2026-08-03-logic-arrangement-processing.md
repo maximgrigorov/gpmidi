@@ -1,6 +1,6 @@
 # ADR: Logic arrangement processing order
 
-**Status:** accepted  
+**Status:** accepted
 **Date:** 2026-08-03
 
 ## Decision
