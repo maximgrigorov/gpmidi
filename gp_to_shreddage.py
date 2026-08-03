@@ -1102,7 +1102,8 @@ def _hairpin_ramps(items):
     return ramps
 
 
-def build_other_midi(song, track, expand_gp_hidden_32nds=False):
+def build_other_midi(song, track, expand_gp_hidden_32nds=False,
+                     preserve_gp_played_offsets=False):
     """MIDI для не-Shreddage дорожек (Logic-инструменты).
 
     Категория A (универсальные эффекты, переносим ВСЕГДА):
@@ -1120,6 +1121,7 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False):
     ev = EventList()
     stats = {"notes": 0, "ks": 0, "cc1": 0,
              "hidden_32nd_beats": 0, "hidden_32nd_notes": 0,
+             "played_offset_notes": 0,
              "config": None, "warnings": []}
     log_config_used(track.name, None)
 
@@ -1188,7 +1190,8 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False):
             continue
 
         hidden_timing = hidden_32nd_note_timing(
-            beat, enabled=expand_gp_hidden_32nds,
+            beat,
+            enabled=expand_gp_hidden_32nds and not preserve_gp_played_offsets,
         )
         if hidden_timing:
             stats["hidden_32nd_beats"] += 1
@@ -1208,7 +1211,16 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False):
                 continue
             velocity = accent_boosted_velocity(note, clamp_vel(note.velocity))
             hidden_entry = hidden_timing.get(id(note))
-            on_tick = start_tick + (hidden_entry[0] if hidden_entry else 0)
+            played_shift = 0
+            if preserve_gp_played_offsets:
+                raw_offset = int(getattr(note, "playedOffset", 0) or 0)
+                played_shift = int(round(raw_offset * TICKS_PER_BEAT / GPIF_PLAYED_PPQ))
+                if played_shift:
+                    stats["played_offset_notes"] += 1
+            on_tick = max(
+                0,
+                start_tick + played_shift + (hidden_entry[0] if hidden_entry else 0),
+            )
             note_dur = (max(1, int(round(dur * hidden_entry[1])))
                         if hidden_entry else dur)
             if getattr(note.effect, "staccato", False):
@@ -1423,6 +1435,7 @@ def main(argv):
             midi_track, stats = build_other_midi(
                 song, track,
                 expand_gp_hidden_32nds=expand_gp_hidden_32nds,
+                preserve_gp_played_offsets=preserve_gp_played_offsets,
             )
         else:
             midi_track, stats = build_instrument_midi(

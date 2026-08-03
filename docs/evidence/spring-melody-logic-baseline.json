@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "baseline_id": "spring-melody-logic-2026-08-03",
+  "frozen_at": "2026-08-03T13:18:53+05:00",
+  "scope": "Accepted Guitar Pro to Logic MIDI handoff before arrangement-LLM work",
+  "source": {
+    "name": "Spring_Melody_v2.gp",
+    "sha256": "5760c03965d04d94f6e664d787573390f872f64b4cf64aadda2a2aacbff9339d"
+  },
+  "package": {
+    "name": "Spring_Melody_Logic_Full_All_Tracks.zip",
+    "sha256": "0bf7dba36f4a5085862b00998c4367d364d990f0a2661d8f83a4d6bb674ef7ae"
+  },
+  "tracks": [
+    {"name": "01_Spring_Melody_Rhythm_Guitar_Accepted.mid", "sha256": "4647bf621b0c47a02042111164aaf5e600a116a9071a811ec8526806f2d26f69"},
+    {"name": "02_Spring_Melody_Bass_Accepted.mid", "sha256": "9c01eb179654c93acf1f91f559655dd30ad41f2326598cd6e7b44a83fddbd8fd"},
+    {"name": "03_Spring_Melody_Drums_Accepted.mid", "sha256": "8514e72b2890c6abf36f853541936ce141a8d11330c8cb53fee10c24ded37e07"},
+    {"name": "04_Spring_Melody_Electric_Clean_Guitar_Staff_1_Safe_Dedup_Accepted.mid", "sha256": "29328adfdce4e7bee7deab947a9ef5cc5cee4cdfd52ee79ff7cea6be7306ee24"},
+    {"name": "05_Spring_Melody_Electric_Clean_Guitar_Staff_2_Safe_Dedup_Accepted.mid", "sha256": "47c1a60ffbd03f5191b9ea28a74b261953bc539d3c54fc95cbfdd1f78a37c12f"},
+    {"name": "06_Spring_Melody_Keyboard_Staff_1.mid", "sha256": "49e1ca1b3a0b308991cb3c05ab68989c0905300d36975363fc5cb3180a23dbf3"},
+    {"name": "07_Spring_Melody_Keyboard_Staff_2.mid", "sha256": "af9c3e10ffc3e460bfbc0b552d0ce968c3707bbade6ace7cd38844c91ff4f45a"},
+    {"name": "08_Spring_Melody_Vocals.mid", "sha256": "60d83e39bf8aba185b2e597c7fc0646be5ab0357dd6227aed72f3fe903098925"},
+    {"name": "09_Spring_Melody_Guitar_Solo.mid", "sha256": "632a4f816ebccb2f99a161b6d44518b7d08885a2f738967a1de406ac37c7e29e"}
+  ],
+  "decision": {
+    "transcription_attack_models": "stopped; evidence retained, no further product work",
+    "pmetal": "stopped; not part of the forward product path",
+    "forward_path": "Guitar Pro baseline -> target-library articulation mapping -> cross-track expression plan -> safe velocity/humanization render -> Logic MIDI",
+    "rollback": "disable arrangement processing and reproduce the hashes above"
+  }
+}

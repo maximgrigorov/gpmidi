@@ -98,6 +98,25 @@ def test_played_offsets_are_opt_in_and_convert_gpif_480_ppq_to_midi_960_ppq():
     assert stats["played_offset_notes"] == 1
 
 
+def test_other_tracks_preserve_played_offsets_without_keyswitches():
+    song, track = _two_beat_song(offset=-25)
+    track.name = "Keyboard"
+
+    legacy, legacy_stats = g.build_other_midi(song, track)
+    preserved, stats = g.build_other_midi(
+        song, track, preserve_gp_played_offsets=True,
+    )
+
+    assert _note_ons(legacy) == [(240, 74)]
+    assert _note_ons(preserved) == [(190, 74)]
+    assert legacy_stats.get("played_offset_notes", 0) == 0
+    assert stats["played_offset_notes"] == 1
+    assert not any(
+        msg.type == "note_on" and msg.velocity > 0 and msg.note in KS_NOTES
+        for msg in preserved
+    )
+
+
 def test_played_offsets_are_not_applied_twice_with_hidden_32nds_option():
     song, track = _two_beat_song(offset=-60)
     track.measures[0].voices[0].beats[1].notes.append(_note(8, offset=-6))

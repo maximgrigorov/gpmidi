@@ -1,7 +1,7 @@
 # Project status — Reference-Guided MIDI Restoration
 
-**Last evidence update:** 2026-08-02
-**Current milestone:** Phase 1 accepted. Phase 2 implemented and re-verified on its feature branch after a clean-context audit; **not merged**. Phase 3 transcription spike has reproducible bass and drum evidence on `feat/transcription-spike`; every tested product candidate remains a musical-quality no-go.
+**Last evidence update:** 2026-08-03
+**Current milestone:** The accepted Spring Melody Logic handoff is frozen as the product baseline. Audio-onset/transcription-model work and pmetal are stopped; their evidence remains historical. Forward development is exclusively the Guitar Pro baseline → target-library articulation mapping → cross-track LLM expression planning → safe velocity/solo-humanization → Logic MIDI workflow on `feat/logic-arrangement-workflow`.
 
 ## Completed
 
@@ -170,28 +170,14 @@ not product quality. Full hashes and metrics are in
 
 ## Next
 
-Phase 3 Task 5 established the initial drum-model comparison; Phase 4 has now
-resolved the timing ambiguity and implemented a supervised restoration slice.
-An audio-only spectral-flux measurement, independent of model predictions,
-found the WAV approximately 140 ms later than the reference MIDI in each of
-three song windows. The Spring asset pair therefore uses a justified -140 ms
-event correction; it is not a universal model constant.
+The model-evaluation and audio-guided restoration branches are closed for product development. Their reports and immutable evidence remain available for reference, but no new attack-recognition, transcription-model or pmetal runs should be scheduled.
 
-Thresholds selected only on `[0, 100)` seconds improved holdout micro precision
-from 0.638790 to 0.750000 and micro F1 from 0.738683 to 0.744472, but final
-untouched micro F1 fell from 0.603636 to 0.549254. The profile remains
-experimental and is not a global default.
-
-The Phase 4 implementation emits immutable, review-required candidate patches
-and separate Type-1 MIDI overlays without mutating Guitar Pro. Real E2E
-artifacts contain 872 ADTOF candidates or 939/945 source-MIDI control events,
-retain the 363-event tempo map, and rebuild byte-for-byte deterministically.
-The gate is **GO for supervised restoration** and **NO-GO for model-only
-automatic replacement**. The trusted `origin/main` Guitar Pro-to-MIDI path
-remains the rollback. Full terminology, methodology, metrics, caveats and
-artifact hashes are in
-`docs/phase-4-reference-guided-midi-restoration-report.md`; the mobile report is
-`docs/reports/phase-4-reference-guided-midi-restoration.html`.
+The active product slice is documented in
+`docs/adr/2026-08-03-logic-arrangement-processing.md`. The accepted Spring Melody
+input and nine-track Logic package are frozen by SHA-256 in
+`docs/evidence/spring-melody-logic-baseline.json`. New work must preserve a
+baseline/rollback mode and add target-aware expression processing only after
+Shreddage/Hydra articulation semantics are resolved.
 
 ## Operational state
 
