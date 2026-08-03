@@ -12,6 +12,7 @@ from arrangement_processing import (
     musical_note_signature,
     validate_plan,
 )
+from articulation_config import config_for_track_type, drum_note_out
 
 
 def _track(*messages):
@@ -133,6 +134,7 @@ def test_expression_runs_after_mapping_preserving_keyswitch_reserved_zone_and_ti
     assert note_ons == [(0, 24, 100), (20, 60, 95), (130, 62, 127)]
     assert stats == {
         "changed_notes": 1,
+        "velocity_processing": True,
         "service_events_preserved": 1,
         "reserved_notes_preserved": 1,
         "mean_velocity_before": 103.5,
@@ -160,3 +162,69 @@ def test_drum_expression_never_adds_or_moves_hits():
     assert musical_note_signature(midi) == before
     assert [(tick, msg.note) for tick, msg in _absolute(midi)
             if msg.type == "note_on" and msg.velocity > 0] == [(0, 36), (480, 49)]
+
+
+def test_solo_velocity_processing_can_be_disabled_without_touching_fast_notes():
+    midi = _track(
+        Message("note_on", note=60, velocity=42, time=0),
+        Message("note_off", note=60, velocity=0, time=120),
+        Message("note_on", note=62, velocity=55, time=0),
+        Message("note_off", note=62, velocity=0, time=120),
+        Message("note_on", note=64, velocity=68, time=0),
+        Message("note_off", note=64, velocity=0, time=120),
+    )
+    before = [message.copy() for message in midi]
+    plan = {
+        "global_velocity_shift": -12,
+        "measure_energy": [{"measure": 1, "velocity_shift": -12, "accents": []}],
+        "tracks": [{
+            "track": "Guitar Solo",
+            "role": "lead",
+            "velocity_shift": -16,
+            "variance": 12,
+            "velocity_processing": False,
+        }],
+        "solo_humanization": {"enabled": False},
+    }
+
+    stats = apply_expression_plan(
+        midi, "Guitar Solo", "GUITAR", plan, {1: (0, 3840)}, seed=7,
+    )
+
+    assert list(midi) == before
+    assert stats["changed_notes"] == 0
+    assert stats["velocity_processing"] is False
+
+
+def test_drum_minimum_velocity_keeps_soft_ornaments_audible():
+    midi = _track(
+        Message("note_on", note=44, velocity=31, time=0),
+        Message("note_off", note=44, velocity=0, time=120),
+    )
+    plan = {
+        "global_velocity_shift": -4,
+        "measure_energy": [{"measure": 1, "velocity_shift": -4, "accents": []}],
+        "tracks": [{
+            "track": "Drums",
+            "role": "drums",
+            "velocity_shift": 0,
+            "variance": 2,
+            "minimum_velocity": 45,
+        }],
+        "solo_humanization": {"enabled": False},
+    }
+
+    apply_expression_plan(midi, "Drums", "DRUMS", plan, {1: (0, 3840)}, seed=11)
+
+    note_on = next(message for message in midi if message.type == "note_on")
+    assert note_on.velocity == 45
+
+
+def test_spring_melody_cabasa_maps_to_pedal_hihat_not_flam_zone():
+    cfg = config_for_track_type("DRUMS")
+    assert cfg is not None
+
+    out_note, warning = drum_note_out(cfg, 69)
+
+    assert out_note == 44
+    assert warning is not None and "Cabasa" in warning

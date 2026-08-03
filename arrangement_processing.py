@@ -206,12 +206,17 @@ def validate_plan(
         track = str(item.get("track", ""))
         if track not in allowed_tracks or track in seen_tracks:
             continue
-        tracks.append({
+        profile = {
             "track": track,
             "role": _clean_text(item.get("role", "support"), 32) or "support",
             "velocity_shift": int(round(_clamp(item.get("velocity_shift"), -16, 16))),
             "variance": int(round(_clamp(item.get("variance"), 0, 12))),
-        })
+        }
+        if "velocity_processing" in item:
+            profile["velocity_processing"] = bool(item.get("velocity_processing"))
+        if "minimum_velocity" in item:
+            profile["minimum_velocity"] = int(round(_clamp(item.get("minimum_velocity"), 1, 127, 1)))
+        tracks.append(profile)
         seen_tracks.add(track)
 
     raw_solo = plan.get("solo_humanization", {})
@@ -260,6 +265,11 @@ def apply_expression_plan(
     global_shift = int(plan.get("global_velocity_shift", 0) or 0)
     track_shift = int(profile.get("velocity_shift", 0) or 0)
     variance = int(profile.get("variance", 0) or 0)
+    velocity_processing = bool(profile.get("velocity_processing", True))
+    minimum_velocity = (
+        int(_clamp(profile.get("minimum_velocity"), 1, 127, 1))
+        if track_type == "DRUMS" else 1
+    )
     rng = _stable_rng(seed, track_name)
 
     tick = 0
@@ -284,7 +294,9 @@ def apply_expression_plan(
         jitter = _nonzero_jitter(rng, variance)
         is_reserved = track_type == "GUITAR" and velocity >= 120
         before_velocities.append(velocity)
-        if is_reserved:
+        if not velocity_processing:
+            new_velocity = velocity
+        elif is_reserved:
             new_velocity = velocity
             reserved_count += 1
         else:
@@ -292,7 +304,7 @@ def apply_expression_plan(
             new_velocity = int(_clamp(
                 velocity + global_shift + track_shift
                 + int(expression.get("velocity_shift", 0) or 0) + accent + jitter,
-                1, cap, velocity,
+                minimum_velocity, cap, velocity,
             ))
             if new_velocity != velocity:
                 changed += 1
@@ -303,6 +315,7 @@ def apply_expression_plan(
         raise RuntimeError("expression plan changed note identity or timing")
     return {
         "changed_notes": changed,
+        "velocity_processing": velocity_processing,
         "service_events_preserved": service_count,
         "reserved_notes_preserved": reserved_count,
         "mean_velocity_before": round(sum(before_velocities) / len(before_velocities), 2) if before_velocities else 0.0,

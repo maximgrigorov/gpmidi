@@ -67,11 +67,15 @@ kit_layout:
 remap:
   50: 48   # GM High Tom -> Hi-Mid Tom (50 в Shreddage = Crash 1 Choke!)
   59: 51   # GM Ride Cymbal 2 -> Ride 1 Edge (в ките один райд)
+  69: 44   # GM Cabasa -> Pedal Hi-Hat (69 в Shreddage занята flam low tom)
   87: 41   # GM Surdo (mute) -> Low Floor Tom (ближайший по звуку; см. warnings)
   82: 44   # GM Shaker -> Pedal Hi-Hat (см. warnings: перкуссии в ките нет вовсе)
 
 # Явные предупреждения на конкретные входные GM-ноты.
 warnings:
+  69: >-
+    GM Cabasa -> Pedal Hi-Hat. Cabasa в Shreddage Drums отсутствует, а MIDI 69
+    занята flam low tom; Pedal Hi-Hat — ближайшая короткая тихая артикуляция.
   # ОТОЗВАНО 2026-07-15. Здесь висело предупреждение, что на C#1 у пользователя
   # загружен ДУБЛЬ КИКА вместо Side Stick. Это неверно: скриншот вкладки MAPPING
   # показывает C#1 = *Sn14x5M Crs, то есть cross stick на месте и, судя по всему,
