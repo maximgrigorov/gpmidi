@@ -50,6 +50,15 @@
                   компактный JSON для обсуждения в чате. Никакое enrichment автоматически не применяется.</small>
                 </span>
               </label>
+              {% if openai_configured %}
+              <label class="opt primary-option">
+                <input type="checkbox" name="openai_arrangement_draft" id="openaiArrangementDraftChk">
+                <span>
+                  <strong>Создать полный expression plan через OpenAI GPT-5.6 Sol</strong>
+                  <small>Платный server-side вызов (до лимита $0.50). Создаёт production-quality JSON-план для всей песни; MIDI применяется только отдельной кнопкой подтверждения.</small>
+                </span>
+              </label>
+              {% endif %}
             </fieldset>
 
             <details class="advanced-options">
@@ -247,15 +256,30 @@
             <section class="panel expression-result-panel">
               <div class="panel-head compact-head">
                 <div>
-                  <h2>Контекст для Hermes</h2>
-                  <p class="muted">Контекст собран из уже mapped MIDI. Expression ещё не применён и baseline-файлы не изменены.</p>
+                  <h2>{% if current_job.openai_arrangement_draft %}OpenAI expression plan{% else %}Контекст для Hermes{% endif %}</h2>
+                  <p class="muted">Контекст собран из already mapped MIDI. Baseline не изменён.</p>
                 </div>
                 <div class="head-actions">
-                  <a class="btn btn-sm" href="{{ current_job.arrangement.context_url }}">Скачать context JSON</a>
+                  {% if current_job.arrangement.context_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.context_url }}">Context JSON</a>{% endif %}
+                  {% if current_job.arrangement.plan_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.plan_url }}">Expression plan</a>{% endif %}
+                  {% if current_job.arrangement.usage_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.usage_url }}">Usage</a>{% endif %}
                 </div>
               </div>
               <div class="expression-result-body">
-                <p>Статус: Hermes draft → объяснение решений в чате → явное подтверждение → отдельная enriched-сборка.</p>
+                {% if current_job.arrangement.status == 'draft_ready' %}
+                  <p><strong>{{ current_job.arrangement.model }}</strong> — {{ current_job.arrangement.summary }}</p>
+                  <p>Tokens: {{ current_job.arrangement.tokens.input_tokens }} input / {{ current_job.arrangement.tokens.output_tokens }} output / {{ current_job.arrangement.tokens.total_tokens }} total. Оценка: ${{ '%.4f'|format(current_job.arrangement.estimated_cost_usd or 0) }}.</p>
+                  <form method="post" action="{{ url_for('apply_arrangement', job_id=current_job.id) }}">
+                    <input type="hidden" name="apply_token" value="{{ current_job.arrangement_apply_token }}">
+                    <button class="btn" type="submit">Подтвердить и собрать enriched MIDI</button>
+                  </form>
+                {% elif current_job.arrangement.status == 'applied' %}
+                  <p><strong>Enriched MIDI собран отдельно.</strong> Baseline сохранён; новые файлы доступны ниже и в ZIP.</p>
+                {% elif current_job.arrangement.status == 'draft_error' %}
+                  <p class="error">{{ current_job.arrangement.error }}</p>
+                {% else %}
+                  <p>Статус: Hermes draft → ручная проверка → явное подтверждение → отдельная enriched-сборка.</p>
+                {% endif %}
               </div>
             </section>
           {% endif %}

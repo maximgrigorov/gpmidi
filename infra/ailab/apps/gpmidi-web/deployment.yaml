@@ -61,6 +61,20 @@ spec:
             secretKeyRef:
               name: gpmidi-web-secret
               key: SECRET_KEY
+        - name: OPENAI_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gpmidi-openai-secret
+              key: OPENAI_TOKEN
+              optional: true
+        - name: OPENAI_ARRANGEMENT_MODEL
+          value: gpt-5.6-sol
+        - name: OPENAI_ARRANGEMENT_TIMEOUT_SECONDS
+          value: "180"
+        - name: OPENAI_ARRANGEMENT_MAX_OUTPUT_TOKENS
+          value: "5000"
+        - name: OPENAI_ARRANGEMENT_MAX_ESTIMATED_USD
+          value: "0.50"
         resources:
           requests:
             cpu: 100m

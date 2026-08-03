@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import uuid
 import zipfile
@@ -23,9 +24,15 @@ from flask import (
 from mido import MidiFile
 from werkzeug.utils import secure_filename
 
+from arrangement_openai import (
+    is_openai_configured,
+    create_openai_draft,
+    get_openai_config,
+)
 from arrangement_processing import (
     build_arrangement_context,
 )
+from arrangement_workflow import apply as apply_arrangement_plan
 from articulation_config import config_for_track_type
 from gp_import import parse_song
 from gp_to_shreddage import (
@@ -624,7 +631,8 @@ def create_job(uploaded_file, humanize: bool = False,
                fret_noise_on_hand_shift: bool = False,
                expand_gp_hidden_32nds: bool = False,
                preserve_gp_played_offsets: bool = False,
-               prepare_arrangement_context: bool = False) -> str:
+               prepare_arrangement_context: bool = False,
+               openai_arrangement_draft: bool = False) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -649,6 +657,7 @@ def create_job(uploaded_file, humanize: bool = False,
         preserve_gp_played_offsets=preserve_gp_played_offsets,
     )
 
+    prepare_arrangement_context = bool(prepare_arrangement_context or openai_arrangement_draft)
     arrangement = None
     arrangement_artifacts: list[str] = []
     if prepare_arrangement_context:
@@ -658,6 +667,79 @@ def create_job(uploaded_file, humanize: bool = False,
         arrangement["context_url"] = url_for(
             "download_track", job_id=job_id, filename=arrangement["context_name"]
         )
+
+    # OpenAI draft - only if configured and requested
+    openai_draft = None
+    if openai_arrangement_draft and is_openai_configured():
+        # Note: arrangement/context already prepared above if prepare_arrangement_context was set
+        context_name = None
+        if arrangement and arrangement.get("context_name"):
+            context_name = arrangement["context_name"]
+        else:
+            # Need to prepare context if not already done
+            arrangement, arrangement_artifacts = prepare_hermes_arrangement_context(
+                song, tracks, midi_tracks, output_dir, original_name,
+            )
+            context_name = arrangement["context_name"]
+        try:
+            context_path = output_dir / context_name
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            draft_result = create_openai_draft(context["context"], get_openai_config())
+            # Write plan payload with explicit schema for apply workflow
+            plan_payload = {
+                "schema_version": 1,
+                "provider": "openai",
+                "model": draft_result.get("model"),
+                "response_id": draft_result.get("response_id"),
+                "approved": False,
+                "plan": draft_result.get("plan"),
+            }
+            plan_name = f"{safe_filename(Path(original_name).stem) or 'song'}_openai-draft-plan.json"
+            plan_path = output_dir / plan_name
+            plan_path.write_text(
+                json.dumps(plan_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+            # Write usage JSON with estimated_cost from actual usage
+            usage_name = f"{safe_filename(Path(original_name).stem) or 'song'}_openai-usage.json"
+            usage_path = output_dir / usage_name
+            usage_payload = {
+                "response_id": draft_result.get("response_id"),
+                "model": draft_result.get("model"),
+                "provider": draft_result.get("provider"),
+                "usage": draft_result.get("usage", {}),
+                "estimated_cost_usd": (draft_result.get("usage") or {}).get("estimated_cost_usd"),
+            }
+            usage_path.write_text(
+                json.dumps(usage_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+            # Update arrangement with draft status including actual usage and estimated_cost
+            arrangement = {
+                "status": draft_result.get("status", "draft_ready"),
+                "context_name": context_name,
+                "context_url": url_for("download_track", job_id=job_id, filename=context_name),
+                "plan_name": plan_name,
+                "plan_url": url_for("download_track", job_id=job_id, filename=plan_name),
+                "usage_name": usage_name,
+                "usage_url": url_for("download_track", job_id=job_id, filename=usage_name),
+                "model": draft_result.get("model"),
+                "summary": draft_result.get("plan", {}).get("summary", ""),
+                "tokens": draft_result.get("usage", {}),
+                "estimated_cost_usd": (draft_result.get("usage") or {}).get("estimated_cost_usd"),
+                "usage_actual": draft_result.get("usage", {}),
+            }
+            arrangement_artifacts = [context_name, plan_name, usage_name]
+            openai_draft = draft_result
+        except Exception:
+            # Catch error so baseline job still succeeds with arrangement draft_error status
+            # Keep context artifact and baseline, use fixed sanitized user message
+            arrangement = {
+                "status": "draft_error",
+                "error": "OpenAI draft request failed - please check your configuration",
+                "context_name": context_name,
+                "context_url": url_for("download_track", job_id=job_id, filename=context_name) if context_name else None,
+            }
 
     # Сборный Type 1 со всеми дорожками — из ТЕХ ЖЕ объектов, что и пофайловый
     # экспорт, поэтому разойтись они не могут. Кладём в output/ последним, чтобы
@@ -715,6 +797,9 @@ def create_job(uploaded_file, humanize: bool = False,
         "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
         "preserve_gp_played_offsets": preserve_gp_played_offsets,
         "prepare_arrangement_context": prepare_arrangement_context,
+        "openai_arrangement_draft": openai_arrangement_draft,
+        "arrangement_apply_token": secrets.token_urlsafe(24) if openai_arrangement_draft else None,
+        "seed": seed,
         "arrangement": arrangement,
         "arrangement_artifacts": arrangement_artifacts,
     }
@@ -740,7 +825,7 @@ def healthz():
         "status": "ok",
         "sessions_root_writable": os.access(SESSIONS_ROOT, os.W_OK),
         "arrangement_workflow": "hermes_draft_then_explicit_apply",
-        "direct_llm_enabled": False,
+        "direct_llm_enabled": is_openai_configured(),
     })
 
 
@@ -754,6 +839,7 @@ def index():
         max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
         hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
+        openai_configured=is_openai_configured(),
     )
 
 
@@ -790,6 +876,7 @@ def upload():
     preserve_gp_played_offsets = request.form.get("preserve_gp_played_offsets") == "on"
     playable_tabs = request.form.get("playable_tabs") == "on"
     prepare_arrangement_context = request.form.get("prepare_arrangement_context") == "on"
+    openai_arrangement_draft = request.form.get("openai_arrangement_draft") == "on"
     try:
         seed = int(request.form.get("seed") or 7)
     except ValueError:
@@ -804,6 +891,7 @@ def upload():
             expand_gp_hidden_32nds=expand_gp_hidden_32nds,
             preserve_gp_played_offsets=preserve_gp_played_offsets,
             prepare_arrangement_context=prepare_arrangement_context,
+            openai_arrangement_draft=openai_arrangement_draft,
         )
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
@@ -824,6 +912,8 @@ def upload():
         msg += " GP8-сдвиги атак Guitar/Bass сохранены."
     if prepare_arrangement_context:
         msg += " Контекст для Hermes подготовлен из уже mapped MIDI; enrichment не применялся."
+    if openai_arrangement_draft:
+        msg += " OpenAI draft запрошен; MIDI изменится только после отдельного подтверждения."
     flash(msg, "success")
     return redirect(url_for("job_details", job_id=job_id))
 
@@ -846,6 +936,7 @@ def job_details(job_id: str):
         max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
         hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
+        openai_configured=is_openai_configured(),
     )
 
 
@@ -861,6 +952,69 @@ def _artifact_names(job: dict[str, Any]) -> set[str]:
             names.add(track["download_name"])
         names.update((track.get("playable") or {}).get("files", []))
     return names
+
+
+@app.post("/jobs/<job_id>/arrangement/apply")
+def apply_arrangement(job_id: str):
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None:
+        abort(404)
+    arrangement = job.get("arrangement") or {}
+    if arrangement.get("status") == "applied":
+        flash("Enriched MIDI уже собран; повторное применение не выполнялось.", "warning")
+        return redirect(url_for("job_details", job_id=job_id))
+    if arrangement.get("status") != "draft_ready" or not arrangement.get("plan_name"):
+        abort(400, description="OpenAI draft не готов к применению")
+    expected_token = str(job.get("arrangement_apply_token") or "")
+    submitted_token = str(request.form.get("apply_token") or "")
+    if not expected_token or not secrets.compare_digest(expected_token, submitted_token):
+        abort(400, description="Недействительное подтверждение применения")
+
+    job_dir = uploads_root() / job_id
+    source_path = job_dir / "input" / job["stored_name"]
+    plan_name = str(arrangement["plan_name"])
+    if Path(plan_name).name != plan_name:
+        abort(400, description="Недействительное имя плана")
+    plan_path = job_dir / "output" / plan_name
+    if not source_path.is_file() or not plan_path.is_file():
+        flash("Исходный GP или draft plan недоступен; baseline не изменён.", "error")
+        return redirect(url_for("job_details", job_id=job_id))
+    temp_dir = job_dir / "openai-apply"
+    copied: list[str] = []
+    try:
+        apply_manifest = apply_arrangement_plan(
+            source_path, plan_path, temp_dir, approved=True, seed=int(job.get("seed", 7)))
+        for artifact in sorted(temp_dir.iterdir()):
+            if not artifact.is_file():
+                continue
+            name = artifact.name
+            if name == "manifest.json":
+                stem = safe_filename(Path(job["original_name"]).stem) or "song"
+                name = f"{stem}_expression-manifest.json"
+            destination = job_dir / "output" / name
+            if destination.exists():
+                raise RuntimeError("enriched artifact would overwrite an existing file")
+            shutil.copy2(artifact, destination)
+            copied.append(name)
+    except Exception:
+        for name in copied:
+            (job_dir / "output" / name).unlink(missing_ok=True)
+        flash("Enriched-сборка не выполнена; baseline сохранён без изменений.", "error")
+        return redirect(url_for("job_details", job_id=job_id))
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    job.setdefault("arrangement_artifacts", []).extend(copied)
+    arrangement.update({
+        "status": "applied", "applied": True,
+        "apply_manifest": apply_manifest, "enriched_artifacts": copied,
+    })
+    job["arrangement_apply_token"] = None
+    make_zip(job_dir)
+    save_manifest(manifest)
+    flash("Enriched MIDI собран отдельно; baseline не перезаписан.", "success")
+    return redirect(url_for("job_details", job_id=job_id))
 
 
 @app.get("/download/<job_id>/<path:filename>")
