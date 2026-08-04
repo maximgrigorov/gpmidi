@@ -1136,6 +1136,7 @@ def job_details(job_id: str):
         abort(404)
     manifest["current_job_id"] = job_id
     save_manifest(manifest)
+    current_job = _attach_midi_downloads(current_job)
     return render_template(
         "index.html", current_job=current_job, jobs=jobs,
         max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),

@@ -98,22 +98,24 @@ def test_applied_job_shows_explicit_baseline_and_enriched_midi_downloads_without
     }
     manifest = {"jobs": [job], "current_job_id": "job"}
     monkeypatch.setattr(web, "load_manifest", lambda: manifest)
+    monkeypatch.setattr(web, "save_manifest", lambda _manifest: None)
     web.app.config.update(TESTING=True)
 
-    page = web.app.test_client().get("/").data.decode()
+    for endpoint in ("/jobs/job", "/"):
+        page = web.app.test_client().get(endpoint).data.decode()
 
-    assert "Baseline · общий MIDI" in page
-    assert "Enriched · общий MIDI" in page
-    assert 'href="/download/job/song_ALL.mid"' in page
-    assert 'href="/download/job/song_expression_ALL.mid"' in page
-    assert "Baseline MIDI" in page
-    assert "Enriched MIDI" in page
-    assert 'href="/download/job/Solo.mid"' in page
-    assert 'href="/download/job/Solo_expression.mid"' in page
-    assert "ZIP по дорожкам" not in page
-    assert "Context JSON" not in page
-    assert "Expression plan" not in page
-    assert "Usage" not in page
+        assert "Baseline · общий MIDI" in page
+        assert "Enriched · общий MIDI" in page
+        assert 'href="/download/job/song_ALL.mid"' in page
+        assert 'href="/download/job/song_expression_ALL.mid"' in page
+        assert "Baseline MIDI" in page
+        assert "Enriched MIDI" in page
+        assert 'href="/download/job/Solo.mid"' in page
+        assert 'href="/download/job/Solo_expression.mid"' in page
+        assert "ZIP по дорожкам" not in page
+        assert "Context JSON" not in page
+        assert "Expression plan" not in page
+        assert "Usage" not in page
 
 
 def test_successful_job_persists_exact_prompt_artifact_and_hash(monkeypatch, tmp_path):
