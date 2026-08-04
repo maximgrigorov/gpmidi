@@ -1,7 +1,7 @@
 """Проводка opt-in performance-life флагов через CLI и web."""
 from __future__ import annotations
 
-import io
+from pathlib import Path
 
 import gp_to_shreddage as g
 
@@ -18,10 +18,24 @@ def test_cli_parses_independent_performance_life_flags():
     assert options["seed"] == 19
 
 
-def test_web_upload_forwards_independent_performance_life_flags(monkeypatch, tmp_path):
+def test_processing_step_forwards_independent_per_track_performance_life_flags(monkeypatch):
     import app as web
 
     captured = {}
+    job = {
+        "id": "job123", "stage": "parsed", "original_name": "song.gp5",
+        "stored_name": "song.gp5",
+        "detected_tracks": [{
+            "index": 1, "track_type": "GUITAR",
+            "available_effects": [
+                "auto_sustain_vibrato", "fret_noise_on_hand_shift",
+            ],
+        }],
+    }
+    monkeypatch.setattr(
+        web, "load_manifest",
+        lambda: {"jobs": [job], "current_job_id": "job123"},
+    )
 
     def fake_create_job(uploaded_file, **kwargs):
         captured.update(kwargs)
@@ -32,29 +46,23 @@ def test_web_upload_forwards_independent_performance_life_flags(monkeypatch, tmp
     client = web.app.test_client()
 
     response = client.post(
-        "/upload",
+        "/jobs/job123/process",
         data={
-            "file": (io.BytesIO(b"fixture"), "song.gp5"),
-            "auto_sustain_vibrato": "on",
-            "fret_noise_on_hand_shift": "on",
+            "track_indices": "1",
+            "track_1_auto_sustain_vibrato": "on",
+            "track_1_fret_noise_on_hand_shift": "on",
             "seed": "19",
         },
-        content_type="multipart/form-data",
     )
 
     assert response.status_code == 302
-    assert captured["auto_sustain_vibrato"] is True
-    assert captured["fret_noise_on_hand_shift"] is True
+    assert captured["track_options"][1]["auto_sustain_vibrato"] is True
+    assert captured["track_options"][1]["fret_noise_on_hand_shift"] is True
     assert captured["seed"] == 19
 
 
-def test_index_exposes_separate_performance_life_checkboxes(monkeypatch):
-    import app as web
+def test_track_selection_template_exposes_separate_performance_life_checkboxes():
+    source = Path("templates/index.html").read_text(encoding="utf-8")
 
-    monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": [], "current_job_id": None})
-    web.app.config.update(TESTING=True)
-    response = web.app.test_client().get("/")
-
-    assert response.status_code == 200
-    assert b'name="auto_sustain_vibrato"' in response.data
-    assert b'name="fret_noise_on_hand_shift"' in response.data
+    assert 'name="track_{{ track.index }}_auto_sustain_vibrato"' in source
+    assert 'name="track_{{ track.index }}_fret_noise_on_hand_shift"' in source

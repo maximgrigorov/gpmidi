@@ -1,7 +1,6 @@
 """Opt-in preservation of GP8 per-note playback attack offsets."""
 from __future__ import annotations
 
-import io
 import warnings
 from pathlib import Path
 
@@ -146,10 +145,22 @@ def test_cli_parses_played_offsets_as_independent_opt_in():
     assert options["expand_gp_hidden_32nds"] is False
 
 
-def test_web_upload_forwards_played_offsets_opt_in(monkeypatch):
+def test_processing_step_forwards_played_offsets_per_track(monkeypatch):
     import app as web
 
     captured = {}
+    job = {
+        "id": "job123", "stage": "parsed", "original_name": "song.gp",
+        "stored_name": "song.gp",
+        "detected_tracks": [{
+            "index": 1, "track_type": "GUITAR",
+            "available_effects": ["preserve_gp_played_offsets"],
+        }],
+    }
+    monkeypatch.setattr(
+        web, "load_manifest",
+        lambda: {"jobs": [job], "current_job_id": "job123"},
+    )
 
     def fake_create_job(uploaded_file, **kwargs):
         captured.update(kwargs)
@@ -158,28 +169,22 @@ def test_web_upload_forwards_played_offsets_opt_in(monkeypatch):
     monkeypatch.setattr(web, "create_job", fake_create_job)
     web.app.config.update(TESTING=True)
     response = web.app.test_client().post(
-        "/upload",
+        "/jobs/job123/process",
         data={
-            "file": (io.BytesIO(b"fixture"), "song.gp"),
-            "preserve_gp_played_offsets": "on",
+            "track_indices": "1",
+            "track_1_preserve_gp_played_offsets": "on",
         },
-        content_type="multipart/form-data",
     )
 
     assert response.status_code == 302
-    assert captured["preserve_gp_played_offsets"] is True
+    assert captured["track_options"][1]["preserve_gp_played_offsets"] is True
 
 
-def test_index_exposes_gp_played_offsets_checkbox(monkeypatch):
-    import app as web
+def test_track_selection_template_exposes_gp_played_offsets_checkbox():
+    source = Path("templates/index.html").read_text(encoding="utf-8")
 
-    monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": [], "current_job_id": None})
-    web.app.config.update(TESTING=True)
-    response = web.app.test_client().get("/")
-
-    assert response.status_code == 200
-    assert b'name="preserve_gp_played_offsets"' in response.data
-    assert "как сыграно".encode() in response.data
+    assert 'name="track_{{ track.index }}_preserve_gp_played_offsets"' in source
+    assert "preserve GP played offsets" in source
 
 
 def test_spring_melody_measures_66_67_preserve_relative_gp_attack_offsets():

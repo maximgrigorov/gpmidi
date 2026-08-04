@@ -9,14 +9,16 @@ The forward product path is the accepted Guitar Pro score. Audio-onset recogniti
 
 Processing order:
 
-1. Parse Guitar Pro and preserve its bar/rhythm/tempo identity.
-2. Resolve the target instrument and map Shreddage/Hydra articulations, keyswitches, pitch-bends and reserved velocity zones.
-3. Build one compact whole-arrangement view across all rendered tracks.
-4. Export a non-mutating measure-level context and ask Hermes for a draft expression plan: measure energy, accents, per-track role/shift, and an optional Solo-humanization decision.
-5. Explain the draft in chat and require explicit approval. There is no model call or automatic fallback in the application.
-6. On approved apply, rebuild from Guitar Pro while preserving the accepted Solo played offsets. The post-mapping expression pass changes only explicitly enabled dimensions, with instrument-safe clamps. Solo velocity, pitch-bend curve shaping and CC1 modulation are independent opt-ins; note pitches, note count, onset ticks and durations remain immutable.
-7. Export separate Logic MIDI tracks and Type-1 `_ALL.mid` from the same processed track objects.
-8. Generate rewrite proposals only when explicitly requested. A rewrite proposal is a separate review artifact and never silently mutates the baseline score or MIDI.
+1. Parse Guitar Pro, preserve its bar/rhythm/tempo identity, and show every detected track before rendering.
+2. Default to all tracks selected, while allowing one-track or custom subsets and per-track effects. Unselected tracks are not rendered and are not included in model context.
+3. Resolve the target instrument and map Shreddage/Hydra articulations, keyswitches, pitch-bends and reserved velocity zones for the selected tracks.
+4. Build one compact arrangement view across the selected rendered tracks.
+5. Export a non-mutating measure-level context and ask Hermes for a draft expression plan: measure energy, accents, per-track role/shift, and an optional Solo-humanization decision.
+6. Explain the draft in chat and require explicit approval. There is no model call or automatic fallback in the application.
+7. On approved apply, rebuild only the selected tracks from Guitar Pro while preserving the accepted Solo played offsets. The post-mapping expression pass changes only explicitly enabled dimensions, with instrument-safe clamps. Solo velocity, pitch-bend curve shaping and CC1 modulation are independent opt-ins; note pitches, note count, onset ticks and durations remain immutable.
+8. Export separate Logic MIDI tracks and Type-1 `_ALL.mid` from the same processed track objects.
+9. Show a concise factual report per rendered track: mapping, articulation events, enabled local effects, and approved expression statistics.
+10. Generate rewrite proposals only when explicitly requested. A rewrite proposal is a separate review artifact and never silently mutates the baseline score or MIDI.
 
 ## Why articulation mapping comes first
 
@@ -33,12 +35,14 @@ The accepted near-term workflow is conversational Hermes/MCP with human approval
 3. Hermes saves a draft expression/rewrite plan and explains the musical decisions in chat;
 4. only explicit user approval allows the application to apply the draft to MIDI.
 
-The optional unattended UI action uses a configurable creative API provider such as OpenAI. Its complete instructions prompt is editable in the upload interface. The exact normalized prompt and SHA-256 are saved beside the draft plan for reproducibility. Provider credentials stay outside project artifacts. A coder-model endpoint is not a fallback for creative planning; deterministic processing remains only a technical/offline mode.
+The optional unattended UI action uses a configurable creative API provider such as OpenAI. Its complete instructions prompt is editable after track discovery, on the processing step. The exact normalized prompt and SHA-256 are saved beside the draft plan for reproducibility. Provider credentials stay outside project artifacts. A coder-model endpoint is not a fallback for creative planning; deterministic processing remains only a technical/offline mode.
 
 ## Safety contract
 
 - baseline mode remains byte-compatible with the existing converter;
 - context preparation and approved expression apply are separate opt-in stages;
+- all tracks are selected by default, but explicit one/custom selection is enforced through the render, context, apply, playable-tab and reporting stages;
+- per-track local effects are accepted only from a server-side whitelist for the detected track type;
 - LLM output is untrusted JSON, schema-validated and range-clamped;
 - Hermes/MCP stores a draft first; applying it is a separate explicit action;
 - no coder model is used as a creative fallback;

@@ -136,6 +136,7 @@ def _render_track(
 def _render_baseline(
     song: Any, *, seed: int = 7, render_options: dict[str, Any] | None = None,
     included_track_indices: set[int] | None = None,
+    track_options: dict[int, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     rendered = []
     used: dict[str, int] = {}
@@ -146,15 +147,18 @@ def _render_baseline(
         basename = base if used[base] == 1 else f"{base}_{used[base]}"
         if included_track_indices is not None and index not in included_track_indices:
             continue
+        effective_options = (track_options or {}).get(index, render_options)
         midi_track, stats = _render_track(
             song, source_track, track_type, solo_humanize=False, seed=seed,
-            render_options=render_options,
+            render_options=effective_options,
         )
         rendered.append({
+            "index": index,
             "track_name": source_track.name or f"Track {index}",
             "track_type": track_type,
             "basename": basename,
             "source_track": source_track,
+            "render_options": dict(effective_options or {}),
             "midi_track": midi_track,
             "stats": stats,
         })
@@ -269,6 +273,7 @@ def apply(
     source: Path, plan_path: Path, output_dir: Path, *, approved: bool, seed: int,
     render_options: dict[str, Any] | None = None,
     included_track_indices: set[int] | None = None,
+    track_options: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     require_apply_approval(approved)
     raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -278,6 +283,7 @@ def apply(
     baseline = _render_baseline(
         song, seed=seed, render_options=render_options,
         included_track_indices=included_track_indices,
+        track_options=track_options,
     )
     track_names = [row["track_name"] for row in baseline]
     plan = validate_plan(
@@ -299,7 +305,8 @@ def apply(
         if allow_timing:
             enriched, render_stats = _render_track(
                 song, row["source_track"], row["track_type"],
-                solo_humanize=True, seed=seed, render_options=render_options,
+                solo_humanize=True, seed=seed,
+                render_options=row["render_options"],
             )
         else:
             enriched = _copy_track(row["midi_track"])

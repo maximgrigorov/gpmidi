@@ -8,28 +8,50 @@ from pathlib import Path
 from werkzeug.datastructures import FileStorage
 
 
-def test_upload_passes_opt_in_and_health_reports_config(monkeypatch):
+def test_processing_step_passes_openai_opt_in_and_health_reports_config(monkeypatch):
     import app as web
     captured = {}
+    job = {
+        "id": "job", "stage": "parsed", "original_name": "song.gp5",
+        "stored_name": "song.gp5",
+        "detected_tracks": [{"index": 1, "track_type": "GUITAR", "available_effects": []}],
+    }
+    manifest = {"jobs": [job], "current_job_id": "job"}
     monkeypatch.setenv("OPENAI_TOKEN", "test-only")
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
     monkeypatch.setattr(web, "create_job", lambda _file, **kwargs: captured.update(kwargs) or "job")
     web.app.config.update(TESTING=True)
     client = web.app.test_client()
-    response = client.post("/upload", data={
-        "file": (io.BytesIO(b"gp"), "song.gp5"),
+    response = client.post("/jobs/job/process", data={
+        "track_indices": "1",
         "openai_arrangement_draft": "on", "seed": "17",
         "arrangement_prompt": "Custom expression prompt",
-    }, content_type="multipart/form-data")
+    })
     assert response.status_code == 302
     assert captured["openai_arrangement_draft"] is True
+    assert captured["selected_track_indices"] == {1}
     assert captured["arrangement_prompt"] == "Custom expression prompt"
     assert captured["seed"] == 17
     assert client.get("/healthz").get_json()["direct_llm_enabled"] is True
 
 
-def test_template_hides_openai_without_token_and_shows_with_token(monkeypatch):
+def test_template_hides_openai_without_token_and_shows_with_token_for_parsed_job(monkeypatch):
     import app as web
-    monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": [], "current_job_id": None})
+    job = {
+        "id": "job", "stage": "parsed", "original_name": "song.gp5",
+        "created_at": "now",
+        "song": {
+            "title": "Song", "tempo": 120, "tracks": 1, "measures": 1,
+            "time_signatures": ["4/4"], "artist": "—", "album": "—",
+        },
+        "detected_tracks": [{
+            "index": 1, "track_name": "Solo", "track_type": "GUITAR",
+            "track_type_label": "Гитара / Hydra", "instrument_preset": "solo",
+            "available_effects": [],
+        }],
+    }
+    manifest = {"jobs": [job], "current_job_id": "job"}
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
     web.app.config.update(TESTING=True)
     monkeypatch.delenv("OPENAI_TOKEN", raising=False)
     assert b'openai_arrangement_draft' not in web.app.test_client().get("/").data
@@ -37,7 +59,7 @@ def test_template_hides_openai_without_token_and_shows_with_token(monkeypatch):
     page = web.app.test_client().get("/").data
     assert b'openai_arrangement_draft' in page
     assert b'name="arrangement_prompt"' in page
-    assert b'production-quality whole-song' in page
+    assert "только выбранные дорожки" in page.decode()
 
 
 def test_successful_job_persists_exact_prompt_artifact_and_hash(monkeypatch, tmp_path):

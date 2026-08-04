@@ -1,8 +1,8 @@
 """Opt-in разворачивание GP8 playback-offset пар в скрытые 32-е."""
 from __future__ import annotations
 
-import io
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from guitarpro.models import NoteType
 
@@ -240,10 +240,22 @@ def test_cli_parses_hidden_32nds_as_independent_opt_in():
     assert options["expand_gp_hidden_32nds"] is True
 
 
-def test_web_upload_forwards_hidden_32nds_opt_in(monkeypatch):
+def test_processing_step_forwards_hidden_32nds_per_track(monkeypatch):
     import app as web
 
     captured = {}
+    job = {
+        "id": "job123", "stage": "parsed", "original_name": "song.gp",
+        "stored_name": "song.gp",
+        "detected_tracks": [{
+            "index": 1, "track_type": "OTHER",
+            "available_effects": ["expand_gp_hidden_32nds"],
+        }],
+    }
+    monkeypatch.setattr(
+        web, "load_manifest",
+        lambda: {"jobs": [job], "current_job_id": "job123"},
+    )
 
     def fake_create_job(uploaded_file, **kwargs):
         captured.update(kwargs)
@@ -252,26 +264,19 @@ def test_web_upload_forwards_hidden_32nds_opt_in(monkeypatch):
     monkeypatch.setattr(web, "create_job", fake_create_job)
     web.app.config.update(TESTING=True)
     response = web.app.test_client().post(
-        "/upload",
+        "/jobs/job123/process",
         data={
-            "file": (io.BytesIO(b"fixture"), "song.gp"),
-            "expand_gp_hidden_32nds": "on",
+            "track_indices": "1",
+            "track_1_expand_gp_hidden_32nds": "on",
         },
-        content_type="multipart/form-data",
     )
 
     assert response.status_code == 302
-    assert captured["expand_gp_hidden_32nds"] is True
+    assert captured["track_options"][1]["expand_gp_hidden_32nds"] is True
 
 
-def test_index_exposes_hidden_32nds_checkbox(monkeypatch):
-    import app as web
+def test_track_selection_template_exposes_hidden_32nds_checkbox():
+    source = Path("templates/index.html").read_text(encoding="utf-8")
 
-    monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": [], "current_job_id": None})
-    web.app.config.update(TESTING=True)
-    response = web.app.test_client().get("/")
-
-    assert response.status_code == 200
-    assert b'name="expand_gp_hidden_32nds"' in response.data
-    assert "Все тональные дорожки".encode() in response.data
-    assert "Только solo/lead guitar".encode() not in response.data
+    assert 'name="track_{{ track.index }}_expand_gp_hidden_32nds"' in source
+    assert "hidden GP 32nds" in source

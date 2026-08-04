@@ -1,32 +1,43 @@
 from __future__ import annotations
 
-import io
 from pathlib import Path
 
 
-def test_upload_only_prepares_hermes_context(monkeypatch):
+def test_selected_tracks_prepare_hermes_context_on_processing_step(monkeypatch):
     import app as web
 
     captured = {}
+    job = {
+        "id": "job-context",
+        "stage": "parsed",
+        "original_name": "song.gp5",
+        "stored_name": "song.gp5",
+        "detected_tracks": [{
+            "index": 1, "track_type": "GUITAR",
+            "available_effects": ["humanize"],
+        }],
+    }
+    manifest = {"jobs": [job], "current_job_id": job["id"]}
 
     def fake_create_job(uploaded_file, **kwargs):
         captured.update(kwargs)
         return "job-context"
 
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
     monkeypatch.setattr(web, "create_job", fake_create_job)
     web.app.config.update(TESTING=True)
     response = web.app.test_client().post(
-        "/upload",
+        "/jobs/job-context/process",
         data={
-            "file": (io.BytesIO(b"fixture"), "song.gp5"),
+            "track_indices": "1",
             "prepare_arrangement_context": "on",
             "seed": "23",
         },
-        content_type="multipart/form-data",
     )
 
     assert response.status_code == 302
     assert captured["prepare_arrangement_context"] is True
+    assert captured["selected_track_indices"] == {1}
     assert captured["seed"] == 23
     assert "llm_arrangement" not in captured
     assert "solo_humanization" not in captured

@@ -85,6 +85,24 @@ TRACK_LABELS = {
     "OTHER": "Без маппинга",
 }
 
+TRACK_EFFECTS = {
+    "DRUMS": ["humanize", "ghost_notes"],
+    "GUITAR": [
+        "humanize",
+        "auto_sustain_vibrato",
+        "fret_noise_on_hand_shift",
+        "expand_gp_hidden_32nds",
+        "preserve_gp_played_offsets",
+    ],
+    "BASS": [
+        "humanize",
+        "fret_noise_on_hand_shift",
+        "expand_gp_hidden_32nds",
+        "preserve_gp_played_offsets",
+    ],
+    "OTHER": ["expand_gp_hidden_32nds"],
+}
+
 FIX_DESCRIPTIONS = {
     "GUITAR": [
         "Shreddage Hydra keyswitch-мэппинг",
@@ -171,6 +189,49 @@ def infer_instrument_preset(track_name: str, track_type: str) -> str:
     if "piano" in low or "keys" in low or "synth" in low or "organ" in low:
         return "keys"
     return "default"
+
+
+def discover_tracks(song: Any) -> list[dict[str, Any]]:
+    """Describe source tracks without rendering or mutating MIDI.
+
+    Every detected track starts selected. This is the parse-first contract: the
+    user can exclude Synth or narrow a run to a revised Solo before any
+    converter, humanizer, or model is invoked.
+    """
+    discovered = []
+    for index, track in enumerate(getattr(song, "tracks", []) or [], start=1):
+        track_type = resolve_track_type(track)
+        track_name = track.name or f"Track {index}"
+        discovered.append({
+            "index": index,
+            "track_name": track_name,
+            "track_type": track_type,
+            "track_type_label": TRACK_LABELS.get(track_type, track_type),
+            "instrument_preset": infer_instrument_preset(track_name, track_type),
+            "available_effects": list(TRACK_EFFECTS.get(track_type, [])),
+            "selected": True,
+        })
+    return discovered
+
+
+def parse_track_options(
+    form: Any,
+    selected_track_indices: set[int],
+    discovered_tracks: list[dict[str, Any]],
+) -> dict[int, dict[str, bool]]:
+    """Read only allow-listed effects for selected, server-known tracks."""
+    options: dict[int, dict[str, bool]] = {}
+    by_index = {int(track["index"]): track for track in discovered_tracks}
+    for index in sorted(selected_track_indices):
+        track = by_index.get(index)
+        if track is None:
+            continue
+        effects = list(track.get("available_effects") or [])
+        options[index] = {
+            effect: form.get(f"track_{index}_{effect}") == "on"
+            for effect in effects
+        }
+    return options
 
 
 def allowed_file(filename: str) -> bool:
@@ -458,40 +519,57 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         fret_noise_on_hand_shift: bool = False,
                         expand_gp_hidden_32nds: bool = False,
                         preserve_gp_played_offsets: bool = False,
+                        selected_track_indices: set[int] | None = None,
+                        track_options: dict[int, dict[str, bool]] | None = None,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
     used: dict[str, int] = {}
     tracks: list[dict[str, Any]] = []
     midi_tracks: list[Any] = []
+    out_dir.mkdir(parents=True, exist_ok=True)
     preview_dir = build_preview_dir(job_dir)
 
     for idx, track in enumerate(song.tracks, start=1):
         track_type = resolve_track_type(track)
+        name = safe_filename(track.name) or f"Track_{idx}"
+        used[name] = used.get(name, 0) + 1
+        file_name = name if used[name] == 1 else f"{name}_{used[name]}"
+        if selected_track_indices is not None and idx not in selected_track_indices:
+            continue
+
+        effects = (track_options or {}).get(idx)
+        if effects is None:
+            effects = {
+                "humanize": humanize,
+                "ghost_notes": ghost_notes,
+                "auto_sustain_vibrato": auto_sustain_vibrato,
+                "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
+                "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
+                "preserve_gp_played_offsets": preserve_gp_played_offsets,
+            }
+        effective_effects: dict[str, bool] = dict(effects or {})
+
+        def effect_enabled(key: str) -> bool:
+            return bool(effective_effects.get(key, False))
+
         if track_type == "DRUMS":
             midi_track, stats = build_drum_midi(
-                song, track, humanize=humanize, humanize_seed=seed,
-                ghost_notes=True if ghost_notes else None)
+                song, track, humanize=effect_enabled("humanize"), humanize_seed=seed,
+                ghost_notes=True if effect_enabled("ghost_notes") else None)
         elif track_type == "OTHER":
             midi_track, stats = build_other_midi(
                 song, track,
-                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
+                expand_gp_hidden_32nds=effect_enabled("expand_gp_hidden_32nds"),
             )
         else:
             midi_track, stats = build_instrument_midi(
-                song, track, track_type, humanize=humanize, humanize_seed=seed,
-                auto_sustain_vibrato=auto_sustain_vibrato,
-                fret_noise_on_hand_shift=fret_noise_on_hand_shift,
+                song, track, track_type,
+                humanize=effect_enabled("humanize"), humanize_seed=seed,
+                auto_sustain_vibrato=effect_enabled("auto_sustain_vibrato"),
+                fret_noise_on_hand_shift=effect_enabled("fret_noise_on_hand_shift"),
                 performance_seed=seed,
-                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
-                preserve_gp_played_offsets=preserve_gp_played_offsets,
+                expand_gp_hidden_32nds=effect_enabled("expand_gp_hidden_32nds"),
+                preserve_gp_played_offsets=effect_enabled("preserve_gp_played_offsets"),
             )
-
-        name = safe_filename(track.name) or f"Track_{idx}"
-        file_name = name
-        if file_name in used:
-            used[file_name] += 1
-            file_name = f"{name}_{used[file_name]}"
-        else:
-            used[file_name] = 1
 
         preview_data = analyze_midi_preview(midi_track, track_type, track.name or f"Track {idx}")
         if is_empty_export_track(stats, preview_data):
@@ -529,6 +607,23 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
         for warn in stats.get("warnings", []):
             fixes.append(f"внимание: {warn}")
 
+        processing_report = [
+            f"Маппинг: {TRACK_LABELS.get(track_type, track_type)}",
+            f"Артикуляции: KS {int(stats.get('ks', 0) or 0)}, "
+            f"CC1 {int(stats.get('cc1', 0) or 0)}",
+        ]
+        enabled_effects = [name for name, enabled in effective_effects.items() if enabled]
+        if enabled_effects:
+            processing_report.append("Эффекты: " + ", ".join(enabled_effects))
+        else:
+            processing_report.append("Эффекты: без дополнительного оживления")
+        if stats.get("auto_vibrato_notes"):
+            processing_report.append(f"Авто-вибрато: {stats['auto_vibrato_notes']} нот")
+        if stats.get("fret_noise_events"):
+            processing_report.append(f"Fret-noise: {stats['fret_noise_events']} событий")
+        if stats.get("played_offset_notes"):
+            processing_report.append(f"GP played offsets: {stats['played_offset_notes']} нот")
+
         tracks.append(
             {
                 "index": idx,
@@ -538,6 +633,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "track_type_label": TRACK_LABELS.get(track_type, track_type),
                 "fix_categories": FIX_DESCRIPTIONS[track_type],
                 "fixes": fixes,
+                "effects": effective_effects,
+                "processing_report": processing_report,
                 "stats": stats,
                 "notes": stats["notes"],
                 "download_name": out_path.name,
@@ -626,7 +723,48 @@ def make_zip(job_dir: Path) -> Path:
 
 
 
-def create_job(uploaded_file, humanize: bool = False,
+def create_parse_job(uploaded_file) -> str:
+    """Persist and parse an upload, but do not render MIDI or call a model."""
+    root = uploads_root()
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = root / job_id
+    input_dir = job_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    original_name = uploaded_file.filename or "song.gp5"
+    stored_name = unique_name(input_dir, original_name)
+    source_path = input_dir / stored_name
+    uploaded_file.save(source_path)
+    song = parse_song(source_path)
+    job = {
+        "id": job_id,
+        "stage": "parsed",
+        "original_name": original_name,
+        "stored_name": stored_name,
+        "created_at": human_timestamp(),
+        "song": summarize_song(song),
+        "detected_tracks": discover_tracks(song),
+        "tracks": [],
+        "warnings": [],
+        "playable_warnings": [],
+        "playable_tabs": False,
+        "combined_name": None,
+        "combined_url": None,
+        "zip_name": None,
+        "zip_url": None,
+        "arrangement": None,
+        "arrangement_artifacts": [],
+    }
+    manifest = load_manifest()
+    manifest["jobs"] = [item for item in manifest.get("jobs", []) if item.get("id") != job_id]
+    manifest["jobs"].insert(0, job)
+    manifest["jobs"] = manifest["jobs"][:SESSION_HISTORY_LIMIT]
+    manifest["current_job_id"] = job_id
+    save_manifest(manifest)
+    return job_id
+
+
+def create_job(uploaded_file=None, humanize: bool = False,
                ghost_notes: bool = False, seed: int = 7,
                playable_tabs: bool = False,
                auto_sustain_vibrato: bool = False,
@@ -635,19 +773,38 @@ def create_job(uploaded_file, humanize: bool = False,
                preserve_gp_played_offsets: bool = False,
                prepare_arrangement_context: bool = False,
                openai_arrangement_draft: bool = False,
-               arrangement_prompt: str | None = None) -> str:
+               arrangement_prompt: str | None = None,
+               selected_track_indices: set[int] | None = None,
+               track_options: dict[int, dict[str, bool]] | None = None,
+               existing_job: dict[str, Any] | None = None) -> str:
     root = uploads_root()
-    job_id = uuid.uuid4().hex[:12]
-    job_dir = root / job_id
-    input_dir = job_dir / "input"
-    output_dir = job_dir / "output"
-    input_dir.mkdir(parents=True, exist_ok=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if existing_job is not None:
+        job_id = str(existing_job["id"])
+        job_dir = root / job_id
+        input_dir = job_dir / "input"
+        output_dir = job_dir / "output"
+        original_name = str(existing_job["original_name"])
+        stored_name = str(existing_job["stored_name"])
+        source_path = input_dir / stored_name
+        if not source_path.is_file():
+            raise FileNotFoundError("parsed Guitar Pro source is missing")
+        shutil.rmtree(output_dir, ignore_errors=True)
+        shutil.rmtree(job_dir / "preview", ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        if uploaded_file is None:
+            raise ValueError("uploaded file is required for a new job")
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = root / job_id
+        input_dir = job_dir / "input"
+        output_dir = job_dir / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    original_name = uploaded_file.filename or "song.gp5"
-    stored_name = unique_name(input_dir, original_name)
-    source_path = input_dir / stored_name
-    uploaded_file.save(source_path)
+        original_name = uploaded_file.filename or "song.gp5"
+        stored_name = unique_name(input_dir, original_name)
+        source_path = input_dir / stored_name
+        uploaded_file.save(source_path)
 
     song = parse_song(source_path)
     song_summary = summarize_song(song)
@@ -658,7 +815,21 @@ def create_job(uploaded_file, humanize: bool = False,
         fret_noise_on_hand_shift=fret_noise_on_hand_shift,
         expand_gp_hidden_32nds=expand_gp_hidden_32nds,
         preserve_gp_played_offsets=preserve_gp_played_offsets,
+        selected_track_indices=selected_track_indices,
+        track_options=track_options,
     )
+
+    if track_options:
+        humanize = any(options.get("humanize") for options in track_options.values())
+        ghost_notes = any(options.get("ghost_notes") for options in track_options.values())
+        auto_sustain_vibrato = any(
+            options.get("auto_sustain_vibrato") for options in track_options.values())
+        fret_noise_on_hand_shift = any(
+            options.get("fret_noise_on_hand_shift") for options in track_options.values())
+        expand_gp_hidden_32nds = any(
+            options.get("expand_gp_hidden_32nds") for options in track_options.values())
+        preserve_gp_played_offsets = any(
+            options.get("preserve_gp_played_offsets") for options in track_options.values())
 
     prepare_arrangement_context = bool(prepare_arrangement_context or openai_arrangement_draft)
     arrangement = None
@@ -780,7 +951,9 @@ def create_job(uploaded_file, humanize: bool = False,
     if playable_tabs:
         track_summaries = {item["track_name"]: item for item in tracks}
         generations: dict[str, TrackGeneration] = {}
-        for source_track in song.tracks:
+        for source_index, source_track in enumerate(song.tracks, start=1):
+            if selected_track_indices is not None and source_index not in selected_track_indices:
+                continue
             if resolve_track_type(source_track) not in {"GUITAR", "BASS"}:
                 continue
             result = generate_track(song, source_track, output_dir, preset="auto")
@@ -800,10 +973,16 @@ def create_job(uploaded_file, humanize: bool = False,
 
     job = {
         "id": job_id,
+        "stage": "processed",
         "original_name": original_name,
         "stored_name": stored_name,
         "created_at": human_timestamp(),
         "song": song_summary,
+        "detected_tracks": discover_tracks(song),
+        "selected_track_indices": sorted(selected_track_indices) if selected_track_indices is not None else [
+            int(track["index"]) for track in tracks
+        ],
+        "track_options": {str(index): options for index, options in (track_options or {}).items()},
         "tracks": tracks,
         "warnings": [t["track_name"] for t in tracks if t["track_type"] == "OTHER"],
         "playable_warnings": playable_warnings,
@@ -895,56 +1074,17 @@ def upload():
         flash("Поддерживаются только Guitar Pro файлы: .gp, .gp3, .gp4, .gp5, .gpx", "error")
         return redirect(url_for("index"))
 
-    # Оживление — ОПЦИЯ, по умолчанию выключена: без галочки выхлоп прежний.
-    humanize = request.form.get("humanize") == "on"
-    ghost_notes = request.form.get("ghost_notes") == "on"
-    auto_sustain_vibrato = request.form.get("auto_sustain_vibrato") == "on"
-    fret_noise_on_hand_shift = request.form.get("fret_noise_on_hand_shift") == "on"
-    expand_gp_hidden_32nds = request.form.get("expand_gp_hidden_32nds") == "on"
-    preserve_gp_played_offsets = request.form.get("preserve_gp_played_offsets") == "on"
-    playable_tabs = request.form.get("playable_tabs") == "on"
-    prepare_arrangement_context = request.form.get("prepare_arrangement_context") == "on"
-    openai_arrangement_draft = request.form.get("openai_arrangement_draft") == "on"
-    arrangement_prompt = request.form.get("arrangement_prompt")
     try:
-        seed = int(request.form.get("seed") or 7)
-    except ValueError:
-        seed = 7
-
-    try:
-        job_id = create_job(
-            file, humanize=humanize, ghost_notes=ghost_notes, seed=seed,
-            playable_tabs=playable_tabs,
-            auto_sustain_vibrato=auto_sustain_vibrato,
-            fret_noise_on_hand_shift=fret_noise_on_hand_shift,
-            expand_gp_hidden_32nds=expand_gp_hidden_32nds,
-            preserve_gp_played_offsets=preserve_gp_played_offsets,
-            prepare_arrangement_context=prepare_arrangement_context,
-            openai_arrangement_draft=openai_arrangement_draft,
-            arrangement_prompt=arrangement_prompt,
-        )
+        job_id = create_parse_job(file)
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
         return redirect(url_for("index"))
 
-    msg = "Файл загружен и разобран. MIDI-дорожки готовы к скачиванию."
-    if humanize:
-        msg += " Оживление применено."
-        if ghost_notes:
-            msg += " Гост-ноты добавлены (партия изменена)."
-    if auto_sustain_vibrato:
-        msg += " Авто-вибрато длинных solo sustain включено."
-    if fret_noise_on_hand_shift:
-        msg += " Fret-noise при переносах руки включён."
-    if expand_gp_hidden_32nds:
-        msg += " Скрытые GP 32-е на тональных дорожках развёрнуты."
-    if preserve_gp_played_offsets:
-        msg += " GP8-сдвиги атак Guitar/Bass сохранены."
-    if prepare_arrangement_context:
-        msg += " Контекст для Hermes подготовлен из уже mapped MIDI; enrichment не применялся."
-    if openai_arrangement_draft:
-        msg += " OpenAI draft запрошен; MIDI изменится только после отдельного подтверждения."
-    flash(msg, "success")
+    flash(
+        "Файл разобран. Проверьте найденные дорожки, отключите ненужные и "
+        "настройте эффекты перед обработкой.",
+        "success",
+    )
     return redirect(url_for("job_details", job_id=job_id))
 
 
@@ -974,6 +1114,60 @@ def job_details(job_id: str):
 
 def _job_by_id(manifest: dict[str, Any], job_id: str) -> dict[str, Any] | None:
     return next((job for job in manifest.get("jobs", []) if job.get("id") == job_id), None)
+
+
+@app.post("/jobs/<job_id>/process")
+def process_job(job_id: str):
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None:
+        abort(404)
+    if job.get("stage") != "parsed":
+        abort(409, description="job is already processed")
+
+    discovered = list(job.get("detected_tracks") or [])
+    known_indices = {int(track["index"]) for track in discovered}
+    try:
+        selected = {int(value) for value in request.form.getlist("track_indices")}
+    except (TypeError, ValueError):
+        abort(400, description="invalid track selection")
+    if not selected:
+        abort(400, description="select at least one track")
+    if not selected.issubset(known_indices):
+        abort(400, description="unknown track selected")
+
+    options = parse_track_options(request.form, selected, discovered)
+    try:
+        seed = int(request.form.get("seed") or 7)
+    except ValueError:
+        seed = 7
+    seed = max(0, min(9999, seed))
+    prepare_context = request.form.get("prepare_arrangement_context") == "on"
+    openai_draft = request.form.get("openai_arrangement_draft") == "on"
+
+    try:
+        create_job(
+            None,
+            seed=seed,
+            playable_tabs=request.form.get("playable_tabs") == "on",
+            prepare_arrangement_context=prepare_context,
+            openai_arrangement_draft=openai_draft,
+            arrangement_prompt=request.form.get("arrangement_prompt"),
+            selected_track_indices=selected,
+            track_options=options,
+            existing_job=job,
+        )
+    except Exception as exc:  # pragma: no cover
+        flash(f"Обработка не выполнена: {exc}", "error")
+        return redirect(url_for("job_details", job_id=job_id))
+
+    mode = "одна дорожка" if len(selected) == 1 else f"{len(selected)} дорожек"
+    flash(
+        f"Обработка завершена: {mode}. Не выбранные дорожки не рендерились и не "
+        "передавались в expression workflow.",
+        "success",
+    )
+    return redirect(url_for("job_details", job_id=job_id))
 
 
 def _artifact_names(job: dict[str, Any]) -> set[str]:
@@ -1031,6 +1225,10 @@ def apply_arrangement(job_id: str):
                 int(track["index"]) for track in job.get("tracks", [])
                 if track.get("index") is not None
             } or None,
+            track_options={
+                int(index): dict(options)
+                for index, options in (job.get("track_options") or {}).items()
+            } or None,
         )
         for artifact in sorted(temp_dir.iterdir()):
             if not artifact.is_file():
@@ -1053,6 +1251,15 @@ def apply_arrangement(job_id: str):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
     job.setdefault("arrangement_artifacts", []).extend(copied)
+    expression_by_track = {
+        str(stats.get("track")): stats
+        for stats in apply_manifest.get("track_stats", [])
+    }
+    for track in job.get("tracks", []):
+        expression = expression_by_track.get(str(track.get("track_name")))
+        if expression is None:
+            continue
+        track["expression"] = expression
     arrangement.update({
         "status": "applied", "applied": True,
         "apply_manifest": apply_manifest, "enriched_artifacts": copied,

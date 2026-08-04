@@ -40,84 +40,15 @@
               <span>или нажми для выбора</span>
               <small>До {{ max_size_mb }} МБ</small>
             </label>
-            <fieldset class="options expression-options">
-              <legend>Hermes expression draft</legend>
-              <label class="opt primary-option">
-                <input type="checkbox" name="prepare_arrangement_context" id="prepareArrangementContextChk">
-                <span>
-                  <strong>Подготовить контекст для Hermes</strong>
-                  <small>Сначала создаётся обычный Shreddage/Hydra-ready MIDI. Затем рядом сохраняется
-                  компактный JSON для обсуждения в чате. Никакое enrichment автоматически не применяется.</small>
-                </span>
-              </label>
-              {% if openai_configured %}
-              <label class="opt primary-option">
-                <input type="checkbox" name="openai_arrangement_draft" id="openaiArrangementDraftChk">
-                <span>
-                  <strong>Создать полный expression plan через OpenAI GPT-5.6 Sol</strong>
-                  <small>Платный server-side вызов (до лимита $0.50). Создаёт production-quality JSON-план для всей песни; MIDI применяется только отдельной кнопкой подтверждения.</small>
-                </span>
-              </label>
-              <details class="prompt-editor">
-                <summary>Настроить prompt обработки</summary>
-                <label for="arrangementPrompt">Instructions для expression plan</label>
-                <textarea name="arrangement_prompt" id="arrangementPrompt"
-                          maxlength="{{ openai_prompt_max_chars }}"
-                          rows="14">{{ openai_arrangement_prompt }}</textarea>
-                <small>Можно менять перед каждым запуском. Точный текст, использованный моделью,
-                сохраняется в ZIP вместе с SHA-256; пустое поле вернёт versioned default.</small>
-              </details>
-              {% endif %}
-            </fieldset>
-
-            <details class="advanced-options">
-              <summary>Тонкие настройки конвертации</summary>
-              <fieldset class="options">
-                <legend>Опционально</legend>
-                <label class="opt">
-                  <input type="checkbox" name="humanize" id="humanizeChk">
-                  <span><strong>Локальное оживление партий</strong><small>Старый инструментальный velocity/микротайминг профиль.</small></span>
-                </label>
-                <label class="opt sub">
-                  <input type="checkbox" name="ghost_notes" id="ghostChk" disabled>
-                  <span><strong>Гост-ноты по рабочему</strong><small>Только барабаны; меняет партию.</small></span>
-                </label>
-                <label class="opt">
-                  <input type="checkbox" name="auto_sustain_vibrato" id="autoSustainVibratoChk">
-                  <span><strong>Живые длинные solo sustain</strong><small>CC1-вибрато Hydra для длинных одиночных нот.</small></span>
-                </label>
-                <label class="opt">
-                  <input type="checkbox" name="fret_noise_on_hand_shift" id="fretNoiseShiftChk">
-                  <span><strong>Fret-noise при переносе руки</strong><small>Короткий C#0 только при заметной смене позиции.</small></span>
-                </label>
-                <label class="opt">
-                  <input type="checkbox" name="expand_gp_hidden_32nds" id="expandGpHidden32ndsChk">
-                  <span><strong>Развернуть скрытые 32-е GP</strong><small>Все тональные дорожки: сохраняет аккорды, разносит только playback Offset.</small></span>
-                </label>
-                <label class="opt">
-                  <input type="checkbox" name="preserve_gp_played_offsets" id="preserveGpPlayedOffsetsChk">
-                  <span><strong>Сохранить GP8-сдвиги атак «как сыграно»</strong><small>Авторский groove Guitar/Bass вместо строгой сетки.</small></span>
-                </label>
-                <label class="opt seed">
-                  <span>Seed</span>
-                  <input type="number" name="seed" value="7" min="0" max="9999">
-                  <small>Один seed — один результат.</small>
-                </label>
-              </fieldset>
-            </details>
-            <div class="hydra-setting-note" role="note">
-              <strong>Hydra 3.5 · Kontakt Player 8</strong>
-              <small>На вкладке <b>MAIN</b> вручную выставь
-              <b>PITCH BEND RANGE = {{ hydra_pitch_bend_range }} полутонов</b>.
-              Kontakt может проигнорировать диапазон, переданный через MIDI RPN.</small>
+            <div class="parse-first-note" role="note">
+              <strong>Шаг 1 · только разбор</strong>
+              <small>После загрузки появится список найденных дорожек. MIDI, эффекты и
+              expression-модель запускаются только на следующем шаге после выбора дорожек.</small>
             </div>
-            <label class="opt playable-option">
-              <input type="checkbox" name="playable_tabs" id="playableTabsChk">
-              <span>
-                <strong>Играбельные табы для гитары и баса (эксперимент)</strong>
-                <small>Добавляет score-MIDI, два ASCII/PDF-таба и копию GP с новой аппликатурой. Обычный MIDI не меняется.</small>
-              </span>
-            </label>
+            <div class="hydra-setting-note compact" role="note">
+              <strong>Hydra 3.5 · Kontakt Player 8</strong>
+              <small>Для bend-кривых вручную выставьте PITCH BEND RANGE = {{ hydra_pitch_bend_range }} полутонов.</small>
+            </div>
             <div class="form-actions">
               <button type="button" class="btn" id="pickBtn">Выбрать файл</button>
               <button type="submit" class="btn primary">Разобрать</button>
@@ -261,6 +192,86 @@
             </article>
           </section>
 
+          {% if current_job.stage == 'parsed' %}
+            <section class="panel track-selection-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Шаг 2 · выбрать дорожки и эффекты</h2>
+                  <p class="muted">По умолчанию выбраны все {{ current_job.detected_tracks|length }} дорожек.
+                  Снимите Synth или любые другие дорожки, которые не нужно рендерить и отправлять в expression workflow.</p>
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('process_job', job_id=current_job.id) }}" class="track-process-form">
+                <div class="selection-toolbar">
+                  <label class="inline-check"><input type="checkbox" id="selectAllTracks" checked> выбрать / снять все</label>
+                  <span class="muted">Можно оставить ровно одну дорожку, например обновлённую Solo.</span>
+                </div>
+                <div class="track-option-list">
+                  {% for track in current_job.detected_tracks %}
+                    <article class="track-option-card" data-track-option-card>
+                      <label class="track-select-main">
+                        <input type="checkbox" name="track_indices" value="{{ track.index }}" checked data-track-select>
+                        <span>
+                          <strong>{{ track.index }}. {{ track.track_name }}</strong>
+                          <small>{{ track.track_type_label }} · preview: {{ track.instrument_preset }}</small>
+                        </span>
+                      </label>
+                      <div class="track-effect-grid" data-track-effects>
+                        {% if 'humanize' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_humanize"> humanize velocity/timing</label>
+                        {% endif %}
+                        {% if 'ghost_notes' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_ghost_notes"> ghost notes (drums only)</label>
+                        {% endif %}
+                        {% if 'auto_sustain_vibrato' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_auto_sustain_vibrato"> solo sustain vibrato</label>
+                        {% endif %}
+                        {% if 'fret_noise_on_hand_shift' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_fret_noise_on_hand_shift"> fret-noise hand shifts</label>
+                        {% endif %}
+                        {% if 'expand_gp_hidden_32nds' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_expand_gp_hidden_32nds"> hidden GP 32nds</label>
+                        {% endif %}
+                        {% if 'preserve_gp_played_offsets' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_preserve_gp_played_offsets"> preserve GP played offsets</label>
+                        {% endif %}
+                        {% if not track.available_effects %}<span class="muted">Нет дополнительных эффектов.</span>{% endif %}
+                      </div>
+                    </article>
+                  {% endfor %}
+                </div>
+
+                <fieldset class="options expression-options process-options">
+                  <legend>Обработка выбранных дорожек</legend>
+                  <label class="opt primary-option">
+                    <input type="checkbox" name="prepare_arrangement_context">
+                    <span><strong>Подготовить expression context</strong><small>Только для выбранных дорожек; MIDI не меняет.</small></span>
+                  </label>
+                  {% if openai_configured %}
+                    <label class="opt primary-option">
+                      <input type="checkbox" name="openai_arrangement_draft">
+                      <span><strong>Создать expression plan через OpenAI GPT-5.6 Sol</strong><small>Модель увидит только выбранные дорожки. Применение останется отдельным подтверждением.</small></span>
+                    </label>
+                    <details class="prompt-editor">
+                      <summary>Настроить prompt обработки</summary>
+                      <textarea name="arrangement_prompt" maxlength="{{ openai_prompt_max_chars }}" rows="12">{{ openai_arrangement_prompt }}</textarea>
+                    </details>
+                  {% endif %}
+                  <label class="opt seed"><span>Seed</span><input type="number" name="seed" value="7" min="0" max="9999"><small>Один seed — один результат.</small></label>
+                  <label class="opt playable-option">
+                    <input type="checkbox" name="playable_tabs">
+                    <span><strong>Играбельные табы</strong><small>Только для выбранных Guitar/Bass.</small></span>
+                  </label>
+                </fieldset>
+                <div class="hydra-setting-note" role="note">
+                  <strong>Hydra 3.5 · Kontakt Player 8</strong>
+                  <small>Для bend-кривых вручную выставьте PITCH BEND RANGE = {{ hydra_pitch_bend_range }} полутонов.</small>
+                </div>
+                <button type="submit" class="btn primary">Обработать выбранные</button>
+              </form>
+            </section>
+          {% else %}
+
           {% if current_job.arrangement %}
             <section class="panel expression-result-panel">
               <div class="panel-head compact-head">
@@ -324,7 +335,7 @@
                     <th>#</th>
                     <th>Трек</th>
                     <th>Тип</th>
-                    <th>Expression</th>
+                    <th>Краткий отчёт</th>
                     <th>Инструмент</th>
                     <th>Файл</th>
                     <th></th>
@@ -372,14 +383,16 @@
                         <span class="badge {% if track.track_type == 'GUITAR' %}accent{% elif track.track_type == 'BASS' %}ok{% else %}warn{% endif %}">{{ track.track_type_label }}</span>
                       </td>
                       <td>
-                        {% if track.expression %}
-                          <div class="expression-track-stat">
-                            <strong>{{ track.expression.mean_velocity_before }} → {{ track.expression.mean_velocity_after }}</strong>
-                            <small>{{ track.expression.changed_notes }} vel · {{ track.expression.timing_shifted_notes }} timing</small>
-                          </div>
-                        {% else %}
-                          <span class="muted">baseline</span>
-                        {% endif %}
+                        <ul class="processing-report">
+                          {% for item in track.processing_report or [] %}<li>{{ item }}</li>{% endfor %}
+                          {% if track.expression %}
+                            <li><strong>Expression:</strong> {{ track.expression.changed_notes }} velocity,
+                            {{ track.expression.mean_velocity_before }} → {{ track.expression.mean_velocity_after }};
+                            timing {% if track.expression.timing_preserved %}сохранён{% else %}humanized Solo{% endif %}</li>
+                          {% elif current_job.openai_arrangement_draft %}
+                            <li>Expression: ожидает подтверждения plan</li>
+                          {% endif %}
+                        </ul>
                       </td>
                       <td>
                         <span class="badge plain instrument-pill">{{ track.preview_instrument }}</span>
@@ -413,6 +426,7 @@
               </table>
             </div>
           </section>
+          {% endif %}
         {% else %}
           <section class="empty-state panel">
             <h1>конвертер midi</h1>
@@ -437,6 +451,36 @@
       humanizeChk.addEventListener('change', () => {
         ghostChk.disabled = !humanizeChk.checked;
         if (!humanizeChk.checked) ghostChk.checked = false;
+      });
+    }
+
+    const selectAllTracks = document.getElementById('selectAllTracks');
+    const trackSelects = Array.from(document.querySelectorAll('[data-track-select]'));
+    function syncTrackCard(select) {
+      const card = select.closest('[data-track-option-card]');
+      if (!card) return;
+      card.classList.toggle('is-disabled', !select.checked);
+      card.querySelectorAll('[data-track-effects] input').forEach(effect => {
+        effect.disabled = !select.checked;
+      });
+    }
+    trackSelects.forEach(select => {
+      syncTrackCard(select);
+      select.addEventListener('change', () => {
+        syncTrackCard(select);
+        if (selectAllTracks) {
+          selectAllTracks.checked = trackSelects.length > 0 && trackSelects.every(item => item.checked);
+          selectAllTracks.indeterminate = trackSelects.some(item => item.checked) && !selectAllTracks.checked;
+        }
+      });
+    });
+    if (selectAllTracks) {
+      selectAllTracks.addEventListener('change', () => {
+        trackSelects.forEach(select => {
+          select.checked = selectAllTracks.checked;
+          syncTrackCard(select);
+        });
+        selectAllTracks.indeterminate = false;
       });
     }
 
