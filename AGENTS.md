@@ -134,6 +134,13 @@
   humanization must not grid-snap or alter pitches, note count, onset ticks or
   durations. Velocity, pitch-bend shaping and CC1 modulation are independent,
   opt-in A/B dimensions.
+- `solo_expression_humanize.py` is the safe post-mapped experiment path. It
+  operates on an accepted MIDI, requires at least one explicit dimension flag,
+  excludes Hydra service notes from velocity processing, preserves every
+  existing pitch-bend anchor, and fails closed on note/service invariants.
+- `docs/evidence/spring-melody-solo-humanization-v1.json` is listening-review
+  evidence only. It does not supersede the accepted baseline until the user gives
+  an explicit musical GO.
 
 ## Web UI options
 - `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all

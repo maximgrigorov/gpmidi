@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "experiment_id": "spring-melody-solo-humanization-v1",
+  "status": "LISTENING_REVIEW",
+  "baseline_changed": false,
+  "seed": 23,
+  "source": {
+    "accepted_baseline_id": "spring-melody-per-track-clear-solo-2026-08-04",
+    "member": "Spring_Melody_Per_Track_Experiment_Clear_Solo_ALL.mid",
+    "sha256": "69a40d0700d5b0d28840e7c68e5393cf00371320e1e11fee6b363b34874290ba"
+  },
+  "candidates": [
+    {
+      "name": "A_VELOCITY_ONLY_ALL.mid",
+      "sha256": "b95bb291661fbbf7483d3eb73bae200e34dee9baf39c696433054b4bf6701b36",
+      "dimensions": ["velocity"],
+      "velocity_events_changed": 247
+    },
+    {
+      "name": "B_PITCH_ONLY_ALL.mid",
+      "sha256": "c55f4214dcdb19a3bbe6c0cfd92efa5e1c578100a5fdee346a0b0678ad8eff27",
+      "dimensions": ["pitch_bend"],
+      "pitch_events_added": 153
+    },
+    {
+      "name": "C_MODULATION_ONLY_ALL.mid",
+      "sha256": "fb5b1525bf10811329687a2a100d27d70d050c4945eb4e1800e9f9fc619a6c11",
+      "dimensions": ["modulation"],
+      "modulation_events_changed": 279
+    },
+    {
+      "name": "D_FULL_VELOCITY_PITCH_MODULATION_ALL.mid",
+      "sha256": "baf528445d65e575bcc029794fcdb63a36e8810970b5f039cef9b3b69fd97543",
+      "dimensions": ["velocity", "pitch_bend", "modulation"],
+      "velocity_events_changed": 247,
+      "pitch_events_added": 153,
+      "modulation_events_changed": 279
+    }
+  ],
+  "safety_contract": {
+    "note_timing_preserved": true,
+    "note_pitches_preserved": true,
+    "note_durations_preserved": true,
+    "hydra_service_notes_preserved": true,
+    "non_solo_tracks_preserved": true,
+    "pitch_anchors_preserved": true
+  },
+  "verification": {
+    "targeted_tests": "6 passed",
+    "repository_tests": "178 passed, 1 expected xfail",
+    "ruff": "clean",
+    "solo_midi_smoke": "baseline and all candidates clean"
+  },
+  "rollback": "Use the accepted source member with SHA-256 69a40d0700d5b0d28840e7c68e5393cf00371320e1e11fee6b363b34874290ba."
+}

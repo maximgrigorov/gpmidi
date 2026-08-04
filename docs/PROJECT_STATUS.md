@@ -1,7 +1,7 @@
 # Project status — Reference-Guided MIDI Restoration
 
 **Last evidence update:** 2026-08-04
-**Current milestone:** `Spring_Melody_Per_Track_Experiment_Clear_Solo.zip` is the accepted GO baseline for forward expression work. The reviewed Type-1 `_ALL.mid`, not per-track file timestamps, is authoritative. Audio-onset/transcription-model work and pmetal remain historical. Forward development is exclusively accepted mapped baseline → editable cross-track expression prompt → safe opt-in Solo humanization → Logic MIDI.
+**Current milestone:** `Spring_Melody_Per_Track_Experiment_Clear_Solo.zip` is the accepted GO baseline for forward expression work. The reviewed Type-1 `_ALL.mid`, not per-track file timestamps, is authoritative. Audio-onset/transcription-model work and pmetal remain historical. The independent velocity/pitch-bend/CC1 Solo post-processor is implemented and verified; `spring-melody-solo-humanization-v1` is in listening review and does not supersede the baseline without explicit musical acceptance.
 
 ## Completed
 
