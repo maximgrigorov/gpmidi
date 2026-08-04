@@ -130,6 +130,7 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
     if g.get("enabled"):
         stats["ghosts"] = _add_ghost_notes(notes, tpb, g, rng)
 
+    original_bars = {id(n): n["tick"] // bar_ticks for n in notes}
     for n in notes:
         cls = DRUM_CLASS.get(n["note"])
         if cls is None:
@@ -154,12 +155,19 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
             n["tick"] = max(0, int(round(n["tick"] + shift)))
             stats["timing"] += 1
 
-    # Микро-сдвиг мог перебросить ноту у тактовой черты в тишину. Музыкально
-    # это всё ещё нота предыдущего такта, поэтому не выбрасываем, а прижимаем.
+    # Микро-сдвиг мог перебросить ноту через тактовую черту в пустой такт.
+    # Сохраняем музыкальный такт исходной атаки: раннюю ноту прижимаем к его
+    # началу, позднюю — к его концу. Иначе ранняя атака уезжала ещё на целый
+    # такт назад (например, начало такта 5 оказывалось в конце такта 3).
     pulled = 0
     for n in notes:
-        if n["tick"] // bar_ticks in empty_bars:
-            n["tick"] = n["tick"] // bar_ticks * bar_ticks - 1
+        current_bar = n["tick"] // bar_ticks
+        if current_bar in empty_bars:
+            original_bar = original_bars[id(n)]
+            if current_bar < original_bar:
+                n["tick"] = original_bar * bar_ticks
+            else:
+                n["tick"] = (original_bar + 1) * bar_ticks - 1
             pulled += 1
     stats["pulled_from_silence"] = pulled
 
