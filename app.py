@@ -25,13 +25,11 @@ from mido import MidiFile
 from werkzeug.utils import secure_filename
 
 from arrangement_openai import (
-    is_openai_configured,
     create_openai_draft,
     get_openai_config,
+    is_openai_configured,
 )
-from arrangement_processing import (
-    build_arrangement_context,
-)
+from arrangement_processing import build_arrangement_context
 from arrangement_workflow import apply as apply_arrangement_plan
 from articulation_config import config_for_track_type
 from gp_import import parse_song
@@ -669,7 +667,6 @@ def create_job(uploaded_file, humanize: bool = False,
         )
 
     # OpenAI draft - only if configured and requested
-    openai_draft = None
     if openai_arrangement_draft and is_openai_configured():
         # Note: arrangement/context already prepared above if prepare_arrangement_context was set
         context_name = None
@@ -730,7 +727,6 @@ def create_job(uploaded_file, humanize: bool = False,
                 "usage_actual": draft_result.get("usage", {}),
             }
             arrangement_artifacts = [context_name, plan_name, usage_name]
-            openai_draft = draft_result
         except Exception:
             # Catch error so baseline job still succeeds with arrangement draft_error status
             # Keep context artifact and baseline, use fixed sanitized user message
