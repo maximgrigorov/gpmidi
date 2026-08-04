@@ -92,5 +92,8 @@ docker run -p 8000:8000 -e ASSET_API_URL=http://host:8000 reference-time:dev
 
 ## Deployment
 
-See `infra/ailab/apps/reference-time/` for Kubernetes manifests.
-See `infra/ailab/scripts/build-import-reference-time.sh` for the build script.
+Production images are built and deployed by the exact-SHA Tekton pipeline in
+`infra/ailab/tekton/`. Use `infra/ailab/scripts/run-pipeline.sh` only for the
+documented controlled manual exact-SHA path. The old manual build/import script
+is emergency recovery only and is not accepted delivery evidence. See
+`../../docs/CODEX_PROJECT_GUIDE.md`.

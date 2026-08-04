@@ -54,3 +54,72 @@ subjects:
 - kind: ServiceAccount
   name: gpmidi-deployer
   namespace: gpmidi-ml
+---
+# Namespaced operator identity used from approved workstations to inspect and
+# start exact-SHA Tekton runs. It is intentionally not cluster-admin and cannot
+# mutate Secrets, RBAC or persistent volumes.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hermes-operator
+  namespace: gpmidi-ml
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hermes-operator
+  namespace: gpmidi-ml
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create", "get"]
+- apiGroups: [""]
+  resources: ["services", "endpoints", "configmaps", "events", "resourcequotas", "limitranges", "serviceaccounts"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments/status", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelines", "tasks"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns"]
+  verbs: ["get", "list", "watch", "create"]
+- apiGroups: ["tekton.dev"]
+  resources: ["taskruns", "customruns"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["triggers.tekton.dev"]
+  resources: ["eventlisteners", "triggers", "triggerbindings", "triggertemplates", "interceptors"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hermes-operator
+  namespace: gpmidi-ml
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hermes-operator
+subjects:
+- kind: ServiceAccount
+  name: hermes-operator
+  namespace: gpmidi-ml

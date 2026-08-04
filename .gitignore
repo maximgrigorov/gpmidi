@@ -9,7 +9,14 @@ __pycache__/
 
 # Virtualenv
 .venv/
+.venv*/
 venv/
+
+# Local credentials and environment
+.env
+.env.*
+!.env.example
+*.kubeconfig
 
 # Local app/session data
 /data/

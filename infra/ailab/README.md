@@ -55,9 +55,14 @@ sudo k3s kubectl get pods -n gpmidi-ml
 # HTTPS smoke
 curl -k https://192.168.30.2/healthz
 
-# Scoped kubeconfig (generate first)
+# Scoped application deployer kubeconfig (does not start Tekton runs)
 bash scripts/generate-deployer-kubeconfig.sh
 KUBECONFIG=~/.kube/gpmidi-deployer.kubeconfig kubectl get pods -n gpmidi-ml
+
+# Short-lived operator kubeconfig for monitoring/starting exact-SHA Tekton runs
+bash scripts/generate-operator-kubeconfig.sh 24h
+KUBECONFIG=~/.kube/gpmidi-operator.kubeconfig \
+  kubectl auth can-i create pipelineruns.tekton.dev -n gpmidi-ml
 ```
 
 ## Storage
@@ -218,9 +223,7 @@ ten bundles retained. Rollback: `infra/ailab/tekton/ROLLBACK.md`.
 
 ## Secrets (never committed)
 
-```bash
-K="sudo k3s kubectl -n gpmidi-ml"
-$K create secret generic gpmidi-web-secret --from-literal=SECRET_KEY="$(openssl rand -hex 32)"
-$K create secret generic gitea-webhook-secret --from-literal=secret="$(openssl rand -hex 24)"
-# gitea-registry-auth holds a docker config.json for 192.168.30.2:3300
-```
+Secret names, key contracts, token origins, least-privilege kubeconfig creation and
+safe provisioning/rotation commands are maintained in
+[`docs/CODEX_PROJECT_GUIDE.md`](../../docs/CODEX_PROJECT_GUIDE.md), section 9.
+Do not copy live values into this README, manifests, shell history or reports.

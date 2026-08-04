@@ -4,16 +4,22 @@
 > артикуляции, бенды или вибрато.** Там собрано то, что выяснено ИЗМЕРЕНИЕМ и
 > стоило времени. Почти каждая правдоподобная гипотеза в этой области
 > оказывается неверной — в том числе гипотезы, записанные в этом файле.
+>
+> **Для клонирования, локального запуска, архитектуры, credential contracts,
+> exact-SHA deployment, live-проверки и rollback используй
+> [docs/CODEX_PROJECT_GUIDE.md](docs/CODEX_PROJECT_GUIDE.md).**
 
 ## Project overview
 - This directory contains a Guitar Pro to MIDI conversion project centered on `gp_to_shreddage.py`.
-- The script converts `.gp5` / `.gp` files into separate Type 0 MIDI files per track.
+- The script converts `.gp5` / `.gp` files into separate Type 0 MIDI files per
+  track plus one combined Type 1 `<base>_ALL.mid`.
 - Conversion logic is already validated by the user and must be treated as stable.
 - The primary purpose is preparing Logic Pro friendly MIDI while preserving / translating articulations from the source Guitar Pro arrangement.
-- Track classification is based on track names:
+- Track classification uses instrument/percussion metadata plus track names:
   - `GUITAR` -> Shreddage Hydra mapping
   - `BASS` -> Shreddage Darkwall mapping
-  - `OTHER` -> notes copied as-is without articulation mapping
+  - `DRUMS` -> Shreddage Drums mapping
+  - `OTHER` -> universal Category A effects only, otherwise notes copied as-is
 - Output is written into a sibling folder named `<source>_midi/`.
 
 ## Current code of record

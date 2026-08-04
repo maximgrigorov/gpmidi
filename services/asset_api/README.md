@@ -65,5 +65,8 @@ docker run -p 8000:8000 -e ASSET_DATA_ROOT=/var/lib/gpmidi \
 
 ## Deployment
 
-See `infra/ailab/apps/asset-api/` for Kubernetes manifests and
-`infra/ailab/scripts/build-import-asset-api.sh` for the build pipeline.
+Production images are built and deployed by the exact-SHA Tekton pipeline in
+`infra/ailab/tekton/`. Use `infra/ailab/scripts/run-pipeline.sh` only for the
+documented controlled manual exact-SHA path. The old
+`build-import-asset-api.sh` flow is emergency recovery only and is not accepted
+delivery evidence. See `../../docs/CODEX_PROJECT_GUIDE.md`.
