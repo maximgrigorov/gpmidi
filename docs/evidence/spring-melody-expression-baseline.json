@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "baseline_id": "spring-melody-per-track-clear-solo-2026-08-04",
+  "frozen_at": "2026-08-04T16:06:49+05:00",
+  "decision": "GO",
+  "authority": "The reviewed Type-1 _ALL.mid is authoritative; per-track filesystem timestamps are not acceptance evidence.",
+  "supersedes_for_forward_expression_work": "spring-melody-logic-2026-08-03",
+  "package": {
+    "name": "Spring_Melody_Per_Track_Experiment_Clear_Solo.zip",
+    "sha256": "527ed6b1d76c22d45d0aa342b4ef48b82be8b6407c67367bd8c2445139f0220c",
+    "member": "per-track-experiment-clear-solo/Spring_Melody_Per_Track_Experiment_Clear_Solo_ALL.mid",
+    "member_sha256": "69a40d0700d5b0d28840e7c68e5393cf00371320e1e11fee6b363b34874290ba",
+    "member_size_bytes": 41274
+  },
+  "clear_solo": {
+    "member": "per-track-experiment-clear-solo/Guitar (Solo)_expression.mid",
+    "sha256": "632a4f816ebccb2f99a161b6d44518b7d08885a2f738967a1de406ac37c7e29e",
+    "policy": "Preserve accepted GP played offsets. Do not grid-snap or post-process note timing. Future humanization is opt-in and evaluated relative to this clear Solo."
+  },
+  "midi_contract": {
+    "type": 1,
+    "ticks_per_beat": 960,
+    "track_count": 9,
+    "tracks": [
+      {"index": 0, "name": "Drums", "messages": 2703, "note_on": 1349, "control_change": 0, "pitchwheel": 0},
+      {"index": 1, "name": "Acoustic Bass", "messages": 961, "note_on": 475, "control_change": 6, "pitchwheel": 0},
+      {"index": 2, "name": "Keyboard (Staff 1)", "messages": 537, "note_on": 266, "control_change": 0, "pitchwheel": 0},
+      {"index": 3, "name": "Keyboard (Staff 2)", "messages": 215, "note_on": 105, "control_change": 0, "pitchwheel": 0},
+      {"index": 4, "name": "Synth (Staff 1)", "messages": 2371, "note_on": 1183, "control_change": 0, "pitchwheel": 0},
+      {"index": 5, "name": "Synth (Staff 2)", "messages": 913, "note_on": 454, "control_change": 0, "pitchwheel": 0},
+      {"index": 6, "name": "Vocals", "messages": 669, "note_on": 332, "control_change": 0, "pitchwheel": 0},
+      {"index": 7, "name": "Guitar (Solo)", "messages": 1000, "note_on": 258, "control_change": 402, "pitchwheel": 77},
+      {"index": 8, "name": "Guitar (Rhytm)", "messages": 1105, "note_on": 514, "control_change": 72, "pitchwheel": 0}
+    ]
+  },
+  "comparison_candidate": {
+    "name": "Spring_Melody_Hermes_Replay_Fixed_Clear_Solo.zip",
+    "sha256": "2eda5d1064e7f72ea5cc6636370a57e8df27ec9e1f79018d7b07f2b41c61b5b1",
+    "all_member_sha256": "bbb9000e73988c6f47cd9e463bdfa6a5a63882aca2f1ffa060f36f42087464bc",
+    "decision": "acceptable fallback, not baseline authority"
+  },
+  "forward_contract": {
+    "baseline": "All future arrangement and Solo-humanization candidates are A/B compared against the accepted package member_sha256 and structural fingerprint above.",
+    "solo_humanization": "Opt-in only. Preserve note pitches, note count, accepted onset ticks and durations. Velocity, pitch-bend curve shaping and CC1 modulation must be independently controllable and independently auditable.",
+    "rollback": "Disable new processing and deliver the frozen package identified by package.sha256. The earlier pre-expression Logic baseline remains in spring-melody-logic-baseline.json."
+  }
+}

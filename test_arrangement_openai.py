@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from unittest.mock import MagicMock
 
@@ -106,10 +107,41 @@ def test_responses_contract_compact_schema_usage_and_solo_guard(monkeypatch):
     }
     assert result["model"] == "gpt-5.6-sol-2026-07-01"
     assert result["response_id"] == "resp_123"
-    compact_bytes = len(payload["input"].encode("utf-8"))
+    estimated_input_bytes = len((payload["instructions"] + payload["input"]).encode("utf-8"))
     assert result["preflight_estimated_cost_usd"] == pytest.approx(
-        provider.calculate_cost_estimate(compact_bytes, 0, 5000)
+        provider.calculate_cost_estimate(estimated_input_bytes, 0, 5000)
     )
+
+
+def test_custom_instructions_are_normalized_sent_and_fingerprinted(monkeypatch):
+    post = MagicMock(return_value=response())
+    monkeypatch.setattr(provider.requests, "post", post)
+
+    result = provider.create_openai_draft(
+        context(), config(), instructions="  Keep the accepted groove.\r\nHumanize attacks only.  "
+    )
+
+    assert post.call_args.kwargs["json"]["instructions"] == (
+        "Keep the accepted groove.\nHumanize attacks only."
+    )
+    assert result["instructions"] == "Keep the accepted groove.\nHumanize attacks only."
+    assert result["instructions_sha256"] == hashlib.sha256(
+        result["instructions"].encode("utf-8")
+    ).hexdigest()
+
+
+def test_empty_instructions_use_versioned_default_and_oversized_fail_before_network(monkeypatch):
+    post = MagicMock(return_value=response())
+    monkeypatch.setattr(provider.requests, "post", post)
+    provider.create_openai_draft(context(), config(), instructions=" \n ")
+    assert post.call_args.kwargs["json"]["instructions"] == provider.INSTRUCTIONS
+
+    post.reset_mock()
+    with pytest.raises(provider.OpenAIDraftError, match="too long"):
+        provider.create_openai_draft(
+            context(), config(), instructions="x" * (provider.MAX_INSTRUCTIONS_CHARS + 1)
+        )
+    post.assert_not_called()
 
 
 def test_spend_guard_blocks_before_network(monkeypatch):

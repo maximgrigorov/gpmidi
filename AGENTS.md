@@ -122,6 +122,19 @@
 - The web app filters empty tracks out of the combined file
   (`is_empty_export_track`); the CLI does not, mirroring its per-file behaviour.
 
+## Accepted forward baseline — 2026-08-04
+- The user reviewed `_ALL.mid` from `Spring_Melody_Per_Track_Experiment_Clear_Solo.zip`
+  and gave it an unambiguous GO. This is the authority for forward expression
+  and Solo-humanization work. Per-track filesystem timestamps are not acceptance
+  evidence; compare the Type-1 `_ALL.mid` and hashes instead.
+- Provenance, hashes and structural fingerprints are frozen in
+  `docs/evidence/spring-melody-expression-baseline.json`.
+- The Replay Fixed Clear Solo package is an acceptable fallback, not the baseline.
+- Solo timing authority is the clear Solo with accepted GP played offsets. Future
+  humanization must not grid-snap or alter pitches, note count, onset ticks or
+  durations. Velocity, pitch-bend shaping and CC1 modulation are independent,
+  opt-in A/B dimensions.
+
 ## Web UI options
 - `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
   optional, all off by default. The ghost checkbox is gated on humanize in JS —

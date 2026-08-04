@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -17,9 +18,11 @@ def test_upload_passes_opt_in_and_health_reports_config(monkeypatch):
     response = client.post("/upload", data={
         "file": (io.BytesIO(b"gp"), "song.gp5"),
         "openai_arrangement_draft": "on", "seed": "17",
+        "arrangement_prompt": "Custom expression prompt",
     }, content_type="multipart/form-data")
     assert response.status_code == 302
     assert captured["openai_arrangement_draft"] is True
+    assert captured["arrangement_prompt"] == "Custom expression prompt"
     assert captured["seed"] == 17
     assert client.get("/healthz").get_json()["direct_llm_enabled"] is True
 
@@ -31,7 +34,62 @@ def test_template_hides_openai_without_token_and_shows_with_token(monkeypatch):
     monkeypatch.delenv("OPENAI_TOKEN", raising=False)
     assert b'openai_arrangement_draft' not in web.app.test_client().get("/").data
     monkeypatch.setenv("OPENAI_TOKEN", "test-only")
-    assert b'openai_arrangement_draft' in web.app.test_client().get("/").data
+    page = web.app.test_client().get("/").data
+    assert b'openai_arrangement_draft' in page
+    assert b'name="arrangement_prompt"' in page
+    assert b'production-quality whole-song' in page
+
+
+def test_successful_job_persists_exact_prompt_artifact_and_hash(monkeypatch, tmp_path):
+    import app as web
+    job_root = tmp_path / "sessions"
+    monkeypatch.setattr(web, "uploads_root", lambda: job_root)
+    monkeypatch.setattr(web, "parse_song", lambda _path: object())
+    monkeypatch.setattr(web, "summarize_song", lambda _song: {"title": "x"})
+    monkeypatch.setattr(web, "build_track_summary", lambda *_args, **_kwargs: ([], []))
+    monkeypatch.setattr(web, "build_combined_midi", lambda _tracks: None)
+    monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": []})
+    saved = {}
+    monkeypatch.setattr(web, "save_manifest", lambda value: saved.update(value))
+    monkeypatch.setattr(web, "is_openai_configured", lambda: True)
+
+    def prepare(_song, _tracks, _midi, output, _name):
+        name = "song_arrangement-context.json"
+        (output / name).write_text(json.dumps({"context": {"measure_count": 1, "tracks": []}}))
+        return {"status": "awaiting_hermes_draft", "context_name": name}, [name]
+
+    normalized = "Keep clear solo timing.\nShape velocity only."
+    prompt_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    captured = {}
+
+    def draft(_context, _config, *, instructions=None):
+        captured["instructions"] = instructions
+        return {
+            "status": "draft_ready", "provider": "openai", "model": "gpt-5.6-sol",
+            "response_id": "resp", "plan": {"summary": "ok"},
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+                      "estimated_cost_usd": 0.01},
+            "instructions": instructions,
+            "instructions_sha256": prompt_hash,
+        }
+
+    monkeypatch.setattr(web, "prepare_hermes_arrangement_context", prepare)
+    monkeypatch.setattr(web, "create_openai_draft", draft)
+    upload = FileStorage(stream=io.BytesIO(b"fixture"), filename="song.gp5")
+    with web.app.test_request_context("/"):
+        job_id = web.create_job(
+            upload, openai_arrangement_draft=True,
+            arrangement_prompt="Keep clear solo timing.\r\nShape velocity only.",
+        )
+
+    job = saved["jobs"][0]
+    prompt_name = job["arrangement"]["prompt_name"]
+    prompt_path = job_root / job_id / "output" / prompt_name
+    assert captured["instructions"] == normalized
+    assert prompt_path.read_text() == normalized
+    assert hashlib.sha256(prompt_path.read_bytes()).hexdigest() == prompt_hash
+    assert job["arrangement"]["prompt_sha256"] == prompt_hash
+    assert prompt_name in job["arrangement_artifacts"]
 
 
 def test_provider_failure_keeps_baseline_and_sanitizes(monkeypatch, tmp_path):
@@ -56,12 +114,20 @@ def test_provider_failure_keeps_baseline_and_sanitizes(monkeypatch, tmp_path):
     monkeypatch.setattr(web, "create_openai_draft", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("secret test-only")))
     upload = FileStorage(stream=io.BytesIO(b"fixture"), filename="song.gp5")
     with web.app.test_request_context("/"):
-        job_id = web.create_job(upload, openai_arrangement_draft=True)
+        job_id = web.create_job(
+            upload, openai_arrangement_draft=True,
+            arrangement_prompt="Failure-path prompt",
+        )
     job = saved["jobs"][0]
     assert job["id"] == job_id
     assert job["arrangement"]["status"] == "draft_error"
     assert "secret" not in job["arrangement"]["error"]
     assert (job_root / job_id / "output" / "song_arrangement-context.json").exists()
+    prompt_path = job_root / job_id / "output" / job["arrangement"]["prompt_name"]
+    assert prompt_path.read_text() == "Failure-path prompt"
+    assert job["arrangement"]["prompt_sha256"] == hashlib.sha256(
+        prompt_path.read_bytes()
+    ).hexdigest()
 
 
 def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):

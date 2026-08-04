@@ -58,6 +58,15 @@
                   <small>Платный server-side вызов (до лимита $0.50). Создаёт production-quality JSON-план для всей песни; MIDI применяется только отдельной кнопкой подтверждения.</small>
                 </span>
               </label>
+              <details class="prompt-editor">
+                <summary>Настроить prompt обработки</summary>
+                <label for="arrangementPrompt">Instructions для expression plan</label>
+                <textarea name="arrangement_prompt" id="arrangementPrompt"
+                          maxlength="{{ openai_prompt_max_chars }}"
+                          rows="14">{{ openai_arrangement_prompt }}</textarea>
+                <small>Можно менять перед каждым запуском. Точный текст, использованный моделью,
+                сохраняется в ZIP вместе с SHA-256; пустое поле вернёт versioned default.</small>
+              </details>
               {% endif %}
             </fieldset>
 
@@ -261,6 +270,7 @@
                 </div>
                 <div class="head-actions">
                   {% if current_job.arrangement.context_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.context_url }}">Context JSON</a>{% endif %}
+                  {% if current_job.arrangement.prompt_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.prompt_url }}">Prompt</a>{% endif %}
                   {% if current_job.arrangement.plan_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.plan_url }}">Expression plan</a>{% endif %}
                   {% if current_job.arrangement.usage_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.usage_url }}">Usage</a>{% endif %}
                 </div>

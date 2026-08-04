@@ -658,6 +658,18 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
   border-color: hsl(221, 58%, 76%);
   background: linear-gradient(180deg, hsl(221, 80%, 98%), #fff);
 }
+.prompt-editor { margin: 8px 0 2px 28px; }
+.prompt-editor > summary {
+  cursor: pointer; color: var(--accent); font-size: 12px; font-weight: 600;
+}
+.prompt-editor label, .prompt-editor small {
+  display: block; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.4;
+}
+.prompt-editor textarea {
+  width: 100%; min-height: 220px; margin-top: 6px; padding: 9px 10px;
+  resize: vertical; border: 1px solid var(--border); border-radius: 8px;
+  background: #fff; color: var(--fg); font: 11px/1.45 "JetBrains Mono", monospace;
+}
 .primary-option strong { color: var(--accent); }
 .advanced-options { margin-top: 8px; }
 .advanced-options > summary {

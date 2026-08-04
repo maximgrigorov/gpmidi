@@ -1,7 +1,7 @@
 # Project status — Reference-Guided MIDI Restoration
 
-**Last evidence update:** 2026-08-03
-**Current milestone:** The accepted Spring Melody Logic handoff is frozen as the product baseline. Audio-onset/transcription-model work and pmetal are stopped; their evidence remains historical. Forward development is exclusively the Guitar Pro baseline → target-library articulation mapping → cross-track LLM expression planning → safe velocity/solo-humanization → Logic MIDI workflow on `feat/logic-arrangement-workflow`.
+**Last evidence update:** 2026-08-04
+**Current milestone:** `Spring_Melody_Per_Track_Experiment_Clear_Solo.zip` is the accepted GO baseline for forward expression work. The reviewed Type-1 `_ALL.mid`, not per-track file timestamps, is authoritative. Audio-onset/transcription-model work and pmetal remain historical. Forward development is exclusively accepted mapped baseline → editable cross-track expression prompt → safe opt-in Solo humanization → Logic MIDI.
 
 ## Completed
 
@@ -173,11 +173,12 @@ not product quality. Full hashes and metrics are in
 The model-evaluation and audio-guided restoration branches are closed for product development. Their reports and immutable evidence remain available for reference, but no new attack-recognition, transcription-model or pmetal runs should be scheduled.
 
 The active product slice is documented in
-`docs/adr/2026-08-03-logic-arrangement-processing.md`. The accepted Spring Melody
-input and nine-track Logic package are frozen by SHA-256 in
-`docs/evidence/spring-melody-logic-baseline.json`. New work must preserve a
-baseline/rollback mode and add target-aware expression processing only after
-Shreddage/Hydra articulation semantics are resolved.
+`docs/adr/2026-08-03-logic-arrangement-processing.md`. The pre-expression Logic handoff remains frozen in
+`docs/evidence/spring-melody-logic-baseline.json`. The user-reviewed GO baseline
+for all forward expression and Solo-humanization A/B work is frozen separately
+in `docs/evidence/spring-melody-expression-baseline.json`, including the ZIP,
+authoritative `_ALL.mid`, clear Solo and structural fingerprints. New work must
+preserve a baseline/rollback mode and accepted Solo played timing.
 
 ## Operational state
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -25,9 +26,12 @@ from mido import MidiFile
 from werkzeug.utils import secure_filename
 
 from arrangement_openai import (
+    INSTRUCTIONS,
+    MAX_INSTRUCTIONS_CHARS,
     create_openai_draft,
     get_openai_config,
     is_openai_configured,
+    normalize_instructions,
 )
 from arrangement_processing import build_arrangement_context
 from arrangement_workflow import apply as apply_arrangement_plan
@@ -630,7 +634,8 @@ def create_job(uploaded_file, humanize: bool = False,
                expand_gp_hidden_32nds: bool = False,
                preserve_gp_played_offsets: bool = False,
                prepare_arrangement_context: bool = False,
-               openai_arrangement_draft: bool = False) -> str:
+               openai_arrangement_draft: bool = False,
+               arrangement_prompt: str | None = None) -> str:
     root = uploads_root()
     job_id = uuid.uuid4().hex[:12]
     job_dir = root / job_id
@@ -678,16 +683,30 @@ def create_job(uploaded_file, humanize: bool = False,
                 song, tracks, midi_tracks, output_dir, original_name,
             )
             context_name = arrangement["context_name"]
+        prompt_name: str | None = None
+        prompt_sha256: str | None = None
         try:
             context_path = output_dir / context_name
             context = json.loads(context_path.read_text(encoding="utf-8"))
-            draft_result = create_openai_draft(context["context"], get_openai_config())
+            resolved_prompt = normalize_instructions(arrangement_prompt)
+            artifact_stem = safe_filename(Path(original_name).stem) or "song"
+            prompt_name = f"{artifact_stem}_openai-prompt.txt"
+            prompt_path = output_dir / prompt_name
+            prompt_bytes = resolved_prompt.encode("utf-8")
+            prompt_sha256 = hashlib.sha256(prompt_bytes).hexdigest()
+            prompt_path.write_bytes(prompt_bytes)
+            draft_result = create_openai_draft(
+                context["context"], get_openai_config(), instructions=resolved_prompt
+            )
+            if draft_result.get("instructions_sha256") != prompt_sha256:
+                raise RuntimeError("OpenAI prompt fingerprint mismatch")
             # Write plan payload with explicit schema for apply workflow
             plan_payload = {
                 "schema_version": 1,
                 "provider": "openai",
                 "model": draft_result.get("model"),
                 "response_id": draft_result.get("response_id"),
+                "instructions_sha256": prompt_sha256,
                 "approved": False,
                 "plan": draft_result.get("plan"),
             }
@@ -704,6 +723,7 @@ def create_job(uploaded_file, humanize: bool = False,
                 "response_id": draft_result.get("response_id"),
                 "model": draft_result.get("model"),
                 "provider": draft_result.get("provider"),
+                "instructions_sha256": prompt_sha256,
                 "usage": draft_result.get("usage", {}),
                 "estimated_cost_usd": (draft_result.get("usage") or {}).get("estimated_cost_usd"),
             }
@@ -720,13 +740,16 @@ def create_job(uploaded_file, humanize: bool = False,
                 "plan_url": url_for("download_track", job_id=job_id, filename=plan_name),
                 "usage_name": usage_name,
                 "usage_url": url_for("download_track", job_id=job_id, filename=usage_name),
+                "prompt_name": prompt_name,
+                "prompt_url": url_for("download_track", job_id=job_id, filename=prompt_name),
+                "prompt_sha256": prompt_sha256,
                 "model": draft_result.get("model"),
                 "summary": draft_result.get("plan", {}).get("summary", ""),
                 "tokens": draft_result.get("usage", {}),
                 "estimated_cost_usd": (draft_result.get("usage") or {}).get("estimated_cost_usd"),
                 "usage_actual": draft_result.get("usage", {}),
             }
-            arrangement_artifacts = [context_name, plan_name, usage_name]
+            arrangement_artifacts = [context_name, prompt_name, plan_name, usage_name]
         except Exception:
             # Catch error so baseline job still succeeds with arrangement draft_error status
             # Keep context artifact and baseline, use fixed sanitized user message
@@ -736,6 +759,13 @@ def create_job(uploaded_file, humanize: bool = False,
                 "context_name": context_name,
                 "context_url": url_for("download_track", job_id=job_id, filename=context_name) if context_name else None,
             }
+            if prompt_name and prompt_sha256 and (output_dir / prompt_name).is_file():
+                arrangement["prompt_name"] = prompt_name
+                arrangement["prompt_url"] = url_for(
+                    "download_track", job_id=job_id, filename=prompt_name
+                )
+                arrangement["prompt_sha256"] = prompt_sha256
+                arrangement_artifacts = [context_name, prompt_name]
 
     # Сборный Type 1 со всеми дорожками — из ТЕХ ЖЕ объектов, что и пофайловый
     # экспорт, поэтому разойтись они не могут. Кладём в output/ последним, чтобы
@@ -836,6 +866,8 @@ def index():
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
         hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
         openai_configured=is_openai_configured(),
+        openai_arrangement_prompt=INSTRUCTIONS,
+        openai_prompt_max_chars=MAX_INSTRUCTIONS_CHARS,
     )
 
 
@@ -873,6 +905,7 @@ def upload():
     playable_tabs = request.form.get("playable_tabs") == "on"
     prepare_arrangement_context = request.form.get("prepare_arrangement_context") == "on"
     openai_arrangement_draft = request.form.get("openai_arrangement_draft") == "on"
+    arrangement_prompt = request.form.get("arrangement_prompt")
     try:
         seed = int(request.form.get("seed") or 7)
     except ValueError:
@@ -888,6 +921,7 @@ def upload():
             preserve_gp_played_offsets=preserve_gp_played_offsets,
             prepare_arrangement_context=prepare_arrangement_context,
             openai_arrangement_draft=openai_arrangement_draft,
+            arrangement_prompt=arrangement_prompt,
         )
     except Exception as exc:  # pragma: no cover
         flash(f"Не удалось разобрать файл: {exc}", "error")
@@ -933,6 +967,8 @@ def job_details(job_id: str):
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
         hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
         openai_configured=is_openai_configured(),
+        openai_arrangement_prompt=INSTRUCTIONS,
+        openai_prompt_max_chars=MAX_INSTRUCTIONS_CHARS,
     )
 
 

@@ -1,6 +1,7 @@
 """Bounded OpenAI draft provider for target-mapped arrangement context."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from typing import Any
@@ -14,6 +15,7 @@ DEFAULT_MODEL = "gpt-5.6-sol"
 DEFAULT_TIMEOUT_SECONDS = 180
 DEFAULT_MAX_OUTPUT_TOKENS = 5000
 DEFAULT_MAX_ESTIMATED_USD = 0.50
+MAX_INSTRUCTIONS_CHARS = 20_000
 
 PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -89,6 +91,19 @@ explicit approval step."""
 
 class OpenAIDraftError(RuntimeError):
     """Safe provider error whose message contains no remote body or credential."""
+
+
+def normalize_instructions(value: str | None = None) -> str:
+    """Return reproducible UI/provider instructions or the versioned default."""
+    raw = INSTRUCTIONS if value is None or not str(value).strip() else str(value)
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if "\x00" in normalized:
+        raise OpenAIDraftError("OpenAI arrangement prompt contains invalid characters")
+    if len(normalized) > MAX_INSTRUCTIONS_CHARS:
+        raise OpenAIDraftError(
+            f"OpenAI arrangement prompt is too long ({len(normalized)} > {MAX_INSTRUCTIONS_CHARS})"
+        )
+    return normalized
 
 
 def _env_int(name: str, default: int, lower: int) -> int:
@@ -170,25 +185,32 @@ def _require_complete_plan(plan: dict[str, Any], context: dict[str, Any]) -> Non
         raise OpenAIDraftError("OpenAI draft plan is incomplete")
 
 
-def create_openai_draft(context: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_openai_draft(
+    context: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    *,
+    instructions: str | None = None,
+) -> dict[str, Any]:
     config = dict(config or get_openai_config())
     token = str(config.get("token") or "").strip()
     if not token:
         raise OpenAIDraftError("OpenAI draft is not configured")
 
+    resolved_instructions = normalize_instructions(instructions)
     compact_context = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
     # A character-ratio estimate under-counted the real Spring Melody request
     # (18,868 estimated vs 22,991 billed input tokens). UTF-8 byte count is a
     # deliberately conservative tokenizer upper bound, making the guard
     # fail-closed at the cost of rejecting some requests that would be cheaper.
-    estimated_input = len(compact_context.encode("utf-8"))
+    # Include editable instructions so a long UI prompt cannot bypass the guard.
+    estimated_input = len((resolved_instructions + compact_context).encode("utf-8"))
     max_output = int(config.get("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS))
     preflight_cost = calculate_cost_estimate(estimated_input, 0, max_output)
     validate_spend_guard(preflight_cost, float(config.get("max_estimated_usd", DEFAULT_MAX_ESTIMATED_USD)))
 
     payload = {
         "model": config.get("model", DEFAULT_MODEL),
-        "instructions": INSTRUCTIONS,
+        "instructions": resolved_instructions,
         "input": compact_context,
         "max_output_tokens": max_output,
         "store": False,
@@ -245,4 +267,6 @@ def create_openai_draft(context: dict[str, Any], config: dict[str, Any] | None =
         "model": str(result.get("model") or config.get("model", DEFAULT_MODEL)),
         "response_id": str(result.get("id") or ""),
         "preflight_estimated_cost_usd": round(preflight_cost, 6),
+        "instructions": resolved_instructions,
+        "instructions_sha256": hashlib.sha256(resolved_instructions.encode("utf-8")).hexdigest(),
     }
