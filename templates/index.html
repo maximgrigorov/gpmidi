@@ -148,17 +148,33 @@
                 {% endif %}
               </p>
             </div>
-            <div class="head-actions">
+            <div class="head-actions midi-master-downloads">
               {% if current_job.combined_url %}
-                <a class="btn primary" href="{{ current_job.combined_url }}"
-                   title="Один Type 1 MIDI со всеми дорожками — перетащить в Logic целиком">
-                  Скачать всё одним MIDI
-                </a>
+                <div class="midi-download-option baseline-download">
+                  <span class="download-kind">Baseline · до expression</span>
+                  <a class="btn" href="{{ current_job.combined_url }}"
+                     title="Исходный mapped Type 1 MIDI со всеми выбранными дорожками">
+                    Baseline · общий MIDI
+                  </a>
+                  <small class="mono">{{ current_job.combined_name }}</small>
+                </div>
               {% endif %}
+              <div class="midi-download-option enriched-download">
+                <span class="download-kind">Enriched · после expression</span>
+                {% if current_job.enriched_combined_url %}
+                  <a class="btn primary" href="{{ current_job.enriched_combined_url }}"
+                     title="Enriched Type 1 MIDI со всеми выбранными дорожками">
+                    Enriched · общий MIDI
+                  </a>
+                  <small class="mono">{{ current_job.enriched_combined_name }}</small>
+                {% else %}
+                  <span class="btn disabled" aria-disabled="true">Enriched ещё не собран</span>
+                  <small>Появится после подтверждения expression plan.</small>
+                {% endif %}
+              </div>
               {% if current_job.refingered_url %}
                 <a class="btn primary" href="{{ current_job.refingered_url }}">Скачать GP с новой аппликатурой</a>
               {% endif %}
-              <a class="btn" href="{{ current_job.zip_url }}">ZIP по дорожкам</a>
               <form action="{{ url_for('delete_job', job_id=current_job.id) }}" method="post">
                 <button class="btn danger" type="submit">Удалить сессию</button>
               </form>
@@ -279,12 +295,6 @@
                   <h2>{% if current_job.openai_arrangement_draft %}OpenAI expression plan{% else %}Контекст для Hermes{% endif %}</h2>
                   <p class="muted">Контекст собран из already mapped MIDI. Baseline не изменён.</p>
                 </div>
-                <div class="head-actions">
-                  {% if current_job.arrangement.context_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.context_url }}">Context JSON</a>{% endif %}
-                  {% if current_job.arrangement.prompt_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.prompt_url }}">Prompt</a>{% endif %}
-                  {% if current_job.arrangement.plan_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.plan_url }}">Expression plan</a>{% endif %}
-                  {% if current_job.arrangement.usage_url %}<a class="btn btn-sm" href="{{ current_job.arrangement.usage_url }}">Usage</a>{% endif %}
-                </div>
               </div>
               <div class="expression-result-body">
                 {% if current_job.arrangement.status == 'draft_ready' %}
@@ -295,7 +305,7 @@
                     <button class="btn" type="submit">Подтвердить и собрать enriched MIDI</button>
                   </form>
                 {% elif current_job.arrangement.status == 'applied' %}
-                  <p><strong>Enriched MIDI собран отдельно.</strong> Baseline сохранён; новые файлы доступны ниже и в ZIP.</p>
+                  <p><strong>Enriched MIDI собран отдельно.</strong> Baseline сохранён. Общие MIDI доступны сверху, варианты каждой дорожки — в таблице ниже.</p>
                 {% elif current_job.arrangement.status == 'draft_error' %}
                   <p class="error">{{ current_job.arrangement.error }}</p>
                 {% else %}
@@ -337,8 +347,8 @@
                     <th>Тип</th>
                     <th>Краткий отчёт</th>
                     <th>Инструмент</th>
-                    <th>Файл</th>
-                    <th></th>
+                    <th>Baseline MIDI</th>
+                    <th>Enriched MIDI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -398,9 +408,9 @@
                         <span class="badge plain instrument-pill">{{ track.preview_instrument }}</span>
                         <div class="mini-stat">{{ '%.1f'|format((track.preview_duration_ms or 0) / 1000) }} c</div>
                       </td>
-                      <td class="mono file-col">{{ track.download_name }}</td>
                       <td class="actions-col">
-                        <a class="btn btn-sm primary" href="{{ track.download_url }}">MIDI</a>
+                        <a class="btn btn-sm" href="{{ track.download_url }}">Baseline MIDI</a>
+                        <div class="mono file-col">{{ track.download_name }}</div>
                         {% if track.playable %}
                           {% for artifact in track.playable.files %}
                             <div class="artifact-action">
@@ -413,6 +423,14 @@
                               {% endif %}
                             </div>
                           {% endfor %}
+                        {% endif %}
+                      </td>
+                      <td class="actions-col">
+                        {% if track.enriched_download_url %}
+                          <a class="btn btn-sm primary" href="{{ track.enriched_download_url }}">Enriched MIDI</a>
+                          <div class="mono file-col">{{ track.enriched_download_name }}</div>
+                        {% else %}
+                          <span class="muted">Ещё не собран</span>
                         {% endif %}
                       </td>
                     </tr>

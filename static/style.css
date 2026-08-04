@@ -140,6 +140,29 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
   gap: 10px;
   flex-wrap: wrap;
 }
+.midi-master-downloads { align-items: stretch; }
+.midi-download-option {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 190px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg-elev);
+}
+.midi-download-option.enriched-download {
+  border-color: hsl(221, 58%, 76%);
+  background: var(--accent-soft);
+}
+.download-kind {
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.midi-download-option small { overflow-wrap: anywhere; }
 
 .panel {
   background: var(--bg-elev);
@@ -223,6 +246,12 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
   border-color: var(--accent);
 }
 .btn.primary:hover { background: hsl(221, 78%, 47%); border-color: hsl(221, 78%, 47%); }
+.btn.disabled {
+  cursor: not-allowed;
+  color: var(--fg-muted);
+  background: var(--surface-hover);
+  opacity: .72;
+}
 .btn.ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
 .btn.ghost:hover { background: var(--surface-hover); color: var(--fg); }
 .btn.danger { color: var(--err); border-color: hsl(358, 40%, 85%); }

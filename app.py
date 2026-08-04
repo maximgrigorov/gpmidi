@@ -282,6 +282,41 @@ def save_manifest(manifest: dict[str, Any]) -> None:
 
 
 
+def _attach_midi_downloads(job: dict[str, Any]) -> dict[str, Any]:
+    """Expose baseline and approved enriched MIDI as distinct UI downloads.
+
+    Derive enriched links from the persisted apply manifest so jobs created by an
+    older UI become usable immediately after deployment without re-running the
+    model or enrichment step.
+    """
+    job["enriched_combined_name"] = None
+    job["enriched_combined_url"] = None
+    for track in job.get("tracks", []):
+        track["enriched_download_name"] = None
+        track["enriched_download_url"] = None
+
+    arrangement = job.get("arrangement") or {}
+    apply_manifest = arrangement.get("apply_manifest") or {}
+    allowed = set(job.get("arrangement_artifacts", []))
+    tracks_by_name = {
+        str(track.get("track_name")): track for track in job.get("tracks", [])
+    }
+    for artifact in apply_manifest.get("artifacts", []):
+        name = str(artifact.get("name") or "")
+        if not name.endswith(".mid") or name not in allowed:
+            continue
+        download_url = url_for("download_track", job_id=job["id"], filename=name)
+        if artifact.get("type") == "TYPE_1_ALL":
+            job["enriched_combined_name"] = name
+            job["enriched_combined_url"] = download_url
+            continue
+        track = tracks_by_name.get(str(artifact.get("track") or ""))
+        if track is not None:
+            track["enriched_download_name"] = name
+            track["enriched_download_url"] = download_url
+    return job
+
+
 def get_current_job(manifest: dict[str, Any] | None = None) -> dict[str, Any] | None:
     manifest = manifest or load_manifest()
     current_id = manifest.get("current_job_id")
@@ -289,7 +324,7 @@ def get_current_job(manifest: dict[str, Any] | None = None) -> dict[str, Any] | 
         return None
     for job in manifest.get("jobs", []):
         if job["id"] == current_id:
-            return job
+            return _attach_midi_downloads(job)
     return None
 
 

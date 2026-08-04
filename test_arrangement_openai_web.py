@@ -62,6 +62,60 @@ def test_template_hides_openai_without_token_and_shows_with_token_for_parsed_job
     assert "только выбранные дорожки" in page.decode()
 
 
+def test_applied_job_shows_explicit_baseline_and_enriched_midi_downloads_without_zip(monkeypatch):
+    import app as web
+
+    job = {
+        "id": "job", "stage": "processed", "original_name": "song.gp5",
+        "created_at": "now", "combined_name": "song_ALL.mid",
+        "combined_url": "/download/job/song_ALL.mid", "zip_url": "/jobs/job/download.zip",
+        "song": {
+            "title": "Song", "tempo": 120, "tracks": 1, "measures": 1,
+            "time_signatures": ["4/4"], "artist": "—", "album": "—",
+        },
+        "tracks": [{
+            "index": 1, "track_name": "Solo", "track_type": "GUITAR",
+            "track_type_label": "Гитара / Hydra", "download_name": "Solo.mid",
+            "download_url": "/download/job/Solo.mid", "preview_url": "/preview",
+            "preview_instrument": "Hydra", "preview_duration_ms": 1000,
+            "processing_report": [], "expression": {"changed_notes": 2,
+                "mean_velocity_before": 95, "mean_velocity_after": 96,
+                "timing_preserved": True},
+        }],
+        "warnings": [], "playable_warnings": [], "playable_tabs": False,
+        "humanize": False, "ghost_notes": False, "auto_sustain_vibrato": False,
+        "fret_noise_on_hand_shift": False, "expand_gp_hidden_32nds": False,
+        "preserve_gp_played_offsets": False, "prepare_arrangement_context": True,
+        "openai_arrangement_draft": True, "refingered_url": None,
+        "arrangement_artifacts": ["Solo_expression.mid", "song_expression_ALL.mid"],
+        "arrangement": {
+            "status": "applied", "model": "gpt-5.6-sol", "summary": "Applied",
+            "apply_manifest": {"artifacts": [
+                {"name": "Solo_expression.mid", "track": "Solo", "type": "GUITAR"},
+                {"name": "song_expression_ALL.mid", "type": "TYPE_1_ALL"},
+            ]},
+        },
+    }
+    manifest = {"jobs": [job], "current_job_id": "job"}
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
+    web.app.config.update(TESTING=True)
+
+    page = web.app.test_client().get("/").data.decode()
+
+    assert "Baseline · общий MIDI" in page
+    assert "Enriched · общий MIDI" in page
+    assert 'href="/download/job/song_ALL.mid"' in page
+    assert 'href="/download/job/song_expression_ALL.mid"' in page
+    assert "Baseline MIDI" in page
+    assert "Enriched MIDI" in page
+    assert 'href="/download/job/Solo.mid"' in page
+    assert 'href="/download/job/Solo_expression.mid"' in page
+    assert "ZIP по дорожкам" not in page
+    assert "Context JSON" not in page
+    assert "Expression plan" not in page
+    assert "Usage" not in page
+
+
 def test_successful_job_persists_exact_prompt_artifact_and_hash(monkeypatch, tmp_path):
     import app as web
     job_root = tmp_path / "sessions"
