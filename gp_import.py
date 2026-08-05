@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import logging
 import os
 import re
 import sys
@@ -15,6 +16,8 @@ from typing import Any
 
 import guitarpro
 from guitarpro.models import NoteType, SlideType
+
+logger = logging.getLogger("gpmidi.import")
 
 
 def _find_apollotab_root() -> Path:
@@ -54,6 +57,20 @@ APOLLOTAB_DYNAMIC_TO_VELOCITY = {
     "F": 95,
     "FF": 111,
     "FFF": 127,
+}
+
+# Тики на четверть в адаптере (та же сетка, что TICKS_PER_BEAT конвертера).
+TICKS_PER_QUARTER = 960
+
+# GPIF <Automation type="Tempo"><Value> хранит пару «значение единица»:
+# "120 2" = 120 четвертей/мин, "80 3" = 80 четвертей-с-точкой/мин = 120 BPM.
+# Единица -> сколько четвертей длится одна доля темпа.
+GPIF_TEMPO_UNIT_QUARTERS = {
+    1: 0.5,   # восьмая
+    2: 1.0,   # четверть
+    3: 1.5,   # четверть с точкой
+    4: 2.0,   # половинная
+    5: 3.0,   # половинная с точкой
 }
 
 
@@ -569,9 +586,24 @@ def _extract_gpif_tempo_automations_root(root: ET.Element) -> list[GPTempoAutoma
         if data.get("Type") != "Tempo":
             continue
 
-        value_match = re.match(r"\s*(-?\d+(?:\.\d+)?)", data.get("Value", ""))
+        value_match = re.match(r"\s*(-?\d+(?:\.\d+)?)(?:\s+(\d+))?", data.get("Value", ""))
         if not value_match:
             continue
+
+        # Второй токен <Value> — единица темпа. Раньше он отбрасывался, и темп,
+        # записанный от восьмых/половинных/четверти с точкой, экспортировался
+        # с прямо неверным BPM ("80 3" читалось как 80 вместо 120).
+        bpm = float(value_match.group(1))
+        unit_token = value_match.group(2)
+        if unit_token is not None:
+            unit = GPIF_TEMPO_UNIT_QUARTERS.get(int(unit_token))
+            if unit is None:
+                logger.warning(
+                    "неизвестная единица темпа %r в GPIF Automation (Value=%r); "
+                    "читаю как четверти", unit_token, data.get("Value", ""),
+                )
+            else:
+                bpm *= unit
 
         automations.append(
             GPTempoAutomation(
@@ -579,7 +611,7 @@ def _extract_gpif_tempo_automations_root(root: ET.Element) -> list[GPTempoAutoma
                 # GPIF stores Position as a decimal beat offset; int() raised
                 # ValueError and aborted the whole parse on an off-beat tempo mark.
                 position=float(data.get("Position", "0") or 0),
-                value=float(value_match.group(1)),
+                value=bpm,
             )
         )
 
@@ -621,7 +653,15 @@ def adapt_apollotab_song(
     tempo_automations = tempo_automations or []
     drum_tables = drum_tables or {}
     note_extras = note_extras or {}
-    base_tempo = tempo_automations[0].value if tempo_automations else float(getattr(song, "tempo", 120) or 120)
+    # Базовым темпом первая автоматизация становится только если она реально
+    # стоит в начале партитуры. Иначе (автоматизация в такте N) вступление
+    # играло её темпом, а в самой точке смены set_tempo не эмитился — билдеры
+    # дедуплицируют равные значения.
+    first_automation = tempo_automations[0] if tempo_automations else None
+    if first_automation is not None and first_automation.bar == 0 and first_automation.position <= 0:
+        base_tempo = first_automation.value
+    else:
+        base_tempo = float(getattr(song, "tempo", 120) or 120)
     tracks = [
         adapt_apollotab_track(
             track,
@@ -704,7 +744,12 @@ def adapt_apollotab_measure(
         }
         adapted_beat = adapt_apollotab_beat(beat, beat_start, drum_table=drum_table, beat_note_extras=beat_extras)
         rel_start = beat_start - start_tick
-        while tempo_idx < len(tempo_automations) and tempo_automations[tempo_idx].position <= rel_start:
+        # Position хранится в четвертях от начала такта, rel_start — в тиках
+        # (960 на четверть). Прямое сравнение схлопывало любую ненулевую
+        # позицию к началу такта (Position=2 удовлетворял "2 <= 960" уже на
+        # второй доле).
+        while (tempo_idx < len(tempo_automations)
+               and tempo_automations[tempo_idx].position * TICKS_PER_QUARTER <= rel_start):
             adapted_beat.effect.mixTableChange = GPMixTableChange(
                 tempo=GPTempoValue(value=tempo_automations[tempo_idx].value)
             )
