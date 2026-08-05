@@ -122,6 +122,31 @@ def test_tied_bend_segment_keeps_its_own_release_curve():
     assert (1920, 0) in pw
 
 
+def test_tied_bend_resets_before_an_independent_overlapping_attack():
+    """Channel-wide PB must not detune a new note while an old tie continues."""
+    rise = GPBend(points=[
+        GPBendPoint(position=0, value=0),
+        GPBendPoint(position=12, value=4),
+    ])
+    late_release = GPBend(points=[
+        GPBendPoint(position=0, value=4),
+        GPBendPoint(position=12, value=0),
+    ])
+    origin = _note(5, string=1, effect=GPNoteEffect(bend=rise))
+    tie = _note(
+        5, string=1, effect=GPNoteEffect(bend=late_release),
+        note_type=NoteType.tie,
+    )
+    independent = _note(7, string=2)
+    song, track = _song([[_beat([origin]), _beat([tie, independent])]])
+
+    midi_track, _stats = g.build_instrument_midi(song, track, "GUITAR")
+    pw = _pitchwheel_events(midi_track)
+
+    assert (960, 0) in pw
+    assert not any(tick > 960 and pitch != 0 for tick, pitch in pw)
+
+
 def test_bend_points_are_timed_to_origin_segment_not_full_tie():
     """Лига не должна вдвое задерживать вершину bend первого сегмента."""
     bend = GPBend(points=[

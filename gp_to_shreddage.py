@@ -372,7 +372,7 @@ class EventList:
 #  Конвертация эффектов одной ноты (только для GUITAR/BASS)
 # --------------------------------------------------------------------------- #
 def _emit_bend_points(ev, start_tick, dur_ticks, bend,
-                      pb_range=PITCH_BEND_RANGE_ST):
+                      pb_range=PITCH_BEND_RANGE_ST, stop_tick=None):
     """Emit GP bend anchors inside one notation/tie segment, without reset."""
     if dur_ticks <= 0:
         return
@@ -386,6 +386,10 @@ def _emit_bend_points(ev, start_tick, dur_ticks, bend,
         position = max(0.0, min(12.0, float(point.position)))
         tick = start_tick + int(round((position / 12.0) * dur_ticks))
         tick = min(tick, end_tick - 1)
+        # Pitch bend is channel-wide.  Once another independently attacked
+        # note starts, keeping this curve alive would detune that note too.
+        if stop_tick is not None and tick >= stop_tick:
+            continue
         pw = semitones_to_pitchwheel(
             float(point.value) * SEMITONES_PER_BEND_UNIT, pb_range
         )
@@ -414,7 +418,7 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
 
 
 def emit_bend_segments(ev, note_end_tick, segments,
-                       pb_range=PITCH_BEND_RANGE_ST):
+                       pb_range=PITCH_BEND_RANGE_ST, reset_tick=None):
     """Emit per-segment bend curves across one held/tied MIDI note.
 
     Bend positions belong to their own notation segment. Stretching the first
@@ -423,9 +427,15 @@ def emit_bend_segments(ev, note_end_tick, segments,
     """
     if not segments:
         return
+    reset_tick = note_end_tick if reset_tick is None else min(note_end_tick, reset_tick)
     for segment_start, segment_duration, bend in segments:
-        _emit_bend_points(ev, segment_start, segment_duration, bend, pb_range)
-    ev.add(note_end_tick, ORDER_RESET,
+        if segment_start >= reset_tick:
+            continue
+        _emit_bend_points(
+            ev, segment_start, segment_duration, bend, pb_range,
+            stop_tick=reset_tick,
+        )
+    ev.add(reset_tick, ORDER_RESET,
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
@@ -1076,11 +1086,26 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
     # off_rec["tick"] у каждой ноты содержит её настоящий конец.
     for bend_span in pending_bends:
+        # Hydra receives the whole track on one MIDI channel, so PB cannot be
+        # isolated per note.  Preserve a tied bend through its real note end
+        # only while the passage stays monophonic; otherwise reset immediately
+        # before the next independent attack to avoid bending that new note.
+        bend_start = bend_span["start"]
+        bend_end = bend_span["off"]["tick"]
+        next_attack = min(
+            (
+                span["start"]
+                for span in all_note_spans
+                if bend_start < span["start"] < bend_end
+            ),
+            default=bend_end,
+        )
         emit_bend_segments(
             ev,
-            bend_span["off"]["tick"],
+            bend_end,
             bend_span["bend_segments"],
             pb_range,
+            reset_tick=next_attack,
         )
     for s_start, s_off, s_slides, s_pitch, s_next, s_bpm in pending_slides:
         emit_slide(ev, s_start, s_off["tick"] - s_start, s_slides, s_pitch,
