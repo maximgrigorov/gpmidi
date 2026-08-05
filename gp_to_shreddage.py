@@ -371,15 +371,9 @@ class EventList:
 # --------------------------------------------------------------------------- #
 #  Конвертация эффектов одной ноты (только для GUITAR/BASS)
 # --------------------------------------------------------------------------- #
-def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST):
-    """Перенести опорные точки GP bend и сбросить Pitch Bend в конце.
-
-    Guitar Pro уже хранит семантические углы кривой в шкале position=0..12:
-    начало, вершину, границы плато и release. Прежняя 10-ms интерполяция
-    превращала каждый линейный участок в десятки MIDI-событий и засоряла
-    MIDI Draw в Logic. Сохраняем только авторские точки. Последнюю точку
-    ставим за тик до note-off, чтобы reset в 0 не затёр удерживаемую вершину.
-    """
+def _emit_bend_points(ev, start_tick, dur_ticks, bend,
+                      pb_range=PITCH_BEND_RANGE_ST):
+    """Emit GP bend anchors inside one notation/tie segment, without reset."""
     if dur_ticks <= 0:
         return
     points = sorted(bend.points, key=lambda p: p.position)
@@ -402,7 +396,36 @@ def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST
                Message("pitchwheel", channel=CHANNEL, pitch=pw))
         last_event = event
 
-    ev.add(end_tick, ORDER_RESET,
+
+def emit_bend(ev, start_tick, dur_ticks, bend, bpm, pb_range=PITCH_BEND_RANGE_ST):
+    """Перенести опорные точки GP bend и сбросить Pitch Bend в конце.
+
+    Guitar Pro уже хранит семантические углы кривой в шкале position=0..12:
+    начало, вершину, границы плато и release. Прежняя 10-ms интерполяция
+    превращала каждый линейный участок в десятки MIDI-событий и засоряла
+    MIDI Draw в Logic. Сохраняем только авторские точки. Последнюю точку
+    ставим за тик до note-off, чтобы reset в 0 не затёр удерживаемую вершину.
+    """
+    if dur_ticks <= 0:
+        return
+    _emit_bend_points(ev, start_tick, dur_ticks, bend, pb_range)
+    ev.add(start_tick + dur_ticks, ORDER_RESET,
+           Message("pitchwheel", channel=CHANNEL, pitch=0))
+
+
+def emit_bend_segments(ev, note_end_tick, segments,
+                       pb_range=PITCH_BEND_RANGE_ST):
+    """Emit per-segment bend curves across one held/tied MIDI note.
+
+    Bend positions belong to their own notation segment. Stretching the first
+    segment over the full tied-note duration delays its peak; ignoring effects
+    on tie continuations drops releases such as pnd measure 13 entirely.
+    """
+    if not segments:
+        return
+    for segment_start, segment_duration, bend in segments:
+        _emit_bend_points(ev, segment_start, segment_duration, bend, pb_range)
+    ev.add(note_end_tick, ORDER_RESET,
            Message("pitchwheel", channel=CHANNEL, pitch=0))
 
 
@@ -801,13 +824,14 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     stats["ks"] += 1
     current_ks = sustain_ks
     pending_vibrato = []            # (start_tick, off_rec, bpm, vibrato_type)
-    pending_bends = []              # (start_tick, off_rec, bend, bpm)
+    pending_bends = []              # note_span с per-segment bend_segments
     pending_slides = []             # (start_tick, off_rec, slides, pitch, next_pitch, bpm)
     pending_auto_vibrato = []       # subset элементов all_note_spans
     all_note_spans = []             # все атаки для проверки монодичности CC1
     last_palm_tick = 0
     last_end_tick = 0
     last_off_by_voice = {}
+    last_span_by_voice = {}
     pending_legato = {}             # (voice_idx, string) -> off_rec источника hammer/pull
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
@@ -816,6 +840,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         # fresh voice object per measure, so id(voice) breaks tie linking across
         # barlines. Voice index is stable across measures -> ties over barlines hold.
         last_off = last_off_by_voice.setdefault(vi, {})
+        last_span = last_span_by_voice.setdefault(vi, {})
         ts = measure.header.timeSignature  # noqa: F841  — kept for readability of the grid walk
         ts_key = (ts.numerator, ts.denominator.value)
         if ts_key != last_ts:
@@ -923,11 +948,22 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             if sounding is not None:
                 pitch = sounding
 
-            # tie-нота: продлеваем предыдущую ноту на струне, не атакуем заново
+            # tie-нота: продлеваем предыдущую ноту на струне, не атакуем заново.
+            # Bend-точки tie-сегмента принадлежат его собственной длительности:
+            # их нельзя терять или растягивать первую кривую на всю лигу.
             if note.type == NoteType.tie:
                 rec = last_off.get(note.string)
                 if rec is not None:
                     rec["tick"] = start_tick + dur
+                span = last_span.get(note.string)
+                if span is not None:
+                    span["off"]["tick"] = start_tick + dur
+                    if eff.bend and eff.bend.points:
+                        span["bend_segments"].append((start_tick, dur, eff.bend))
+                        if not span["bend_pending"]:
+                            pending_bends.append(span)
+                            span["bend_pending"] = True
+                        pb_dirty = True
                 continue
 
             art_name, is_pinch = note_articulation(note, track_type, cfg, beat)
@@ -990,9 +1026,16 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 note_end = start_tick + dur
             off_rec = ev.add(note_end, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
-            note_span = {"start": on_tick, "off": off_rec, "bpm": cur_bpm}
+            note_span = {
+                "start": on_tick,
+                "off": off_rec,
+                "bpm": cur_bpm,
+                "bend_segments": [],
+                "bend_pending": False,
+            }
             all_note_spans.append(note_span)
             last_off[note.string] = off_rec
+            last_span[note.string] = note_span
             stats["notes"] += 1
 
             # эта нота — источник hammer/pull: продлить её в следующую ноту
@@ -1008,7 +1051,11 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             # по длине ПЕРВОГО сегмента и попадали в середину звучащей ноты —
             # слышимый щелчок высоты.
             if eff.bend and eff.bend.points:
-                pending_bends.append((on_tick, off_rec, eff.bend, cur_bpm))
+                note_span["bend_segments"].append(
+                    (on_tick, max(1, note_end - on_tick), eff.bend)
+                )
+                pending_bends.append(note_span)
+                note_span["bend_pending"] = True
                 pb_dirty = True
 
             if eff.vibrato:
@@ -1028,8 +1075,13 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
 
     # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
     # off_rec["tick"] у каждой ноты содержит её настоящий конец.
-    for b_start, b_off, b_bend, b_bpm in pending_bends:
-        emit_bend(ev, b_start, b_off["tick"] - b_start, b_bend, b_bpm, pb_range)
+    for bend_span in pending_bends:
+        emit_bend_segments(
+            ev,
+            bend_span["off"]["tick"],
+            bend_span["bend_segments"],
+            pb_range,
+        )
     for s_start, s_off, s_slides, s_pitch, s_next, s_bpm in pending_slides:
         emit_slide(ev, s_start, s_off["tick"] - s_start, s_slides, s_pitch,
                    s_next, s_bpm, pb_range)

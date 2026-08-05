@@ -89,9 +89,60 @@ def test_bend_curve_and_reset_cover_the_tied_note_end():
     pw = _pitchwheel_events(midi_track)
 
     top = g.semitones_to_pitchwheel(2, 7)
-    assert (1919, top) in pw          # вершина бенда — за тик до конца лиги
-    assert (1920, 0) in pw            # сброс — на конце лиги, не на 960
-    assert (960, 0) not in pw         # больше никакого сброса в середине ноты
+    assert (959, top) in pw           # вершина относится к первому GP-сегменту
+    assert (1920, 0) in pw            # reset — на конце всей лиги, не на 960
+    assert (960, 0) not in pw         # высота удерживается через tie без щелчка
+
+
+def test_tied_bend_segment_keeps_its_own_release_curve():
+    """Bend на tie-сегменте продолжает удерживаемую ноту, а не теряется."""
+    rise = GPBend(points=[
+        GPBendPoint(position=0, value=4),
+        GPBendPoint(position=12, value=8),
+    ])
+    release = GPBend(points=[
+        GPBendPoint(position=0, value=8),
+        GPBendPoint(position=3, value=8),
+        GPBendPoint(position=6, value=0),
+        GPBendPoint(position=12, value=0),
+    ])
+    origin = _note(8, effect=GPNoteEffect(bend=rise))
+    tie = _note(8, effect=GPNoteEffect(bend=release), note_type=NoteType.tie)
+    song, track = _song([[_beat([origin]), _beat([tie])]])
+
+    midi_track, _stats = g.build_instrument_midi(song, track, "GUITAR")
+    pw = _pitchwheel_events(midi_track)
+
+    two = g.semitones_to_pitchwheel(2, 7)
+    four = g.semitones_to_pitchwheel(4, 7)
+    assert (0, two) in pw
+    assert (959, four) in pw
+    assert (960, four) in pw
+    assert (1440, 0) in pw
+    assert (1920, 0) in pw
+
+
+def test_bend_points_are_timed_to_origin_segment_not_full_tie():
+    """Лига не должна вдвое задерживать вершину bend первого сегмента."""
+    bend = GPBend(points=[
+        GPBendPoint(position=0, value=0),
+        GPBendPoint(position=3, value=10),
+        GPBendPoint(position=6, value=10),
+        GPBendPoint(position=9, value=0),
+        GPBendPoint(position=12, value=0),
+    ])
+    origin = _note(4, effect=GPNoteEffect(bend=bend))
+    tie = _note(4, note_type=NoteType.tie)
+    song, track = _song([[_beat([origin]), _beat([tie])]])
+
+    midi_track, _stats = g.build_instrument_midi(song, track, "GUITAR")
+    pw = _pitchwheel_events(midi_track)
+
+    five = g.semitones_to_pitchwheel(5, 7)
+    assert (240, five) in pw
+    assert (480, five) in pw
+    assert (720, 0) in pw
+    assert (1920, 0) in pw
 
 
 def test_shift_slide_sees_lower_target_across_the_barline():
