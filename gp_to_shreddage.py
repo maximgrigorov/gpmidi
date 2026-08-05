@@ -95,11 +95,17 @@ GUITAR_KEYWORDS = ["guitar", "gtr", "lead", "solo", "rhythm", "acoustic", "steel
 # Стоп-слова: если имя трека содержит любое из них -> тип OTHER, независимо от
 # GUITAR/BASS-ключей (напр. "Lead Vocals" не должен стать гитарой из-за "lead").
 # Проверяются ПЕРВЫМИ.
+#
+# "strings" — во МНОЖЕСТВЕННОМ числе, осознанно: оркестровые треки называются
+# "Strings" / "Solo Strings" / "Synth Strings", а единственное число живёт в
+# именах гитар — "12 String Guitar", "Steel String Acoustic". Стоп-слово
+# "string" отправляло оба типа таких гитар в OTHER, и очень распространённые
+# имена треков теряли маппинг артикуляций.
 STOP_WORDS = [
     "vocal", "vox", "voice", "choir", "sing",
     "голос", "вокал",
     "drum", "kick", "snare", "hihat", "cymbal", "perc",
-    "piano", "keys", "organ", "synth", "pad", "string",
+    "piano", "keys", "organ", "synth", "pad", "strings",
     "brass", "horn", "wind", "flute",
     "contrabass", "contra", "upright",
 ]
