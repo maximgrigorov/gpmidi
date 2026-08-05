@@ -80,6 +80,21 @@ OPEN_PITCHES = {
 }
 
 
+def has_standard_tuning(track, track_type: str) -> bool:
+    """Строй трека совпадает со строем пресетов маппера (OPEN_PITCHES).
+
+    Маппер раскладывает высоты по ФИКСИРОВАННОМУ стандартному грифу
+    (MapperConfig tuning="STANDARD"/"BASS_STANDARD"). Для drop-D и любого
+    другого строя обратная запись позиций меняла бы высоты — сравниваем
+    отсортированные питчи, чтобы не зависеть от нумерации струн парсеров.
+    """
+    expected = OPEN_PITCHES.get(track_type)
+    if not expected:
+        return False
+    actual = sorted(int(string.value) for string in getattr(track, "strings", []) or [])
+    return actual == sorted(expected)
+
+
 @dataclass
 class ScoreNote:
     start_tick: int
@@ -454,6 +469,15 @@ def generate_track(
 
     files = [score_path.name]
     status: dict[str, str] = {}
+    if not has_standard_tuning(track, track_type):
+        # Маппер всегда считает стандартный строй: таб играбелен в стандартном
+        # строе, а перефингеровка исходного файла будет пропущена (refinger_gp).
+        status["tuning"] = (
+            "нестандартный строй: таб построен для стандартного строя, "
+            "перефингеровка GP-файла для этого трека пропускается"
+        )
+        LOGGER.warning("track %r has a non-standard tuning; tabs assume standard, "
+                       "re-fingering will be skipped", track.name)
     mapped: list[MappedNote] = []
     try:
         headers = getattr(song, "measureHeaders", []) or []
@@ -707,15 +731,43 @@ def refinger_gp(
     out_path: str | Path,
     *,
     original_song=None,
-) -> Path:
+) -> Path | None:
+    """Записать перефингерованную копию. Возвращает out_path или None,
+    если ни один трек не был перефингерован (все пропущены).
+
+    Треки с нестандартным строем пропускаются с предупреждением: маппер
+    считает стандартный гриф, и обратная запись его позиций в drop-D (и
+    любой другой строй) меняла бы высоты. Раньше такой трек доходил до
+    _verify_refinger, валил инвариант и перефингеровка отменялась для
+    ВСЕГО файла. Верифицируются только реально применённые треки; полный
+    pitch/rhythm-инвариант по-прежнему проверяет все треки файла.
+    """
     src_path, out_path = Path(src_path), Path(out_path)
     original_song = original_song or parse_song(src_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    original_by_name = {track.name: track for track in original_song.tracks}
+
+    def _tuning_allows(name: str, generation: TrackGeneration) -> bool:
+        track = original_by_name.get(name)
+        if track is None:
+            warnings.warn(f"re-fingering skipped for {name}: track not found in source")
+            return False
+        if not has_standard_tuning(track, generation.track_type):
+            warnings.warn(
+                f"re-fingering skipped for {name}: non-standard tuning "
+                f"(mapper positions assume the standard {generation.track_type} tuning)"
+            )
+            return False
+        return True
+
+    applied: dict[str, TrackGeneration] = {}
     if is_gp7_gp8_archive(src_path):
         with zipfile.ZipFile(src_path) as archive:
             root = ET.fromstring(archive.read("Content/score.gpif"))
         tracks = root.findall("Tracks/Track")
         for name, generation in generations.items():
+            if not _tuning_allows(name, generation):
+                continue
             matches = [(index, track) for index, track in enumerate(tracks) if (track.findtext("Name") or "") == name]
             if len(matches) != 1:
                 warnings.warn(f"re-fingering skipped for {name}: track name is not unique")
@@ -731,12 +783,17 @@ def refinger_gp(
             patch_gpif_track_positions(
                 root, track_index, generation.note_positions, num_strings=num_strings,
             )
+            applied[name] = generation
+        if not applied:
+            return None
         temporary = _write_patched_gp(src_path, ET.tostring(root, encoding="utf-8"))
         shutil.move(temporary, out_path)
     elif src_path.suffix.lower() == ".gp5":
         song = guitarpro.parse(str(src_path))
         tracks_by_name = {track.name: track for track in song.tracks}
         for name, generation in generations.items():
+            if not _tuning_allows(name, generation):
+                continue
             track = tracks_by_name.get(name)
             if track is None:
                 continue
@@ -747,11 +804,14 @@ def refinger_gp(
                 if position is not None:
                     note.string = position[0] + 1  # pyguitarpro: 1=highest
                     note.value = position[1]
+            applied[name] = generation
+        if not applied:
+            return None
         guitarpro.write(song, str(out_path))
     else:
         raise ValueError("re-fingering поддерживает только .gp и .gp5")
     try:
-        _verify_refinger(original_song, out_path, generations)
+        _verify_refinger(original_song, out_path, applied)
     except Exception:
         out_path.unlink(missing_ok=True)
         raise
@@ -778,8 +838,9 @@ def generate_song(
         selected.append(generate_track(song, track, out_dir, preset=preset))
     refingered = None
     if selected and src_path.suffix.lower() in {".gp", ".gp5"}:
-        refingered = out_dir / f"{safe_filename(src_path.stem)}_refingered{src_path.suffix.lower()}"
-        refinger_gp(src_path, {item.track_name: item for item in selected}, refingered, original_song=song)
+        candidate = out_dir / f"{safe_filename(src_path.stem)}_refingered{src_path.suffix.lower()}"
+        # None = все треки пропущены (например, нестандартный строй)
+        refingered = refinger_gp(src_path, {item.track_name: item for item in selected}, candidate, original_song=song)
     return selected, refingered
 
 

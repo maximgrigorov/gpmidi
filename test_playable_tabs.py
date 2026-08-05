@@ -351,3 +351,102 @@ def test_gp5_refinger_still_rejects_a_pitch_change(tmp_path: Path):
     with pytest.raises(ValueError, match="invariant failed"):
         refinger_gp(src, {"Guitar": _generation([(0, 7)])}, out)
     assert not out.exists()
+
+
+DROP_D = [64, 59, 55, 50, 45, 38]
+
+
+def _multi_track_gp5(path: Path, tracks_spec: list[tuple[str, list[int]]]) -> None:
+    """Записать .gp5 с одной нотой (string 1, fret 5) на каждый трек."""
+    import guitarpro
+    from guitarpro import Beat, GuitarString, Measure, Note, Song, Track
+
+    song = Song()
+    header = song.measureHeaders[0]
+    song.tracks = []
+    for number, (name, tuning) in enumerate(tracks_spec, start=1):
+        track = Track(song, number=number, name=name)
+        track.strings = [GuitarString(i + 1, p) for i, p in enumerate(tuning)]
+        measure = Measure(track, header)
+        voice = measure.voices[0]
+        beat = Beat(voice)
+        note = Note(beat)
+        note.string = 1
+        note.value = 5
+        beat.notes = [note]
+        voice.beats = [beat]
+        measure.voices = [voice] + measure.voices[1:]
+        track.measures = [measure]
+        song.tracks.append(track)
+    guitarpro.write(song, str(path))
+
+
+def test_has_standard_tuning_detects_drop_d_and_string_count():
+    from playable_tabs import has_standard_tuning
+
+    def _track(tuning):
+        return SimpleNamespace(strings=[SimpleNamespace(number=i + 1, value=v)
+                                        for i, v in enumerate(tuning)])
+
+    assert has_standard_tuning(_track([64, 59, 55, 50, 45, 40]), "GUITAR")
+    assert not has_standard_tuning(_track(DROP_D), "GUITAR")
+    assert not has_standard_tuning(_track([64, 59, 55, 50, 45, 40, 35]), "GUITAR")  # 7-струнная
+    assert has_standard_tuning(_track([43, 38, 33, 28]), "BASS")
+    assert not has_standard_tuning(_track([43, 38, 33, 28, 23]), "BASS")  # 5-струнный
+
+
+def test_refinger_skips_non_standard_tuning_and_reports_none(tmp_path: Path):
+    """Drop-D: позиции маппера считаны для стандартного грифа, обратная запись
+    меняла бы высоты. Раньше такой трек валил _verify_refinger и перефингеровка
+    отменялась для всего файла; теперь трек пропускается с предупреждением."""
+    from playable_tabs import refinger_gp
+
+    src = tmp_path / "dropd.gp5"
+    _multi_track_gp5(src, [("Guitar", DROP_D)])
+    out = tmp_path / "refingered.gp5"
+
+    with pytest.warns(UserWarning, match="non-standard tuning"):
+        result = refinger_gp(src, {"Guitar": _generation([(0, 5)])}, out)
+
+    assert result is None
+    assert not out.exists()
+
+
+def test_refinger_applies_standard_track_and_skips_drop_d_track(tmp_path: Path):
+    import guitarpro
+
+    from playable_tabs import refinger_gp
+
+    src = tmp_path / "mixed.gp5"
+    _multi_track_gp5(src, [
+        ("Guitar", [64, 59, 55, 50, 45, 40]),
+        ("Drop Guitar", DROP_D),
+    ])
+    out = tmp_path / "refingered.gp5"
+
+    with pytest.warns(UserWarning, match="Drop Guitar.*non-standard tuning"):
+        result = refinger_gp(src, {
+            "Guitar": _generation([(1, 10)]),       # честная альтернатива той же высоты
+            "Drop Guitar": _generation([(1, 10)]),  # должна быть пропущена
+        }, out)
+
+    assert result == out and out.is_file()
+    patched = guitarpro.parse(str(out))
+    by_name = {track.name: track for track in patched.tracks}
+    standard_note = by_name["Guitar"].measures[0].voices[0].beats[0].notes[0]
+    assert (standard_note.string, standard_note.value) == (2, 10)  # 1-based
+    drop_note = by_name["Drop Guitar"].measures[0].voices[0].beats[0].notes[0]
+    assert (drop_note.string, drop_note.value) == (1, 5)  # нетронут
+
+
+def test_generate_track_reports_non_standard_tuning_in_status(tmp_path: Path):
+    from gp_import import parse_song
+    from playable_tabs import generate_track
+
+    src = tmp_path / "dropd.gp5"
+    _multi_track_gp5(src, [("Guitar", DROP_D)])
+    song = parse_song(src)
+
+    result = generate_track(song, song.tracks[0], tmp_path / "out")
+
+    assert "нестандартный строй" in result.status.get("tuning", "")

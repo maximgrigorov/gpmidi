@@ -1051,8 +1051,13 @@ def create_job(uploaded_file=None, humanize: bool = False,
         if generations and source_path.suffix.lower() in {".gp", ".gp5"}:
             candidate = output_dir / f"{safe_filename(Path(original_name).stem) or 'song'}_refingered{source_path.suffix.lower()}"
             try:
-                refinger_gp(source_path, generations, candidate, original_song=song)
-                refingered_name = candidate.name
+                if refinger_gp(source_path, generations, candidate, original_song=song) is not None:
+                    refingered_name = candidate.name
+                else:
+                    playable_warnings.append(
+                        "re-fingering пропущен: ни один выбранный трек не подошёл "
+                        "(нестандартный строй или неоднозначное имя трека)"
+                    )
             except Exception as exc:
                 playable_warnings.append(f"re-fingering отменён: {str(exc)[:240]}")
 
