@@ -314,6 +314,8 @@ def _attach_midi_downloads(job: dict[str, Any]) -> dict[str, Any]:
     """
     job["enriched_combined_name"] = None
     job["enriched_combined_url"] = None
+    job["enrichment_report_name"] = None
+    job["enrichment_report_url"] = None
     for track in job.get("tracks", []):
         track["enriched_download_name"] = None
         track["enriched_download_url"] = None
@@ -337,6 +339,24 @@ def _attach_midi_downloads(job: dict[str, Any]) -> dict[str, Any]:
         if track is not None:
             track["enriched_download_name"] = name
             track["enriched_download_url"] = download_url
+
+    report_meta = apply_manifest.get("enrichment_report") or {}
+    report_name = str(report_meta.get("html_name") or "")
+    report_is_declared = any(
+        artifact.get("type") == "ENRICHMENT_REPORT_HTML"
+        and str(artifact.get("name") or "") == report_name
+        for artifact in apply_manifest.get("artifacts", [])
+    )
+    if (
+        report_name.endswith(".html")
+        and Path(report_name).name == report_name
+        and report_name in allowed
+        and report_is_declared
+    ):
+        job["enrichment_report_name"] = report_name
+        job["enrichment_report_url"] = url_for(
+            "view_enrichment_report", job_id=job["id"], filename=report_name,
+        )
     return job
 
 
@@ -1371,6 +1391,21 @@ def apply_arrangement(job_id: str):
     save_manifest(manifest)
     flash("Enriched MIDI собран отдельно; baseline не перезаписан.", "success")
     return redirect(url_for("job_details", job_id=job_id))
+
+
+@app.get("/reports/<job_id>/<filename>")
+def view_enrichment_report(job_id: str, filename: str):
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None or Path(job_id).name != job_id or Path(filename).name != filename:
+        abort(404)
+    _attach_midi_downloads(job)
+    if filename != job.get("enrichment_report_name"):
+        abort(404)
+    path = uploads_root() / job_id / "output" / filename
+    if not path.is_file():
+        abort(404)
+    return send_file(path, mimetype="text/html", as_attachment=False, download_name=path.name)
 
 
 @app.get("/download/<job_id>/<path:filename>")

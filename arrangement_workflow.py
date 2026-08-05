@@ -28,6 +28,11 @@ from arrangement_processing import (
     validate_plan,
 )
 from articulation_config import config_for_track_type
+from enrichment_report import (
+    analyze_track_changes,
+    build_enrichment_report,
+    render_enrichment_html,
+)
 from gp_import import parse_song
 from gp_to_shreddage import (
     TICKS_PER_BEAT,
@@ -289,6 +294,7 @@ def apply(
         raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"plan file {plan_path.name} is not valid JSON: {exc}") from exc
+    plan_model = str(raw_plan.get("model") or "—") if isinstance(raw_plan, dict) else "—"
     if isinstance(raw_plan, dict) and isinstance(raw_plan.get("plan"), dict):
         raw_plan = raw_plan["plan"]
     if not isinstance(raw_plan, dict):
@@ -312,6 +318,7 @@ def apply(
     artifacts = []
     enriched_tracks = []
     track_stats = []
+    track_change_reports = []
     solo_enabled = bool(plan["solo_humanization"]["enabled"])
 
     for row in baseline:
@@ -356,6 +363,15 @@ def apply(
             "identity_preserved": True,
             "timing_preserved": not allow_timing,
         })
+        track_change_reports.append(analyze_track_changes(
+            row["midi_track"], enriched,
+            track_name=row["track_name"],
+            track_type=row["track_type"],
+            spans=spans,
+            tempo_bpm=float(getattr(song, "tempo", 120) or 120),
+            baseline_options=row["render_options"],
+            service_notes=service_notes,
+        ))
         enriched_tracks.append(enriched)
 
     stem = safe_filename(source.stem) or "song"
@@ -370,6 +386,28 @@ def apply(
         "plan": plan,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     artifacts.append({"name": approved_plan.name, "type": "APPROVED_PLAN", "sha256": _sha256(approved_plan)})
+    enrichment_report = build_enrichment_report(
+        source_name=source.name,
+        source_sha256=_sha256(source),
+        plan_summary=str(plan.get("summary") or ""),
+        model=plan_model,
+        tracks=track_change_reports,
+    )
+    report_json = output_dir / f"{stem}_enrichment-report.json"
+    report_json.write_text(
+        json.dumps(enrichment_report, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    report_html = output_dir / f"{stem}_enrichment-report.html"
+    report_html.write_text(render_enrichment_html(enrichment_report), encoding="utf-8")
+    artifacts.extend([
+        {"name": report_json.name, "type": "ENRICHMENT_REPORT_JSON", "sha256": _sha256(report_json)},
+        {"name": report_html.name, "type": "ENRICHMENT_REPORT_HTML", "sha256": _sha256(report_html)},
+    ])
+    report_meta = {
+        "json_name": report_json.name,
+        "html_name": report_html.name,
+        "summary": enrichment_report["summary"],
+    }
     manifest = {
         "schema_version": 1,
         "mode": "approved_apply",
@@ -387,6 +425,7 @@ def apply(
             "hydra_reserved_velocity_zone_preserved": True,
         },
         "track_stats": track_stats,
+        "enrichment_report": report_meta,
         "artifacts": artifacts,
     }
     manifest_path = output_dir / "manifest.json"

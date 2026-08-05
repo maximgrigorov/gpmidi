@@ -306,6 +306,10 @@
                   </form>
                 {% elif current_job.arrangement.status == 'applied' %}
                   <p><strong>Enriched MIDI собран отдельно.</strong> Baseline сохранён. Общие MIDI доступны сверху, варианты каждой дорожки — в таблице ниже.</p>
+                  {% if current_job.enrichment_report_url %}
+                    <p><a class="btn primary" href="{{ current_job.enrichment_report_url }}" target="_blank" rel="noopener">Открыть фактический HTML-отчёт</a></p>
+                    <p class="muted">По дорожкам и тактам: velocity, timing, длительности, контроллеры и новые/удалённые ноты.</p>
+                  {% endif %}
                 {% elif current_job.arrangement.status == 'draft_error' %}
                   <p class="error">{{ current_job.arrangement.error }}</p>
                 {% else %}

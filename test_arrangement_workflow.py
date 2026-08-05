@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 
 import pytest
@@ -137,3 +138,54 @@ def test_render_track_propagates_job_options_to_target_renderers(monkeypatch):
         ("drums", {"humanize": True, "humanize_seed": 19, "ghost_notes": True}),
         ("other", {"expand_gp_hidden_32nds": True}),
     ]
+
+
+def test_apply_writes_factual_json_and_html_report_from_actual_midi(monkeypatch, tmp_path):
+    source = tmp_path / "song.gp5"
+    source.write_bytes(b"real-source-fixture")
+    plan_path = tmp_path / "plan.json"
+    plan = {
+        "summary": "Поднять барабанный пульс без новых ударов.",
+        "global_velocity_shift": 4,
+        "measure_energy": [{"measure": 1, "velocity_shift": 0, "accents": []}],
+        "tracks": [{
+            "track": "Drums", "role": "rhythm", "velocity_shift": 0,
+            "variance": 0, "velocity_processing": True, "minimum_velocity": 1,
+        }],
+        "solo_humanization": {"enabled": False},
+    }
+    plan_path.write_text(json.dumps({"plan": plan}), encoding="utf-8")
+    baseline_track = _track(
+        Message("note_on", note=36, velocity=95, time=0),
+        Message("note_off", note=36, velocity=0, time=120),
+    )
+    song = type("Song", (), {"measureHeaders": [object()], "tempo": 120})()
+    rendered = [{
+        "index": 1,
+        "track_name": "Drums",
+        "track_type": "DRUMS",
+        "basename": "Drums",
+        "source_track": object(),
+        "render_options": {"humanize": True, "ghost_notes": True},
+        "midi_track": baseline_track,
+        "stats": {"notes": 1},
+    }]
+    monkeypatch.setattr(workflow, "parse_song", lambda _path: song)
+    monkeypatch.setattr(workflow, "_render_baseline", lambda *_a, **_kw: rendered)
+    monkeypatch.setattr(workflow, "validate_plan", lambda *_a, **_kw: plan)
+    monkeypatch.setattr(workflow, "measure_spans", lambda _song: {1: (0, 3840)})
+    monkeypatch.setattr(workflow, "_smoke_errors", lambda *_a, **_kw: [])
+
+    output = tmp_path / "output"
+    manifest = workflow.apply(source, plan_path, output, approved=True, seed=7)
+
+    report_meta = manifest["enrichment_report"]
+    report_json = json.loads((output / report_meta["json_name"]).read_text(encoding="utf-8"))
+    report_html = (output / report_meta["html_name"]).read_text(encoding="utf-8")
+    assert report_json["tracks"][0]["new_drum_hits"] == 0
+    assert report_json["tracks"][0]["totals"]["velocity_changed"] == 1
+    assert report_json["tracks"][0]["baseline_processing"] == ["Humanize", "Ghost notes"]
+    assert "Новых ударов в Enriched" in report_html
+    assert {item["type"] for item in manifest["artifacts"]} >= {
+        "ENRICHMENT_REPORT_JSON", "ENRICHMENT_REPORT_HTML",
+    }

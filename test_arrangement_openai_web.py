@@ -265,6 +265,53 @@ def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):
     assert len(calls) == 1
 
 
+def test_applied_job_exposes_session_scoped_inline_enrichment_report(monkeypatch, tmp_path):
+    import app as web
+
+    job_id = "job-report"
+    report_name = "song_enrichment-report.html"
+    output = tmp_path / job_id / "output"
+    output.mkdir(parents=True)
+    output.joinpath(report_name).write_text(
+        "<!doctype html><title>Фактический отчёт</title>", encoding="utf-8"
+    )
+    job = {
+        "id": job_id,
+        "stage": "processed",
+        "original_name": "song.gp5",
+        "created_at": "now",
+        "song": {"title": "Song", "tempo": 120, "tracks": 0, "measures": 1},
+        "tracks": [],
+        "warnings": [],
+        "playable_warnings": [],
+        "arrangement_artifacts": [report_name],
+        "arrangement": {
+            "status": "applied",
+            "apply_manifest": {
+                "artifacts": [{"name": report_name, "type": "ENRICHMENT_REPORT_HTML"}],
+                "enrichment_report": {"html_name": report_name},
+            },
+        },
+    }
+    manifest = {"jobs": [job], "current_job_id": job_id}
+    monkeypatch.setattr(web, "uploads_root", lambda: tmp_path)
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
+    monkeypatch.setattr(web, "save_manifest", lambda _value: None)
+    web.app.config.update(TESTING=True)
+    client = web.app.test_client()
+
+    page = client.get(f"/jobs/{job_id}").data.decode()
+    expected_url = f"/reports/{job_id}/{report_name}"
+    assert expected_url in page
+    assert "Открыть фактический HTML-отчёт" in page
+
+    response = client.get(expected_url)
+    assert response.status_code == 200
+    assert response.mimetype == "text/html"
+    assert "inline" in response.headers.get("Content-Disposition", "")
+    assert "Фактический отчёт" in response.data.decode()
+
+
 def test_kubernetes_uses_secret_reference_and_public_https_policy():
     deployment = Path("infra/ailab/apps/gpmidi-web/deployment.yaml").read_text()
     policy = Path("infra/ailab/apps/gpmidi-web/networkpolicy.yaml").read_text()
