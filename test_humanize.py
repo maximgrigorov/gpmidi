@@ -139,7 +139,7 @@ def test_ghost_notes_use_real_bar_grid_in_three_four():
     """Снейр на 5-й шестнадцатой такта 1 в 3/4 (тик 3840): гост prob_before
     обязан встать на 4-ю шестнадцатую ЭТОГО такта (2880+720=3600). Сетка
     tpb*4 считала тот же тик началом такта 1 и кандидата не находила вовсе."""
-    from humanize import _BarGrid, _add_ghost_notes
+    from humanize import _add_ghost_notes, _BarGrid
 
     tpb = 960
     bar = 3 * tpb
@@ -173,7 +173,7 @@ def test_ghost_notes_use_real_bar_grid_in_three_four():
 
 def test_ghost_note_candidate_beyond_short_bar_is_rejected():
     """В 3/4 такт кончается на 12-й шестнадцатой; кандидат q>=12 отбрасывается."""
-    from humanize import _BarGrid, _add_ghost_notes
+    from humanize import _add_ghost_notes, _BarGrid
 
     tpb = 960
     bar = 3 * tpb
