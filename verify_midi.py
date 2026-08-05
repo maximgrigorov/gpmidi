@@ -222,14 +222,31 @@ def smoke_check(path, track_type=None, cfg=None):
                         f"тем, что осталось включённым от прошлого проигрывания"))
 
     # --- velocity-зоны (только там, где они есть: Hydra sustain) ---
+    # Зоны существуют ТОЛЬКО на sustain-KS: на palm mute и прочих артикуляциях
+    # экспортёр легально разрешает 120-127 (vel_cap=127). Проверка без учёта
+    # активной артикуляции давала ложный ERROR на корректном артефакте:
+    # palm-muted FF-нота (111) с обычным акцентом (+12) уезжает в 123.
     zones = _vel_zones(cfg)
     if zones:
         lo, hi, name = zones
-        hits = [n for n in notes if lo <= n["vel"] <= hi]
+        sustain_note = int(((cfg.get("keyswitches") or {}).get("sustain") or {}).get("note", -1))
+        ordered_ks = sorted(ks_hits, key=lambda hit: (hit[0], hit[2]))
+        ordered_notes = sorted(notes, key=lambda n: (n["tick"], n["event_index"]))
+        hits = []
+        ks_index = 0
+        active_ks = None
+        for n in ordered_notes:
+            while (ks_index < len(ordered_ks)
+                   and (ordered_ks[ks_index][0], ordered_ks[ks_index][2])
+                   < (n["tick"], n["event_index"])):
+                active_ks = ordered_ks[ks_index][1]
+                ks_index += 1
+            if active_ks == sustain_note and lo <= n["vel"] <= hi:
+                hits.append(n)
         if hits:
             out.append(("ERROR", "VEL_ZONE",
-                        f"{len(hits)} нот с velocity в зоне {lo}-{hi} ({name}): "
-                        f"инструмент сыграет не ноту, а {name}"))
+                        f"{len(hits)} нот атакованы на sustain с velocity в зоне "
+                        f"{lo}-{hi} ({name}): инструмент сыграет не ноту, а {name}"))
 
     # --- барабаны: ноты вне раскладки кита ---
     if track_type == "DRUMS" and cfg:
