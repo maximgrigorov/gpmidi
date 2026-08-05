@@ -1300,6 +1300,12 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
     last_ts = None
     last_bpm = base_bpm
     pending = []
+    # Для оживления: темп на тике каждой ноты и РЕАЛЬНЫЕ границы тактов
+    # (в 3/4 и 6/8 сетка "tpb*4" перекрывает тактовые черты).
+    tempo_map = [(0, base_bpm)]
+    bar_starts = [0]
+    for measure in track.measures:
+        bar_starts.append(bar_starts[-1] + measure_length_ticks(measure))
 
     string_pitch = {s.number: s.value for s in track.strings}
 
@@ -1319,6 +1325,7 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
                 ev.add(start_tick, ORDER_META,
                        MetaMessage("set_tempo", tempo=bpm2tempo(float(new_bpm)), time=0))
                 last_bpm = float(new_bpm)
+                tempo_map.append((start_tick, last_bpm))
 
         for note in beat.notes:
             if note.type == NoteType.tie:
@@ -1340,13 +1347,16 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
         prof = profile_for_track_type(TRACK_DRUMS)
         if prof:
             rng = random.Random(humanize_seed)
-            hstats = humanize_drums(pending, last_bpm, TICKS_PER_BEAT, prof, rng,
-                                    ghost_override=ghost_notes)
+            hstats = humanize_drums(pending, base_bpm, TICKS_PER_BEAT, prof, rng,
+                                    ghost_override=ghost_notes,
+                                    tempo_map=tempo_map, bar_starts=bar_starts)
             stats["humanize"] = hstats
             stats["notes"] += hstats.get("ghosts", 0)
-            logger.info("трек %r: оживление %s, тайминг x%.2f по темпу %.1f, "
-                        "гост-нот +%d", track.name, hstats["profile"],
-                        hstats["tempo_k"], last_bpm, hstats.get("ghosts", 0))
+            logger.info("трек %r: оживление %s, тайминг x%.2f по темпу %.1f "
+                        "(%d темповых сегментов), гост-нот +%d",
+                        track.name, hstats["profile"], hstats["tempo_k"],
+                        base_bpm, hstats.get("tempo_segments", 1),
+                        hstats.get("ghosts", 0))
 
     for p in pending:
         ev.add(p["tick"], ORDER_ON,

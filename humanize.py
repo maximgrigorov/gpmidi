@@ -17,6 +17,7 @@ velocity и микро-сдвиг. Единственное исключение
 """
 from __future__ import annotations
 
+import bisect
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -95,12 +96,59 @@ def sixteenth_index(tick: int, tpb: int) -> int:
     return int(round((tick % (tpb * 4)) / (tpb / 4))) % 16
 
 
-def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
+class _BarGrid:
+    """Геометрия тактов для оживления барабанов.
+
+    bar_starts — тики начал тактов ПЛЮС финальный конец (n+1 значений),
+    посчитанные вызывающим по РЕАЛЬНОМУ треку. Без них — равномерная сетка
+    4/4 (историческое поведение; для 4/4-треков результат байт-в-байт
+    совпадает). В 3/4 и 6/8 равномерная сетка перекрывала реальные тактовые
+    черты: empty_bars определялись неверно, гост-ноты уезжали за черту, а
+    фильтр филлов считал удары по чужому окну.
+    """
+
+    def __init__(self, tpb, bar_starts=None):
+        self._uniform = tpb * 4
+        self._starts = (
+            list(bar_starts)
+            if bar_starts is not None and len(bar_starts) >= 2 else None
+        )
+
+    def index(self, tick: int) -> int:
+        if self._starts is None:
+            return tick // self._uniform
+        if tick >= self._starts[-1]:
+            # сдвинутая за последний такт нота: экстраполируем последним тактом
+            last_len = max(1, self._starts[-1] - self._starts[-2])
+            return (len(self._starts) - 1) + (tick - self._starts[-1]) // last_len
+        return max(0, bisect.bisect_right(self._starts, tick) - 1)
+
+    def start(self, index: int) -> int:
+        if self._starts is None:
+            return index * self._uniform
+        if index >= len(self._starts) - 1:
+            last_len = max(1, self._starts[-1] - self._starts[-2])
+            return self._starts[-1] + (index - (len(self._starts) - 1)) * last_len
+        return self._starts[max(0, index)]
+
+    def end(self, index: int) -> int:
+        return self.start(index + 1)
+
+
+def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None,
+                   tempo_map=None, bar_starts=None):
     """
     Оживляет барабанные ноты НА МЕСТЕ.
 
     notes: список dict с ключами tick, note, vel, dur (тики в шкале tpb).
     Возвращает статистику для отчёта.
+
+    tempo_map — [(tick, bpm), ...] по треку: миллисекундный джиттер каждой
+    ноты считается по темпу, действующему на ЕЁ тике. Раньше один bpm
+    (последний в треке) масштабировал все ноты: в многотемповой песне финал
+    на 180 BPM вдвое урезал задуманный ms-джиттер куплета на 90.
+    bar_starts — реальные границы тактов (см. _BarGrid). Без обоих аргументов
+    поведение прежнее: один bpm и сетка 4/4.
 
     Velocity синтезируется целиком (на входе плоские 95): уровень лимба +
     метрический акцент + человеческий остаток. Тайминг — гауссов сдвиг с
@@ -111,15 +159,24 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
     t = prof["timing"]
     ref = float(v.get("reference_level", 95))
     floor, ceil = int(v.get("floor", 30)), int(v.get("ceil", 127))
-    ms_per_tick = 60000.0 / (bpm * tpb)
     six_ticks = tpb / 4
     max_shift = float(t.get("max_shift_frac16", 0.2)) * six_ticks
 
+    tempo_points = sorted(tempo_map) if tempo_map else [(0, float(bpm))]
+    tempo_ticks = [tick for tick, _bpm in tempo_points]
+    tempo_bpms = [float(b) for _tick, b in tempo_points]
+    ref_bpm = float(t.get("tempo_ref_bpm", 90.0))
+    tempo_exponent = float(t.get("tempo_exponent", 0.5))
+
+    def bpm_at(tick):
+        return tempo_bpms[max(0, bisect.bisect_right(tempo_ticks, tick) - 1)]
+
     # быстрые треки: барабанщик собирается
-    tempo_k = (float(t.get("tempo_ref_bpm", 90.0)) / bpm) ** float(t.get("tempo_exponent", 0.5))
+    base_tempo_k = (ref_bpm / tempo_bpms[0]) ** tempo_exponent
 
     stats = {"velocity": 0, "timing": 0, "ghosts": 0, "unknown_class": 0,
-             "profile": profile_label(prof), "tempo_k": round(tempo_k, 3)}
+             "profile": profile_label(prof), "tempo_k": round(base_tempo_k, 3),
+             "tempo_segments": len(tempo_points)}
 
     # ПОРЯДОК ВАЖЕН. Госты добавляются ПЕРВЫМИ, по ещё чистой сетке:
     #  - иначе счёт ударов снейра в такте считается по уже сдвинутым тикам,
@@ -132,8 +189,8 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
     # не трогаем — у них свой уровень.
     # Осознанно пустые такты (оркестровые вставки, сухие куплеты) обязаны
     # остаться пустыми: запоминаем их ДО любых сдвигов.
-    bar_ticks = tpb * 4
-    used_bars = {n["tick"] // bar_ticks for n in notes}
+    grid = _BarGrid(tpb, bar_starts)
+    used_bars = {grid.index(n["tick"]) for n in notes}
     last_bar = max(used_bars) if used_bars else 0
     empty_bars = {b for b in range(last_bar + 1) if b not in used_bars}
 
@@ -141,9 +198,9 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
     if ghost_override is not None:
         g["enabled"] = bool(ghost_override)
     if g.get("enabled"):
-        stats["ghosts"] = _add_ghost_notes(notes, tpb, g, rng)
+        stats["ghosts"] = _add_ghost_notes(notes, tpb, g, rng, grid)
 
-    original_bars = {id(n): n["tick"] // bar_ticks for n in notes}
+    original_bars = {id(n): grid.index(n["tick"]) for n in notes}
     for n in notes:
         cls = DRUM_CLASS.get(n["note"])
         if cls is None:
@@ -161,6 +218,9 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
 
         tc = t["classes"].get(cls)
         if tc:
+            note_bpm = bpm_at(n["tick"])
+            tempo_k = (ref_bpm / note_bpm) ** tempo_exponent
+            ms_per_tick = 60000.0 / (note_bpm * tpb)
             shift_ms = rng.gauss(float(tc.get("bias_ms", 0)),
                                  float(tc.get("std_ms", 0)) * tempo_k)
             shift = shift_ms / ms_per_tick
@@ -174,13 +234,13 @@ def humanize_drums(notes, bpm, tpb, prof, rng, ghost_override=None):
     # такт назад (например, начало такта 5 оказывалось в конце такта 3).
     pulled = 0
     for n in notes:
-        current_bar = n["tick"] // bar_ticks
+        current_bar = grid.index(n["tick"])
         if current_bar in empty_bars:
             original_bar = original_bars[id(n)]
             if current_bar < original_bar:
-                n["tick"] = original_bar * bar_ticks
+                n["tick"] = grid.start(original_bar)
             else:
-                n["tick"] = (original_bar + 1) * bar_ticks - 1
+                n["tick"] = grid.end(original_bar) - 1
             pulled += 1
     stats["pulled_from_silence"] = pulled
 
@@ -269,7 +329,7 @@ def pitched_velocity(velocity, start_tick, tpb, articulation, prof, rng,
     return max(lo, min(hi, int(round(val))))
 
 
-def _add_ghost_notes(notes, tpb, g, rng):
+def _add_ghost_notes(notes, tpb, g, rng, grid=None):
     """
     Досочиняет тихие гост-ноты по рабочему ВОКРУГ БЭКБИТА.
 
@@ -284,6 +344,8 @@ def _add_ghost_notes(notes, tpb, g, rng):
       - не ближе min_gap_frac16 к существующему удару — иначе это флэм, не гост;
       - не более max_per_bar за такт;
       - кандидат за пределами такта отбрасывается.
+
+    grid — реальные границы тактов (_BarGrid); без него — сетка 4/4.
     """
     note_id = int(g.get("note", 38))
     vmin = int((g.get("velocity") or {}).get("min", 28))
@@ -296,11 +358,11 @@ def _add_ghost_notes(notes, tpb, g, rng):
     p_after = float(g.get("prob_after", 0.20))
     max_per_bar = int(g.get("max_per_bar", 2))
     dense_gte = int(g.get("skip_bar_if_snare_hits_gte", 5))
-    bar_ticks = tpb * 4
+    grid = grid or _BarGrid(tpb)
 
     by_bar = {}
     for n in notes:
-        by_bar.setdefault(n["tick"] // bar_ticks, []).append(n)
+        by_bar.setdefault(grid.index(n["tick"]), []).append(n)
 
     added = []
     for bar, bar_notes in by_bar.items():
@@ -310,13 +372,16 @@ def _add_ghost_notes(notes, tpb, g, rng):
         if dense_gte and len(snare) >= dense_gte:
             continue    # это ролловый филл, а не грув — госты сделают из него кашу
 
+        bar_start = grid.start(bar)
+        # шестнадцатых в ЭТОМ такте: 16 в 4/4, 12 в 3/4 и 6/8
+        bar_sixteenths = max(1, int(round((grid.end(bar) - bar_start) / six)))
         occupied = [n["tick"] for n in bar_notes if n["note"] == note_id]
         cands = []
         for s in snare:
-            p = int(round((s["tick"] % bar_ticks) / six))
+            p = int(round((s["tick"] - bar_start) / six))
             for delta, prob in ((-1, p_before), (+1, p_after)):
                 q = p + delta
-                if q < 0 or q > 15:
+                if q < 0 or q >= bar_sixteenths:
                     continue        # за тактовую черту не вылезаем
                 if q % 2 == 0:
                     continue        # гост живёт только на слабой шестнадцатой
@@ -329,7 +394,7 @@ def _add_ghost_notes(notes, tpb, g, rng):
                 break
             if rng.random() > prob:
                 continue
-            tick = int(bar * bar_ticks + q * six)
+            tick = int(bar_start + q * six)
             if any(abs(tick - o) < min_gap for o in occupied):
                 continue
             added.append({"tick": tick, "note": note_id,
