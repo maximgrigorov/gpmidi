@@ -11,6 +11,7 @@ delivered to AILab through an exact-SHA Tekton pipeline.
 - **Project invariants:** [`AGENTS.md`](AGENTS.md)
 - **Measured lessons:** [`LESSONS.md`](LESSONS.md)
 - **Current accepted state:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)
+- **Open issues from code review:** [`ROADMAP.md`](ROADMAP.md)
 - **AILab operations:** [`infra/ailab/README.md`](infra/ailab/README.md)
 
 Repository: `http://192.168.30.2:3300/mgrigorov/gpmidi.git`
