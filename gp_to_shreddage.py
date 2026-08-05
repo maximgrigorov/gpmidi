@@ -554,8 +554,12 @@ def resolve_articulation(name, cfg):
 
 
 def note_articulation(note, track_type, cfg=None, beat=None):
-    """Вернуть (ks_note, is_pinch) для ноты по её эффектам и конфигу инструмента.
+    """Вернуть (art_name, is_pinch) для ноты по её эффектам и конфигу инструмента.
 
+    art_name — ИМЯ артикуляции из keyswitches конфига ("palm_mute", "sustain"):
+    ровно по этим именам профили оживления держат velocity-офсеты
+    (velocity.articulation в config/humanize_profiles/*.yaml). Раньше здесь
+    возвращался номер keyswitch-ноты, из-за чего офсеты не резолвились никогда.
     is_pinch=True означает Pinch Harmonic (Hydra): KS остаётся sustain,
     но velocity ноты форсируется (velocity из конфига, у Hydra 127).
     """
@@ -563,7 +567,7 @@ def note_articulation(note, track_type, cfg=None, beat=None):
     resolved = resolve_articulation(_canonical_articulation(note, beat), cfg)
     spec = cfg["keyswitches"][resolved]
     is_pinch = resolved == "pinch_harmonics" and "velocity" in spec
-    return (int(spec["note"]), is_pinch)
+    return (resolved, is_pinch)
 
 
 def beat_keyswitch(beat, track_type, cfg=None):
