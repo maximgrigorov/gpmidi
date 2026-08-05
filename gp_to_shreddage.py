@@ -792,6 +792,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     stats["ks"] += 1
     current_ks = sustain_ks
     pending_vibrato = []            # (start_tick, off_rec, bpm, vibrato_type)
+    pending_bends = []              # (start_tick, off_rec, bend, bpm)
+    pending_slides = []             # (start_tick, off_rec, slides, pitch, next_pitch, bpm)
     pending_auto_vibrato = []       # subset элементов all_note_spans
     all_note_spans = []             # все атаки для проверки монодичности CC1
     last_palm_tick = 0
@@ -799,7 +801,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     last_off_by_voice = {}
     pending_legato = {}             # (voice_idx, string) -> off_rec источника hammer/pull
 
-    for measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur in iter_voice_beats_with_canonical_ticks(track):
+    items = list(iter_voice_beats_with_canonical_ticks(track))
+    for item_index, (measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur) in enumerate(items):
         # last_off keyed by voice INDEX (not id(voice)): GP8/GPIF import creates a
         # fresh voice object per measure, so id(voice) breaks tie linking across
         # barlines. Voice index is stable across measures -> ties over barlines hold.
@@ -989,14 +992,17 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 pending_legato[(vi, note.string)] = off_rec
 
             # --- PB / вибрато / слайды ---
+            # Бенды и слайды НЕ рисуем сразу — по той же причине, что и
+            # вибрато: лиги и легато-перекрытие продлят ноту позже по циклу,
+            # и off_rec["tick"] — единственное место, где к концу цикла
+            # окажется настоящая длина. Раньше кривая и сброс PB в 0 рисовались
+            # по длине ПЕРВОГО сегмента и попадали в середину звучащей ноты —
+            # слышимый щелчок высоты.
             if eff.bend and eff.bend.points:
-                emit_bend(ev, on_tick, note_duration, eff.bend, cur_bpm, pb_range)
+                pending_bends.append((on_tick, off_rec, eff.bend, cur_bpm))
                 pb_dirty = True
 
             if eff.vibrato:
-                # НЕ рисуем сразу: лиги продлят ноту позже по циклу, и off_rec
-                # ("tick") — единственное место, где к концу цикла окажется
-                # настоящая длина. Откладываем до конца (см. pending_vibrato).
                 pending_vibrato.append((on_tick, off_rec, cur_bpm,
                                         getattr(eff, "vibratoType", None)))
             elif (auto_sustain_vibrato and track_type == TRACK_GUITAR
@@ -1005,13 +1011,19 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 pending_auto_vibrato.append(note_span)
 
             if eff.slides:
-                next_pitch = _next_note_pitch(voice.beats, bi, note.string, string_pitch)
-                emit_slide(ev, on_tick, note_duration, eff.slides, pitch, next_pitch, cur_bpm,
-                           pb_range)
+                next_pitch = _next_note_pitch(items, item_index, vi,
+                                              note.string, string_pitch)
+                pending_slides.append((on_tick, off_rec, eff.slides, pitch,
+                                       next_pitch, cur_bpm))
                 pb_dirty = True
 
-    # Вибрато рисуем ЗДЕСЬ, когда все лиги отработали и off_rec["tick"] у каждой
-    # ноты содержит её настоящий конец.
+    # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
+    # off_rec["tick"] у каждой ноты содержит её настоящий конец.
+    for b_start, b_off, b_bend, b_bpm in pending_bends:
+        emit_bend(ev, b_start, b_off["tick"] - b_start, b_bend, b_bpm, pb_range)
+    for s_start, s_off, s_slides, s_pitch, s_next, s_bpm in pending_slides:
+        emit_slide(ev, s_start, s_off["tick"] - s_start, s_slides, s_pitch,
+                   s_next, s_bpm, pb_range)
     for v_start, v_off, v_bpm, v_type in pending_vibrato:
         emit_vibrato(ev, v_start, v_off["tick"] - v_start, v_bpm, stats,
                      vibrato_type=v_type)
@@ -1351,11 +1363,23 @@ def build_combined_midi(midi_tracks, ticks_per_beat=TICKS_PER_BEAT):
     return mf
 
 
-def _next_note_pitch(beats, bi, string, string_pitch):
-    """Питч следующей ноты на той же струне (для определения направления слайда)."""
-    for b in beats[bi + 1:]:
-        for n in b.notes:
-            if n.string == string:
+def _next_note_pitch(items, item_index, vi, string, string_pitch):
+    """Питч следующей РЕАЛЬНОЙ ноты на той же струне (направление слайда).
+
+    Ищет по всему треку, а не только до конца текущего такта: слайд на
+    последней доле такта раньше никогда не находил цель и уходил в фолбэк по
+    типу, где shift/legato-слайды по умолчанию гнутся ВВЕРХ — нисходящий
+    shift-слайд через тактовую черту гнул +2 полутона не в ту сторону.
+    Tie-ноты пропускаются: это продолжение текущей ноты, а не её цель.
+
+    items — материализованный список iter_voice_beats_with_canonical_ticks;
+    поиск идёт по битам ТОГО ЖЕ голоса (vi) после текущей позиции.
+    """
+    for _measure, _voice, vi2, _bi, beat, _mst, _tick, _dur in items[item_index + 1:]:
+        if vi2 != vi:
+            continue
+        for n in beat.notes:
+            if n.string == string and n.type != NoteType.tie:
                 return clamp_note(string_pitch.get(n.string, 0) + n.value)
     return None
 
