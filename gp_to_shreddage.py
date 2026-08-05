@@ -1077,10 +1077,18 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
 def _hairpin_ramps(items):
     """Найти hairpin-ы (Crescendo/Decrescendo) и построить CC11-рампы.
 
-    Возвращает список (tick_from, tick_to, cc_to). Целевой уровень берём из
-    первой последующей ноты того же голоса с ИЗМЕНИВШЕЙСЯ velocity (в GP
-    динамика проставлена на каждом бите). Если цель не нашлась в пределах
+    Возвращает список (tick_from, tick_to, cc_from, cc_to). Целевой уровень
+    берём из первой последующей ноты того же голоса с ИЗМЕНИВШЕЙСЯ velocity
+    (в GP динамика проставлена на каждом бите). Если цель не нашлась в пределах
     HAIRPIN_MAX_LOOKAHEAD_BEATS — фолбэк-рампа на один такт к 50%.
+
+    Diminuendo бесшовно: 127 -> 127*v1/v0, и в точке цели нота с velocity v1
+    при сброшенном CC11 продолжает ровно тот же уровень. Crescendo зеркально
+    невозможно — CC11 выше 127 не бывает, — поэтому рампа якорится КОНЦОМ:
+    старт предослаблен до 127*v0/v1 и поднимается к 127. Оба разрыва уровня
+    (лёгкий провал на старте, шаг к v1 на цели) совпадают с атаками нот, где
+    они маскируются; раньше ветка давала плоскую линию 127 и слышимого
+    подъёма не было вовсе.
     """
     ramps = []
     for i, (measure, voice, vi, bi, beat, mst, start_tick, dur) in enumerate(items):
@@ -1106,15 +1114,21 @@ def _hairpin_ramps(items):
                 break  # динамика ушла не в ту сторону — рампу не строим
         if target is not None:
             tick_to, v1 = target
-            cc_to = max(HAIRPIN_MIN_CC, min(127, int(round(127.0 * v1 / v0))))
+            if hairpin == "Crescendo":
+                cc_from = max(HAIRPIN_MIN_CC, min(127, int(round(127.0 * v0 / v1))))
+                cc_to = 127
+            else:
+                cc_from = 127
+                cc_to = max(HAIRPIN_MIN_CC, min(127, int(round(127.0 * v1 / v0))))
         else:
             tick_to = start_tick + dur * 4  # фолбэк: один такт (4 бита) вперёд
             ratio = HAIRPIN_FALLBACK_RATIO if hairpin == "Decrescendo" else 1.0
             if ratio >= 1.0:
-                continue  # crescendo без цели: CC11 выше 127 не бывает, пропускаем
+                continue  # crescendo без цели: уровень v1 неизвестен, рампу не выдумываем
+            cc_from = 127
             cc_to = max(HAIRPIN_MIN_CC, int(round(127 * ratio)))
-        if tick_to > start_tick:
-            ramps.append((start_tick, tick_to, cc_to))
+        if tick_to > start_tick and cc_from != cc_to:
+            ramps.append((start_tick, tick_to, cc_from, cc_to))
     return ramps
 
 
@@ -1162,23 +1176,25 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False,
         for n in beat.notes
         if getattr(n.type, "name", "") != "tie"
     )
-    for tick_from, tick_to, cc_to in ramps:
+    for tick_from, tick_to, cc_from, cc_to in ramps:
         span = tick_to - tick_from
         steps = max(1, span // HAIRPIN_STEP_TICKS)
         last_val = None
         for s in range(steps + 1):
             frac = s / float(steps)
-            val = int(round(127 + (cc_to - 127) * frac))
+            val = int(round(cc_from + (cc_to - cc_from) * frac))
             # держим кривую строго ДО tick_to, чтобы не спорить со сбросом
             tick = min(tick_from + int(span * frac), tick_to - 1)
             if val != last_val:
                 ev.add(tick, ORDER_CTRL,
                        Message("control_change", channel=CHANNEL, control=HAIRPIN_CC, value=val))
                 last_val = val
-        # сброс в 127 на первой атаке ПОСЛЕ рампы (или в tick_to, если атак нет)
-        reset_tick = next((t for t in note_on_ticks if t >= tick_to), tick_to)
-        ev.add(reset_tick, ORDER_RESET,
-               Message("control_change", channel=CHANNEL, control=HAIRPIN_CC, value=127))
+        # сброс в 127 на первой атаке ПОСЛЕ рампы (или в tick_to, если атак нет);
+        # crescendo сам заканчивается на 127 — дублировать нечего
+        if cc_to != 127:
+            reset_tick = next((t for t in note_on_ticks if t >= tick_to), tick_to)
+            ev.add(reset_tick, ORDER_RESET,
+                   Message("control_change", channel=CHANNEL, control=HAIRPIN_CC, value=127))
 
     for measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur in items:
         # last_off keyed by voice INDEX (not id(voice)): GP8/GPIF import creates a
