@@ -111,6 +111,12 @@ class TestEvidenceDocument:
         assert ev["failed"] == 1
         assert ev["passed"] == 1
 
+    def test_a_run_with_zero_scenarios_is_a_fail(self):
+        # An `--only` filter that matches nothing must not report overall PASS.
+        ev = self._evidence()
+        assert ev["overall_status"] == "fail"
+        assert ev["scenario_count"] == 0
+
     def test_evidence_is_json_serializable_and_stable(self):
         ev = self._evidence(lambda c, s: c.require(True, "alpha"))
         first = json.dumps(ev, sort_keys=True)

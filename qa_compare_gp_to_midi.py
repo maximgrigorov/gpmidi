@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -9,12 +10,16 @@ from mido import MidiFile
 import app
 from articulation_config import config_for_track_type
 
-# Все keyswitch-ноты обоих инструментов — из версионируемых конфигов
-KEYSWITCH_NOTES = {
-    int(spec["note"])
-    for track_type in ("GUITAR", "BASS")
-    for spec in config_for_track_type(track_type)["keyswitches"].values()
-}
+
+def keyswitch_notes(track_type: str) -> set[int]:
+    """Keyswitch notes of ONE instrument, from the versioned configs.
+
+    The union of GUITAR+BASS keyswitches used to be applied to every track, so
+    Hydra's fx note 23 swallowed the open low B of a 5-string bass and the QA
+    reported counts_match=false on a correct export.
+    """
+    cfg = config_for_track_type(track_type) or {}
+    return {int(spec["note"]) for spec in (cfg.get("keyswitches") or {}).values()}
 
 
 def extract_gp_sounding_notes(song, track_name: str):
@@ -45,14 +50,15 @@ def extract_gp_sounding_notes(song, track_name: str):
     return notes
 
 
-def extract_midi_notes(midi_path: Path):
+def extract_midi_notes(midi_path: Path, track_type: str = "GUITAR"):
+    ks_notes = keyswitch_notes(track_type)
     midi = MidiFile(str(midi_path))
     abs_tick = 0
     active: dict[int, list[int]] = {}
     notes = []
     for msg in midi.tracks[0]:
         abs_tick += msg.time
-        if msg.type == "note_on" and msg.velocity > 0 and msg.note not in KEYSWITCH_NOTES:
+        if msg.type == "note_on" and msg.velocity > 0 and msg.note not in ks_notes:
             active.setdefault(msg.note, []).append(abs_tick)
         elif msg.type in {"note_off", "note_on"} and (msg.type == "note_off" or msg.velocity == 0):
             stack = active.get(msg.note) or []
@@ -79,34 +85,37 @@ def build_export(song, workdir: Path, track_name: str):
     solo = next(t for t in tracks if t["track_name"] == track_name)
     preview_path = job_dir / "preview" / f"{Path(solo['download_name']).stem}.json"
     preview = json.loads(preview_path.read_text())
-    midi_notes = extract_midi_notes(out_dir / solo["download_name"])
+    midi_notes = extract_midi_notes(out_dir / solo["download_name"], solo["track_type"])
     return solo, preview, midi_notes
 
 
-def main(src: str = "pnd.gp5", track_name: str = "Solo Guitar"):
-    import sys
-
+def main(src: str = "pnd.gp5", track_name: str = "Solo Guitar", workdir: Path | None = None):
     from gp_import import parse_song
-    if len(sys.argv) > 1:
-        src = sys.argv[1]
-    if len(sys.argv) > 2:
-        track_name = sys.argv[2]
+
     song = parse_song(src)
     gp_notes = extract_gp_sounding_notes(song, track_name)
-    solo, preview, midi_notes = build_export(song, Path("/tmp/gpmidi-qa"), track_name)
+    with tempfile.TemporaryDirectory(prefix="gpmidi-qa-") as tmp:
+        solo, preview, midi_notes = build_export(
+            song, Path(workdir) if workdir else Path(tmp), track_name,
+        )
 
-    report = {
-        "track": track_name,
-        "source_gp_sounding_notes": len(gp_notes),
-        "exported_midi_notes": len(midi_notes),
-        "preview_notes": preview["note_count"],
-        "counts_match": len(gp_notes) == len(midi_notes) == preview["note_count"],
-        "gp_measure_counts": dict(Counter(n["measure"] for n in gp_notes if n["measure"] in (65, 66))),
-        "preview_articulations": preview.get("articulation_counts", {}),
-        "download_name": solo["download_name"],
-    }
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+        report = {
+            "track": track_name,
+            "source_gp_sounding_notes": len(gp_notes),
+            "exported_midi_notes": len(midi_notes),
+            "preview_notes": preview["note_count"],
+            "counts_match": len(gp_notes) == len(midi_notes) == preview["note_count"],
+            "gp_measure_counts": dict(Counter(n["measure"] for n in gp_notes if n["measure"] in (65, 66))),
+            "preview_articulations": preview.get("articulation_counts", {}),
+            "download_name": solo["download_name"],
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    main(
+        sys.argv[1] if len(sys.argv) > 1 else "pnd.gp5",
+        sys.argv[2] if len(sys.argv) > 2 else "Solo Guitar",
+    )

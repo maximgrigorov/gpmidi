@@ -156,13 +156,13 @@
   `humanize` / `ghost_notes` per job, so an old session states what produced it.
 
 ## Still open (do not "fix" silently — ask first)
-- **Initial keyswitch is assumed, not set.** `current_ks = sustain_ks` presumes
-  the instrument boots on sustain, and a KS is only emitted when the articulation
-  CHANGES. Kontakt keeps whatever articulation was last selected, so a track whose
-  first section is plain sustain inherits it: the user's Solo Guitar has notes from
-  bar 8 but its first keyswitch is at bar 58, and Hydra sat on Harmonics for the
-  whole first solo. Fix is to emit an explicit sustain KS at track start. NOT DONE
-  — touches keyswitch behaviour, approval pending.
+- ~~Initial keyswitch is assumed, not set.~~ **DONE** in commit `4336ce8`: an
+  explicit sustain KS is emitted at tick 0 in `build_instrument_midi`, and
+  `verify_midi.py` ships the matching `KS_NO_INIT` check. The reason stays on
+  record because it is load-bearing: Kontakt does not reset articulation between
+  playbacks, so a track whose first section is plain sustain used to inherit
+  whatever was selected last (Solo Guitar had notes from bar 8 but its first
+  keyswitch at bar 58, so Hydra played the whole first solo on Harmonics).
 - `SLIDE_BEND_ST = 2.0` bends a fixed 2 semitones toward the next note instead of
   gliding to its pitch; `fx_keyswitches.legato_slide_to_next` (the proper tool,
   up to 12 semitones) is dead config referenced nowhere.
@@ -170,7 +170,6 @@
 - `<Note>` carries `RelativeVelocity` (191 notes) and `Accent` (18) as child
   elements, not Properties. Unverified whether ApolloTab surfaces them — if not,
   hand-written per-note dynamics are being dropped on the floor.
-- `test_regression.py` needs `pytest`, which is not in `requirements.txt`.
 - UI / container / packaging work is allowed as long as conversion semantics remain unchanged.
 
 ## Working rules for future agents

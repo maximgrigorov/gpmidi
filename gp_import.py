@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import re
 import sys
@@ -15,7 +16,34 @@ from typing import Any
 import guitarpro
 from guitarpro.models import NoteType, SlideType
 
-APOLLOTAB_ROOT = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "ApolloTab"
+
+def _find_apollotab_root() -> Path:
+    """Locate the installed ApolloTab package.
+
+    The hardcoded POSIX site-packages path reported "ApolloTab не установлен" on
+    Windows and for user-site installs even when the package was importable.
+    """
+    try:
+        spec = importlib.util.find_spec("ApolloTab")
+    except (ImportError, ValueError):
+        spec = None
+    if spec is not None:
+        for location in (spec.submodule_search_locations or []):
+            return Path(location)
+        if spec.origin:
+            return Path(spec.origin).parent
+    for entry in sys.path:
+        candidate = Path(entry) / "ApolloTab"
+        if candidate.is_dir():
+            return candidate
+    return (
+        Path(sys.prefix) / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages" / "ApolloTab"
+    )
+
+
+APOLLOTAB_ROOT = _find_apollotab_root()
 
 APOLLOTAB_DYNAMIC_TO_VELOCITY = {
     "PPP": 15,
@@ -67,7 +95,7 @@ class GPTempoValue:
 @dataclass
 class GPTempoAutomation:
     bar: int
-    position: int
+    position: float
     value: float
 
 
@@ -266,10 +294,10 @@ def parse_song(path: str | Path):
             )
             parse_path = _write_patched_gp(path, ET.tostring(root, encoding="utf-8"))
 
-        tempo_automations = _extract_gpif_tempo_automations_root(root)
-        drum_tables = _extract_gpif_percussion_articulations_root(root)
-        note_extras = _extract_gpif_note_extras_root(root)
         try:
+            tempo_automations = _extract_gpif_tempo_automations_root(root)
+            drum_tables = _extract_gpif_percussion_articulations_root(root)
+            note_extras = _extract_gpif_note_extras_root(root)
             raw = _parse_gp7_gp8_with_apollotab(parse_path)
         finally:
             if parse_path != path:
@@ -548,7 +576,9 @@ def _extract_gpif_tempo_automations_root(root: ET.Element) -> list[GPTempoAutoma
         automations.append(
             GPTempoAutomation(
                 bar=int(data.get("Bar", "0") or 0),
-                position=int(data.get("Position", "0") or 0),
+                # GPIF stores Position as a decimal beat offset; int() raised
+                # ValueError and aborted the whole parse on an off-beat tempo mark.
+                position=float(data.get("Position", "0") or 0),
                 value=float(value_match.group(1)),
             )
         )

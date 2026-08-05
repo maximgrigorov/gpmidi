@@ -235,3 +235,33 @@ def test_template_exposes_default_all_track_selection_per_track_effects_and_repo
     assert 'name="track_{{ track.index }}_auto_sustain_vibrato"' in source
     assert "processing_report" in source
     assert "Обработать выбранные" in source
+
+
+def test_stored_upload_name_keeps_its_extension(tmp_path: Path):
+    """secure_filename() strips non-ASCII, so "Песня.gp" collapsed to "gp".
+
+    An extensionless stored name silently disabled GP7/GP8 detection (which
+    gates on `path.suffix`) and playable-tab re-fingering — in a Russian UI the
+    common case, not an edge case.
+    """
+    import app as web
+
+    assert Path(web.unique_name(tmp_path, "Песня.gp")).suffix == ".gp"
+    assert Path(web.unique_name(tmp_path, "Пе.gp5")).suffix == ".gp5"
+    assert web.unique_name(tmp_path, "Song.gp5") == "Song.gp5"
+
+    # Hostile names still collapse to a basename inside the target directory.
+    for raw in ("../../etc/passwd.gp", "a/b/c.gp5", "..gp5"):
+        name = web.unique_name(tmp_path, raw)
+        assert Path(name).name == name
+        assert (tmp_path / name).resolve().parent == tmp_path.resolve()
+
+
+def test_unique_name_does_not_collide_on_repeat_uploads(tmp_path: Path):
+    import app as web
+
+    first = web.unique_name(tmp_path, "Песня.gp")
+    (tmp_path / first).write_bytes(b"x")
+    second = web.unique_name(tmp_path, "Песня.gp")
+    assert second != first
+    assert Path(second).suffix == ".gp"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import math
 import shutil
 import time
 import warnings
@@ -150,6 +151,8 @@ def validate_params(raw: dict[str, Any], *, allow_missing: bool = True) -> dict[
                 value = typ(value)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"неверное значение {name}") from exc
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError(f"{name} должен быть конечным числом")
             if minimum is not None and value < minimum or maximum is not None and value > maximum:
                 raise ValueError(f"{name} вне диапазона {minimum}..{maximum}")
         result[name] = value
@@ -407,12 +410,16 @@ def run_tuttut(
     )
     tab.to_ascii()
     generated = (out_path.parent / temp_name).with_suffix(".txt")
-    raw_text = generated.read_text(encoding="utf-8")
-    out_path.write_text(
-        _wrap_tuttut_ascii(raw_text, total_measures=total_measures),
-        encoding="utf-8",
-    )
-    generated.unlink()
+    try:
+        raw_text = generated.read_text(encoding="utf-8")
+        out_path.write_text(
+            _wrap_tuttut_ascii(raw_text, total_measures=total_measures),
+            encoding="utf-8",
+        )
+    finally:
+        # _wrap_tuttut_ascii has several ValueError paths; the raw page-wide file
+        # must never survive into the job output the user downloads.
+        generated.unlink(missing_ok=True)
     return out_path
 
 
@@ -487,9 +494,16 @@ def generate_track(
             if source_index < len(positions):
                 positions[source_index] = (item.string, item.fret)
     missing = sum(position is None for position in positions)
+    mapper_failed = status.get("gtrsnipe", "").startswith("failed")
     report_path = out_dir / f"{basename}.unplayable_report.txt"
     if missing:
-        lines = [f"{track.name}: {missing} нот/сегментов не получили играбельную позицию."]
+        if mapper_failed:
+            lines = [
+                f"{track.name}: маппер не выполнился, играбельность НЕ ПРОВЕРЕНА "
+                f"({missing} нот без позиции). Статус: {status.get('gtrsnipe', '')}"
+            ]
+        else:
+            lines = [f"{track.name}: {missing} нот/сегментов не получили играбельную позицию."]
         lines.extend(f"note_index={index}: mapper returned no position" for index, value in enumerate(positions) if value is None)
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         files.append(report_path.name)
@@ -665,6 +679,12 @@ def _track_note_signature(track) -> list[tuple[int, int, int]]:
 
 def _verify_refinger(original_song, patched_path: Path, generations: dict[str, TrackGeneration]) -> None:
     patched_song = parse_song(patched_path)
+    # `note_positions` holds gtrsnipe indices (0=highest). Re-parsing a .gp keeps
+    # that convention (the ApolloTab adapter builds 0-based strings), but a .gp5
+    # comes back through raw pyguitarpro, where 1=highest — which is exactly what
+    # the write path emits. Compare in the parser's own base, or every .gp5
+    # re-fingering fails this invariant on its own correct output.
+    string_offset = 0 if is_gp7_gp8_archive(patched_path) else 1
     original_by_name = {track.name: track for track in original_song.tracks}
     patched_by_name = {track.name: track for track in patched_song.tracks}
     for name, original in original_by_name.items():
@@ -675,7 +695,7 @@ def _verify_refinger(original_song, patched_path: Path, generations: dict[str, T
         patched = patched_by_name.get(name)
         if patched is None:
             raise ValueError(f"patched track missing: {name}")
-        actual = [(note.string, note.value) for *_prefix, beat, _mt, _bt, _dur in iter_voice_beats_with_canonical_ticks(patched) for note in beat.notes]
+        actual = [(note.string - string_offset, note.value) for *_prefix, beat, _mt, _bt, _dur in iter_voice_beats_with_canonical_ticks(patched) for note in beat.notes]
         for index, expected in enumerate(generation.note_positions):
             if expected is not None and index < len(actual) and actual[index] != expected:
                 raise ValueError(f"fingering invariant failed for {name} note {index}: {actual[index]} != {expected}")

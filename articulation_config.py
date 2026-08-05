@@ -15,8 +15,6 @@ from pathlib import Path
 import yaml
 
 logger = logging.getLogger("gpmidi.articulation")
-if not logger.handlers and not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 CONFIG_DIR = Path(__file__).resolve().parent / "config" / "articulation_maps"
 
@@ -37,6 +35,10 @@ def load_config(name: str) -> dict:
         raise FileNotFoundError(f"Конфиг артикуляций не найден: {path}")
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
+    # An empty or malformed YAML used to raise a bare TypeError below, naming
+    # neither the file nor the reason.
+    if not isinstance(data, dict):
+        raise ValueError(f"Конфиг артикуляций пуст или не является отображением: {path}")
     data["_config_name"] = name
     data["_config_path"] = str(path)
     return data

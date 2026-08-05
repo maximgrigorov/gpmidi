@@ -156,7 +156,8 @@ class Runner:
             "started_at": STARTED_AT,
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "config": config,
-            "overall_status": "pass" if not self.failed else "fail",
+            # A run that executed nothing proved nothing: zero scenarios is a fail.
+            "overall_status": "pass" if (self.results and not self.failed) else "fail",
             "scenario_count": len(self.results),
             "passed": len(self.results) - len(self.failed),
             "failed": len(self.failed),
@@ -274,9 +275,9 @@ class Api:
         return r.text
 
     def await_job(self, job_id: str, timeout: float = 240.0) -> dict:
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         last: dict = {}
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             last = self.job(job_id)
             if last["status"] in ("succeeded", "failed", "interrupted", "cancelled"):
                 return last
@@ -573,9 +574,9 @@ class Cluster:
         Terminating while still reporting Ready. Without excluding it, this would
         return the pod that is going away.
         """
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         last = ""
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             for name in self.pod_names(app):
                 if name in exclude:
                     continue
@@ -1347,8 +1348,8 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     check.require(old_pods, "the reference-time pod was found", f"{old_pods}")
 
     snapshot: dict[str, str] = {}
-    deadline = time.time() + 120
-    while time.time() < deadline:
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
         snapshot = {j: api.job(j)["status"] for j in submitted}
         if "queued" in snapshot.values() and "running" in snapshot.values():
             break
@@ -1381,9 +1382,9 @@ def scenario_10_restart(check: Check, shared: dict) -> None:
     )
 
     # Readiness alone is not enough; wait for the API to answer.
-    deadline = time.time() + 120
+    deadline = time.monotonic() + 120
     ready = False
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         try:
             if api.plain(f"{api.rt}/readyz", timeout=5).status_code == 200:
                 ready = True
@@ -1948,9 +1949,22 @@ def main(argv=None) -> int:
         api=api, cluster=cluster, state=state, environment_before=environment_before
     )
 
-    wanted = (
-        {int(x) for x in args.only.split(",") if x.strip()} if args.only else None
-    )
+    wanted = None
+    if args.only:
+        known_ids = {scenario_id for scenario_id, _key, _title, _fn in SCENARIOS}
+        try:
+            wanted = {int(x) for x in args.only.split(",") if x.strip()}
+        except ValueError:
+            print(f"ERROR: --only contains a non-integer scenario id: {args.only!r}")
+            return 2
+        unknown = wanted - known_ids
+        if not wanted or unknown:
+            # A typo here must not shrink the run silently: fail closed.
+            print(
+                "ERROR: --only selects no valid scenario "
+                f"(unknown ids: {sorted(unknown) or 'none'}; known: {sorted(known_ids)})"
+            )
+            return 2
     for scenario_id, key, title, fn in SCENARIOS:
         if wanted is not None and scenario_id not in wanted:
             continue

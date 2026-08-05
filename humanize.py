@@ -52,6 +52,19 @@ def load_profile(name: str) -> dict:
         raise FileNotFoundError(f"Профиль оживления не найден: {path}")
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
+    # An empty or non-mapping profile used to fail with a bare TypeError on the
+    # line below; a profile missing a required section failed later with a bare
+    # KeyError mid-render, naming neither the file nor the key.
+    if not isinstance(data, dict):
+        raise ValueError(f"Профиль оживления пуст или не является отображением: {path}")
+    for section in ("velocity", "timing"):
+        if not isinstance(data.get(section), dict):
+            raise ValueError(f"В профиле {path} отсутствует или испорчена секция '{section}'")
+    ghost = data.get("ghost_notes")
+    if isinstance(ghost, dict) and isinstance(ghost.get("velocity"), dict):
+        low, high = ghost["velocity"].get("min"), ghost["velocity"].get("max")
+        if isinstance(low, int) and isinstance(high, int) and low > high:
+            raise ValueError(f"В профиле {path}: ghost_notes.velocity.min > max ({low} > {high})")
     data["_profile_name"] = name
     return data
 

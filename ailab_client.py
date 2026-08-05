@@ -6,13 +6,27 @@ so Flask views stay free of transport details.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, BinaryIO
+from urllib.parse import quote
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 ASSET_API_BASE = os.environ.get("ASSET_API_BASE", "https://192.168.30.2/asset-api")
-ASSET_API_TIMEOUT = int(os.environ.get("ASSET_API_TIMEOUT", "30"))
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        logger.warning("%s is not an integer; using default %d", name, default)
+        return default
+
+
+ASSET_API_TIMEOUT = _env_int("ASSET_API_TIMEOUT", 30)
 # The reference-time service has its own base URL. In-cluster the two services
 # are different Kubernetes Services, so deriving one from the other by string
 # replacement (the previous behaviour) pointed reference-time requests at
@@ -39,14 +53,27 @@ class AssetAPIClient:
     def __init__(self, base_url: str | None = None, reference_time_url: str | None = None):
         self.base = (base_url or ASSET_API_BASE).rstrip("/")
         rt = reference_time_url or REFERENCE_TIME_BASE
-        self.reference_time_base = (
-            rt.rstrip("/") if rt else self.base.replace("/asset-api", "/reference-time")
-        )
+        if rt:
+            self.reference_time_base = rt.rstrip("/")
+        else:
+            self.reference_time_base = self.base.replace("/asset-api", "/reference-time")
+            if self.reference_time_base == self.base:
+                # The derived fallback only works for the shared-ingress layout.
+                logger.warning(
+                    "REFERENCE_TIME_BASE is not set and ASSET_API_BASE (%s) has no "
+                    "/asset-api segment to derive it from; reference-time requests "
+                    "will go to the asset-api base and fail", self.base,
+                )
         self.verify = ASSET_API_VERIFY_TLS
         self.timeout = ASSET_API_TIMEOUT
 
     def _url(self, path: str) -> str:
         return f"{self.base}{path}"
+
+    @staticmethod
+    def _q(param: str) -> str:
+        """Percent-encode a path parameter so ids cannot alter the request path."""
+        return quote(str(param), safe="")
 
     def _handle(self, resp: requests.Response) -> dict:
         if resp.status_code >= 400:
@@ -54,17 +81,20 @@ class AssetAPIClient:
                 detail = resp.json().get("detail", {})
                 if isinstance(detail, dict):
                     code = detail.get("code", "unknown")
-                    msg = detail.get("message", resp.text)
+                    msg = detail.get("message", resp.text[:500])
                 else:
                     code = "error"
-                    msg = str(detail)
+                    msg = str(detail)[:500]
             except Exception:
                 code = "error"
                 msg = resp.text[:500]
             raise AssetAPIError(resp.status_code, code, msg)
         if resp.status_code == 204:
             return {}
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError:
+            raise AssetAPIError(resp.status_code, "invalid_json", resp.text[:500]) from None
 
     def health(self) -> dict:
         try:
@@ -89,7 +119,7 @@ class AssetAPIClient:
         return self._handle(r).get("projects", [])
 
     def get_project(self, project_id: str) -> dict:
-        r = requests.get(self._url(f"/v1/projects/{project_id}"),
+        r = requests.get(self._url(f"/v1/projects/{self._q(project_id)}"),
                          verify=self.verify, timeout=self.timeout)
         return self._handle(r)
 
@@ -100,12 +130,12 @@ class AssetAPIClient:
             body["name"] = name
         if description is not None:
             body["description"] = description
-        r = requests.patch(self._url(f"/v1/projects/{project_id}"), json=body,
+        r = requests.patch(self._url(f"/v1/projects/{self._q(project_id)}"), json=body,
                            verify=self.verify, timeout=self.timeout)
         return self._handle(r)
 
     def delete_project(self, project_id: str) -> None:
-        r = requests.delete(self._url(f"/v1/projects/{project_id}"),
+        r = requests.delete(self._url(f"/v1/projects/{self._q(project_id)}"),
                             verify=self.verify, timeout=self.timeout)
         self._handle(r)
 
@@ -113,7 +143,7 @@ class AssetAPIClient:
 
     def create_upload_ticket(self, project_id: str, role: str, filename: str) -> dict:
         r = requests.post(
-            self._url(f"/v1/projects/{project_id}/upload-tickets"),
+            self._url(f"/v1/projects/{self._q(project_id)}/upload-tickets"),
             json={"role": role, "original_filename": filename},
             verify=self.verify, timeout=self.timeout,
         )
@@ -122,7 +152,7 @@ class AssetAPIClient:
     def upload_via_ticket(self, ticket: str, data: BinaryIO | bytes) -> dict:
         """Stream upload using a ticket. Returns upload result."""
         r = requests.put(
-            self._url(f"/v1/uploads/{ticket}"),
+            self._url(f"/v1/uploads/{self._q(ticket)}"),
             data=data,
             headers={"Content-Type": "application/octet-stream"},
             verify=self.verify, timeout=max(self.timeout, 300),
@@ -133,7 +163,7 @@ class AssetAPIClient:
         """Proxy upload from Flask request stream to AILab without storing full file."""
         headers: dict[str, str] = {"Content-Type": "application/octet-stream"}
         r = requests.put(
-            self._url(f"/v1/uploads/{ticket}"),
+            self._url(f"/v1/uploads/{self._q(ticket)}"),
             data=stream,
             headers=headers,
             verify=self.verify,
@@ -144,19 +174,19 @@ class AssetAPIClient:
     # --- Assets ---
 
     def list_assets(self, project_id: str) -> list[dict]:
-        r = requests.get(self._url(f"/v1/projects/{project_id}/assets"),
+        r = requests.get(self._url(f"/v1/projects/{self._q(project_id)}/assets"),
                          verify=self.verify, timeout=self.timeout)
         return self._handle(r).get("assets", [])
 
     def get_manifest(self, project_id: str) -> dict:
-        r = requests.get(self._url(f"/v1/projects/{project_id}/manifest"),
+        r = requests.get(self._url(f"/v1/projects/{self._q(project_id)}/manifest"),
                          verify=self.verify, timeout=self.timeout)
         return self._handle(r)
 
     def download_asset(self, project_id: str, link_id: str) -> requests.Response:
         """Returns raw response for streaming to client."""
         r = requests.get(
-            self._url(f"/v1/projects/{project_id}/assets/{link_id}/download"),
+            self._url(f"/v1/projects/{self._q(project_id)}/assets/{self._q(link_id)}/download"),
             verify=self.verify, timeout=max(self.timeout, 300),
             stream=True,
         )
@@ -166,7 +196,7 @@ class AssetAPIClient:
 
     def delete_asset_link(self, project_id: str, link_id: str) -> None:
         r = requests.delete(
-            self._url(f"/v1/projects/{project_id}/assets/{link_id}"),
+            self._url(f"/v1/projects/{self._q(project_id)}/assets/{self._q(link_id)}"),
             verify=self.verify, timeout=self.timeout,
         )
         self._handle(r)
@@ -191,35 +221,35 @@ class AssetAPIClient:
         if structure_link_id:
             body["structure_link_id"] = structure_link_id
         r = requests.post(
-            self._rt_url(f"/v1/projects/{project_id}/analyses"),
+            self._rt_url(f"/v1/projects/{self._q(project_id)}/analyses"),
             json=body, verify=self.verify, timeout=self.timeout,
         )
         return self._handle(r)
 
     def list_analyses(self, project_id: str) -> dict:
         r = requests.get(
-            self._rt_url(f"/v1/projects/{project_id}/analyses"),
+            self._rt_url(f"/v1/projects/{self._q(project_id)}/analyses"),
             verify=self.verify, timeout=self.timeout,
         )
         return self._handle(r)
 
     def get_analysis_job(self, job_id: str) -> dict:
         r = requests.get(
-            self._rt_url(f"/v1/jobs/{job_id}"),
+            self._rt_url(f"/v1/jobs/{self._q(job_id)}"),
             verify=self.verify, timeout=self.timeout,
         )
         return self._handle(r)
 
     def get_analysis_report_json(self, project_id: str, analysis_id: str) -> dict:
         r = requests.get(
-            self._rt_url(f"/v1/projects/{project_id}/analyses/{analysis_id}/report.json"),
+            self._rt_url(f"/v1/projects/{self._q(project_id)}/analyses/{self._q(analysis_id)}/report.json"),
             verify=self.verify, timeout=self.timeout,
         )
         return self._handle(r)
 
     def get_analysis_report_html(self, project_id: str, analysis_id: str) -> str:
         r = requests.get(
-            self._rt_url(f"/v1/projects/{project_id}/analyses/{analysis_id}/report.html"),
+            self._rt_url(f"/v1/projects/{self._q(project_id)}/analyses/{self._q(analysis_id)}/report.html"),
             verify=self.verify, timeout=self.timeout,
         )
         if r.status_code >= 400:

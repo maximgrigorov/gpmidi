@@ -284,10 +284,15 @@
         var MAX_TICKS = 240;   // 240 * 5s = 20 minutes, then stop polling
         var ticks = 0;
 
+        // Upstream JSON is proxied verbatim, so build nodes and set text
+        // instead of interpolating it into innerHTML.
         function badge(status) {
           var cls = status === 'succeeded' ? 'success'
                   : (TERMINAL.indexOf(status) >= 0 ? 'error' : '');
-          return '<span class="badge ' + cls + '">' + status + '</span>';
+          var span = document.createElement('span');
+          span.className = 'badge ' + cls;
+          span.textContent = status;
+          return span;
         }
 
         function reportLinks(analysisId) {
@@ -308,10 +313,17 @@
               .then(function (r) { return r.ok ? r.json() : null; })
               .then(function (job) {
                 if (!job || !job.status) return;
-                row.querySelector('.job-status').innerHTML = badge(job.status);
+                var statusCell = row.querySelector('.job-status');
+                statusCell.textContent = '';
+                statusCell.appendChild(badge(job.status));
                 row.querySelector('.job-phase').textContent = job.progress_phase || '';
-                row.querySelector('.job-error').innerHTML =
-                  '<code>' + (job.error_code || '') + '</code>';
+                var errorCell = row.querySelector('.job-error');
+                errorCell.textContent = '';
+                if (job.error_code) {
+                  var code = document.createElement('code');
+                  code.textContent = job.error_code;
+                  errorCell.appendChild(code);
+                }
                 if (TERMINAL.indexOf(job.status) >= 0) {
                   row.removeAttribute('data-poll');
                   row.querySelector('.job-links').innerHTML =

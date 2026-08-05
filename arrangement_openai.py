@@ -245,12 +245,17 @@ def create_openai_draft(
     _require_complete_plan(plan, context)
     _enforce_solo_policy(plan, context)
 
-    raw_usage = result.get("usage") or {}
-    input_tokens = int(raw_usage.get("input_tokens", 0) or 0)
-    details = raw_usage.get("input_tokens_details") or {}
-    cached_tokens = int(details.get("cached_tokens", raw_usage.get("cached_input_tokens", 0)) or 0)
-    output_tokens = int(raw_usage.get("output_tokens", 0) or 0)
-    total_tokens = int(raw_usage.get("total_tokens", input_tokens + output_tokens) or input_tokens + output_tokens)
+    try:
+        raw_usage = result.get("usage") or {}
+        input_tokens = int(raw_usage.get("input_tokens", 0) or 0)
+        details = raw_usage.get("input_tokens_details") or {}
+        cached_tokens = int(details.get("cached_tokens", raw_usage.get("cached_input_tokens", 0)) or 0)
+        output_tokens = int(raw_usage.get("output_tokens", 0) or 0)
+        total_tokens = int(raw_usage.get("total_tokens", input_tokens + output_tokens) or input_tokens + output_tokens)
+    except (AttributeError, TypeError, ValueError):
+        # Same sanitization contract as the request block above: no remote
+        # response content may leak into the propagated error.
+        raise OpenAIDraftError("OpenAI usage metadata malformed") from None
     estimated_cost = calculate_cost_estimate(input_tokens, cached_tokens, output_tokens)
     return {
         "status": "draft_ready",

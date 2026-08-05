@@ -30,6 +30,11 @@ ruff.toml
 *.md
 !third_party/**/*.md
 
+# Live credentials must never be baked in (the Tekton image-audit gate catches
+# this for pipeline builds; this line protects local `docker compose` builds too)
+.env
+.env.*
+
 # Local fixtures that must never be baked in
 *.gp
 *.gp3

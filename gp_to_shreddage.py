@@ -1363,10 +1363,24 @@ def parse_cli_options(argv):
     """Разобрать простые CLI-флаги без побочных эффектов (удобно тестировать)."""
     args = [a for a in argv[1:] if not a.startswith("--")]
     flags = {a for a in argv[1:] if a.startswith("--")}
+    known = {
+        "--humanize", "--ghost-notes", "--no-verify", "--auto-sustain-vibrato",
+        "--fret-noise-on-hand-shift", "--expand-gp-hidden-32nds",
+        "--preserve-gp-played-offsets",
+    }
+    # A typo like --humanise used to be silently ignored, so the export ran in a
+    # different mode than the caller asked for and nothing said so.
+    unknown = sorted(f for f in flags if f not in known and not f.startswith("--seed="))
+    if unknown:
+        raise ValueError("неизвестные флаги: " + ", ".join(unknown))
     seed = 7
     for flag in flags:
         if flag.startswith("--seed="):
-            seed = int(flag.split("=", 1)[1])
+            raw_seed = flag.split("=", 1)[1]
+            try:
+                seed = int(raw_seed)
+            except ValueError:
+                raise ValueError(f"--seed требует целое число, получено {raw_seed!r}") from None
     return {
         "source": args[0] if len(args) == 1 else None,
         "humanize": "--humanize" in flags,
@@ -1381,7 +1395,10 @@ def parse_cli_options(argv):
 
 
 def main(argv):
-    options = parse_cli_options(argv)
+    try:
+        options = parse_cli_options(argv)
+    except ValueError as exc:
+        sys.exit(f"Ошибка аргументов: {exc}")
     humanize = options["humanize"]
     ghost_notes = options["ghost_notes"]
     no_verify = options["no_verify"]
@@ -1449,12 +1466,20 @@ def main(argv):
             )
 
         name = safe_filename(track.name) or ("Track_%d" % idx)
+        # Dedup case-insensitively and re-probe: on macOS/Windows "Guitar" and
+        # "GUITAR" resolve to the same file, so the second track silently
+        # overwrote the first one's MIDI.
         fname = name
-        if fname in used:
-            used[fname] += 1
-            fname = "%s_%d" % (name, used[fname])
+        key = fname.casefold()
+        if key in used:
+            while True:
+                used[key] += 1
+                fname = "%s_%d" % (name, used[key])
+                if fname.casefold() not in used:
+                    break
+            used[fname.casefold()] = 1
         else:
-            used[fname] = 1
+            used[key] = 1
 
         mf = MidiFile(type=0, ticks_per_beat=TICKS_PER_BEAT)
         mf.tracks.append(midi_track)
@@ -1513,4 +1538,9 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    # Configure logging here rather than as an import side effect of
+    # articulation_config: a library that calls basicConfig() hijacks the root
+    # logger of anything that embeds it (the Flask app included).
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     main(sys.argv)

@@ -13,8 +13,10 @@ from typing import Any
 
 from flask import (
     Flask,
+    Response,
     abort,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -23,6 +25,7 @@ from flask import (
     url_for,
 )
 from mido import MidiFile
+from werkzeug.exceptions import default_exceptions
 from werkzeug.utils import secure_filename
 
 from arrangement_openai import (
@@ -75,6 +78,15 @@ MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+# The session cookie is the only authorization for every job, download and
+# delete route, so keep it out of JS and off cross-site form posts.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+if not os.environ.get("SECRET_KEY"):
+    app.logger.warning(
+        "SECRET_KEY is unset; using the committed development default. Session "
+        "cookies are forgeable — set SECRET_KEY before exposing this app."
+    )
 
 SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -273,12 +285,23 @@ def load_manifest() -> dict[str, Any]:
     path = manifest_path()
     if not path.exists():
         return {"jobs": [], "current_job_id": None}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        # A truncated manifest used to 500 every route, including /new-session,
+        # leaving the session unrecoverable without clearing cookies.
+        app.logger.exception("manifest is unreadable; starting an empty one")
+        return {"jobs": [], "current_job_id": None}
 
 
 
 def save_manifest(manifest: dict[str, Any]) -> None:
-    manifest_path().write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Write-then-rename: a worker killed mid-write (gunicorn --timeout 120, pod
+    # eviction) must not leave a half-written manifest behind.
+    path = manifest_path()
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 
@@ -335,10 +358,13 @@ def human_timestamp() -> str:
 
 
 def unique_name(root: Path, raw_name: str) -> str:
-    cleaned = secure_filename(raw_name) or "upload"
-    candidate = cleaned
-    stem = Path(cleaned).stem
-    suffix = Path(cleaned).suffix
+    # secure_filename() drops non-ASCII entirely, so "Песня.gp" collapsed to
+    # "gp" — an extensionless stored name, which silently disabled GP7/GP8
+    # detection and playable-tab re-fingering. Keep the (already validated)
+    # suffix explicitly.
+    suffix = Path(raw_name).suffix.lower()
+    stem = secure_filename(Path(raw_name).stem) or "upload"
+    candidate = f"{stem}{suffix}"
     idx = 2
     while (root / candidate).exists():
         candidate = f"{stem}_{idx}{suffix}"
@@ -434,6 +460,12 @@ def analyze_midi_preview(midi_track, track_type: str, track_name: str = "") -> d
     if tempo_events[0][0] != 0:
         tempo_events.insert(0, (0, DEFAULT_TEMPO_US))
 
+    # Scale pitchwheel by the range the exporter actually used for this track
+    # type (Hydra is 7), not by the no-config fallback of 2 — otherwise the
+    # preview and the in-browser audition understate guitar bends 3.5×.
+    track_cfg = config_for_track_type(track_type) or {}
+    pb_range = float(track_cfg.get("pitch_bend_range") or PITCH_BEND_RANGE_ST)
+
     ks_map = ARTICULATION_MAPS.get(track_type, {})
     if track_type == "OTHER":
         current_articulation = "other"
@@ -460,7 +492,7 @@ def analyze_midi_preview(midi_track, track_type: str, track_name: str = "") -> d
             continue
 
         if msg_type == "pitchwheel" and int(getattr(msg, "pitch", 0)) != 0:
-            bend_semitones = (int(getattr(msg, "pitch", 0)) / 8192.0) * float(PITCH_BEND_RANGE_ST)
+            bend_semitones = (int(getattr(msg, "pitch", 0)) / 8192.0) * pb_range
             for pitch_stack in active_notes.values():
                 for active in pitch_stack:
                     active["pitch_bend_seen"] = True
@@ -758,6 +790,20 @@ def make_zip(job_dir: Path) -> Path:
 
 
 
+def _trim_history(jobs: list[dict[str, Any]], root: Path) -> list[dict[str, Any]]:
+    """Keep the newest jobs and delete the artifacts of the ones dropped.
+
+    Trimming only the manifest list left each dropped job's GP source, MIDI and
+    tracks.zip on disk with no UI path to them and no way to reclaim the space.
+    """
+    kept = jobs[:SESSION_HISTORY_LIMIT]
+    for job in jobs[SESSION_HISTORY_LIMIT:]:
+        job_id = str(job.get("id") or "")
+        if job_id and Path(job_id).name == job_id:
+            shutil.rmtree(root / job_id, ignore_errors=True)
+    return kept
+
+
 def create_parse_job(uploaded_file) -> str:
     """Persist and parse an upload, but do not render MIDI or call a model."""
     root = uploads_root()
@@ -770,7 +816,13 @@ def create_parse_job(uploaded_file) -> str:
     stored_name = unique_name(input_dir, original_name)
     source_path = input_dir / stored_name
     uploaded_file.save(source_path)
-    song = parse_song(source_path)
+    try:
+        song = parse_song(source_path)
+    except Exception:
+        # Nothing references this job yet, so an unparsable upload would sit in
+        # the session volume forever (128 MB each, 1 Gi emptyDir).
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
     job = {
         "id": job_id,
         "stage": "parsed",
@@ -793,7 +845,7 @@ def create_parse_job(uploaded_file) -> str:
     manifest = load_manifest()
     manifest["jobs"] = [item for item in manifest.get("jobs", []) if item.get("id") != job_id]
     manifest["jobs"].insert(0, job)
-    manifest["jobs"] = manifest["jobs"][:SESSION_HISTORY_LIMIT]
+    manifest["jobs"] = _trim_history(manifest["jobs"], root)
     manifest["current_job_id"] = job_id
     save_manifest(manifest)
     return job_id
@@ -1047,7 +1099,7 @@ def create_job(uploaded_file=None, humanize: bool = False,
     manifest = load_manifest()
     manifest["jobs"] = [j for j in manifest.get("jobs", []) if j["id"] != job_id]
     manifest["jobs"].insert(0, job)
-    manifest["jobs"] = manifest["jobs"][:SESSION_HISTORY_LIMIT]
+    manifest["jobs"] = _trim_history(manifest["jobs"], root)
     manifest["current_job_id"] = job_id
     save_manifest(manifest)
     return job_id
@@ -1060,7 +1112,6 @@ def healthz():
     Deliberately does not touch the Asset API: this reports whether the UI
     process itself is serving, so an upstream outage does not restart the pod.
     """
-    from flask import jsonify
     return jsonify({
         "status": "ok",
         "sessions_root_writable": os.access(SESSIONS_ROOT, os.W_OK),
@@ -1150,6 +1201,16 @@ def job_details(job_id: str):
 
 def _job_by_id(manifest: dict[str, Any], job_id: str) -> dict[str, Any] | None:
     return next((job for job in manifest.get("jobs", []) if job.get("id") == job_id), None)
+
+
+def _abort_upstream(status_code: int, message: str):
+    """Abort with an upstream status Werkzeug can actually render.
+
+    `abort(521)` raises LookupError, which turns a clean upstream error into a
+    500 plus a second traceback; anything unknown becomes 502 Bad Gateway.
+    """
+    code = status_code if status_code in default_exceptions else 502
+    abort(code, description=message)
 
 
 @app.post("/jobs/<job_id>/process")
@@ -1313,22 +1374,30 @@ def download_track(job_id: str, filename: str):
     job = _job_by_id(manifest, job_id)
     if job is None or filename not in _artifact_names(job) or Path(filename).name != filename:
         abort(404)
+    if Path(job_id).name != job_id:
+        abort(404)
     path = uploads_root() / job_id / "output" / filename
     if not path.is_file():
         abort(404)
     return send_file(path, as_attachment=True, download_name=path.name)
 
 
-@app.get("/preview/<job_id>/<path:filename>")
+@app.get("/preview/<job_id>/<filename>")
 def preview_track(job_id: str, filename: str):
+    # `filename` must stay a bare basename: with a `path:` converter and no
+    # basename check this route served any readable *.json on the filesystem.
+    if Path(filename).name != filename or Path(job_id).name != job_id:
+        abort(404)
     path = uploads_root() / job_id / "preview" / filename
-    if not path.exists() or path.suffix.lower() != ".json":
+    if not path.is_file() or path.suffix.lower() != ".json":
         abort(404)
     return send_file(path, mimetype="application/json")
 
 
 @app.get("/download/<job_id>/all.zip")
 def download_zip(job_id: str):
+    if Path(job_id).name != job_id:
+        abort(404)
     path = uploads_root() / job_id / "tracks.zip"
     if not path.exists():
         abort(404)
@@ -1585,21 +1654,23 @@ def project_asset_download(project_id: str, link_id: str):
     try:
         client = get_client()
         resp = client.download_asset(project_id, link_id)
-        from flask import Response as FlaskResponse
         disposition = resp.headers.get("Content-Disposition", "")
         content_type = resp.headers.get("Content-Type", "application/octet-stream")
 
         def generate():
-            for chunk in resp.iter_content(65536):
-                yield chunk
+            try:
+                for chunk in resp.iter_content(65536):
+                    yield chunk
+            finally:
+                resp.close()
 
-        return FlaskResponse(
+        return Response(
             generate(),
             content_type=content_type,
             headers={"Content-Disposition": disposition},
         )
     except AssetAPIError as e:
-        abort(e.status_code, description=e.message)
+        _abort_upstream(e.status_code, e.message)
     except Exception as e:
         abort(502, description=f"AILab недоступен: {e}")
 
@@ -1641,9 +1712,16 @@ def project_analysis_report(project_id: str, analysis_id: str):
     try:
         client = get_client()
         html = client.get_analysis_report_html(project_id, analysis_id)
-        return html
+        # The report is built from analysis inputs (filenames, GP track names),
+        # so serve it sandboxed: on this origin the session cookie is the only
+        # authorization there is. The UI already opens it in a new tab.
+        return Response(
+            html,
+            content_type="text/html; charset=utf-8",
+            headers={"Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'"},
+        )
     except AssetAPIError as e:
-        abort(e.status_code, description=e.message)
+        _abort_upstream(e.status_code, e.message)
     except Exception as e:
         abort(502, description=f"Reference-time недоступен: {e}")
 
@@ -1653,10 +1731,9 @@ def project_analysis_report_json(project_id: str, analysis_id: str):
     try:
         client = get_client()
         data = client.get_analysis_report_json(project_id, analysis_id)
-        from flask import jsonify
         return jsonify(data)
     except AssetAPIError as e:
-        abort(e.status_code, description=e.message)
+        _abort_upstream(e.status_code, e.message)
     except Exception as e:
         abort(502, description=f"Reference-time недоступен: {e}")
 
@@ -1669,7 +1746,6 @@ def project_analysis_status(project_id: str, job_id: str):
     drives the polling interval, so a long-running analysis never pins a Flask
     worker waiting for it.
     """
-    from flask import jsonify
     try:
         client = get_client()
         job = client.get_analysis_job(job_id)
@@ -1683,4 +1759,11 @@ def project_analysis_status(project_id: str, job_id: str):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    # Production runs under gunicorn (see Dockerfile). Keep the local runner off
+    # the network and the Werkzeug debugger console opt-in: it executes
+    # arbitrary code for anyone who can reach it.
+    app.run(
+        host=os.environ.get("FLASK_RUN_HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8080")),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )

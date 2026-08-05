@@ -283,9 +283,71 @@ def test_print_pdf_builds_lp_command_and_returns_failures(tmp_path: Path, monkey
     assert result.ok and result.request_id == "HP-42"
     assert run.call_args.args[0] == [
         "lp", "-h", "192.168.20.64", "-d", "HP_P1102",
-        "-o", "media=A4", "-o", "sides=one-sided", str(pdf),
+        "-o", "media=A4", "-o", "sides=one-sided", str(pdf.resolve()),
     ]
 
     run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="offline")
     failed = tab_print.print_pdf(pdf, server="x", printer="y")
     assert not failed.ok and "offline" in failed.error
+
+
+def _synthetic_gp5(path: Path, string: int = 1, fret: int = 5) -> None:
+    """Write a minimal single-note .gp5 through pyguitarpro itself."""
+    import guitarpro
+    from guitarpro import Beat, GuitarString, Measure, Note, Song, Track
+
+    song = Song()
+    header = song.measureHeaders[0]
+    track = Track(song, number=1, name="Guitar")
+    track.strings = [GuitarString(i + 1, p) for i, p in enumerate([64, 59, 55, 50, 45, 40])]
+    measure = Measure(track, header)
+    voice = measure.voices[0]
+    beat = Beat(voice)
+    note = Note(beat)
+    note.string = string
+    note.value = fret
+    beat.notes = [note]
+    voice.beats = [beat]
+    measure.voices = [voice] + measure.voices[1:]
+    track.measures = [measure]
+    song.tracks = [track]
+    guitarpro.write(song, str(path))
+
+
+def _generation(note_positions):
+    from playable_tabs import TrackGeneration
+
+    return TrackGeneration(
+        track_name="Guitar", track_type="GUITAR", basename="Guitar", preset="balanced",
+        params={}, files=[], status={}, mapped=[], note_positions=note_positions,
+    )
+
+
+def test_gp5_refinger_accepts_its_own_correct_output(tmp_path: Path):
+    """`note_positions` is 0-based (gtrsnipe); pyguitarpro reparses 1-based.
+
+    Comparing the two bases directly made every .gp5 re-fingering fail its own
+    invariant and delete the correct file it had just written.
+    """
+    from playable_tabs import refinger_gp
+
+    src = tmp_path / "song.gp5"
+    _synthetic_gp5(src, string=1, fret=5)  # highest string, pitch 69
+    out = refinger_gp(src, {"Guitar": _generation([(0, 5)])}, tmp_path / "refingered.gp5")
+    assert out.is_file()
+
+    # A genuine alternative fingering of the same pitch (B string, fret 10) is
+    # what re-fingering exists to produce, so it must also survive.
+    alt = refinger_gp(src, {"Guitar": _generation([(1, 10)])}, tmp_path / "alt.gp5")
+    assert alt.is_file()
+
+
+def test_gp5_refinger_still_rejects_a_pitch_change(tmp_path: Path):
+    from playable_tabs import refinger_gp
+
+    src = tmp_path / "song.gp5"
+    _synthetic_gp5(src, string=1, fret=5)
+    out = tmp_path / "bad.gp5"
+    with pytest.raises(ValueError, match="invariant failed"):
+        refinger_gp(src, {"Guitar": _generation([(0, 7)])}, out)
+    assert not out.exists()

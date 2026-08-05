@@ -74,7 +74,10 @@ def ascii_to_pdf(
 
     for system_index, lines in enumerate(_systems(text)):
         required = max(1, len(lines)) * line_height + (line_height if system_index else 0)
-        if pdf.get_y() + required > pdf.h - 13:
+        if pdf.get_y() + required > pdf.h - 13 and pdf.get_y() > pdf.t_margin:
+            # At the very top of a fresh page there is nothing to push down:
+            # adding another page would leave a blank one and auto-page-break
+            # splits the oversized system anyway.
             pdf.add_page()
         elif system_index:
             pdf.ln(line_height)
@@ -104,7 +107,9 @@ def print_pdf(
         return PrintResult(False, error="CUPS_PRINTER не настроен")
     command = [
         "lp", "-h", server, "-d", printer,
-        "-o", "media=A4", "-o", "sides=one-sided", str(pdf_path),
+        # Absolute path: a relative name beginning with "-" would be parsed by lp
+        # as an option rather than the file to print.
+        "-o", "media=A4", "-o", "sides=one-sided", str(pdf_path.resolve()),
     ]
     try:
         completed = subprocess.run(command, timeout=timeout, capture_output=True, text=True)

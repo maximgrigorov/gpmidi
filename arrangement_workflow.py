@@ -202,6 +202,15 @@ def _sha256(path: Path) -> str:
 
 def _reset_output(output_dir: Path) -> None:
     if output_dir.exists():
+        # Only wipe directories that are empty or were produced by a previous
+        # run (they carry manifest.json); anything else is likely a caller
+        # mistake (e.g. a mistyped path) and recursive deletion is not ours.
+        if any(output_dir.iterdir()) and not (output_dir / "manifest.json").exists():
+            raise ValueError(
+                f"refusing to delete {output_dir}: directory is not empty and has no "
+                "manifest.json from a previous run; remove it manually or choose an "
+                "empty directory"
+            )
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True)
 
@@ -276,9 +285,14 @@ def apply(
     track_options: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     require_apply_approval(approved)
-    raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    if isinstance(raw_plan.get("plan"), dict):
+    try:
+        raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"plan file {plan_path.name} is not valid JSON: {exc}") from exc
+    if isinstance(raw_plan, dict) and isinstance(raw_plan.get("plan"), dict):
         raw_plan = raw_plan["plan"]
+    if not isinstance(raw_plan, dict):
+        raise ValueError(f"plan file {plan_path.name} must contain a JSON object")
     song = parse_song(source)
     baseline = _render_baseline(
         song, seed=seed, render_options=render_options,
