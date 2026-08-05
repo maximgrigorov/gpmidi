@@ -945,6 +945,18 @@ def test_auto_sustain_vibrato_preserves_explicit_gp_vibrato_without_duplicate():
     assert stats["auto_vibrato_notes"] == 0
 
 
+def test_explicit_gp5_vibrato_without_type_uses_slight_amount():
+    """Старый GP5 хранит vibrato как bool: неизвестный тип не должен дрожать сильнее Slight."""
+    song, track = _mini_song([(1, [(0, 5, False)])])
+    note = track.measures[0].voices[0].beats[0].notes[0]
+    note.effect.vibrato = True
+
+    midi_track, _stats = g.build_instrument_midi(song, track, "GUITAR", cfg=_life_cfg())
+    cc1_values = [value for _tick, value in _absolute_cc(midi_track, g.VIBRATO_CC)]
+
+    assert max(cc1_values) == g.VIBRATO_AMP_BY_TYPE["Slight"] == 32
+
+
 def test_auto_sustain_vibrato_skips_short_notes():
     song, track = _mini_song([
         (8, [(0, 5, False)]),
