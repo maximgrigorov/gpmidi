@@ -112,6 +112,36 @@ def test_velocity_mode_changes_only_musical_attack_velocity():
     assert stats["note_timing_preserved"] is True
 
 
+def test_velocity_mode_leaves_rake_and_pinch_zone_attacks_untouched():
+    """120-126 = Rake, 127 = Pinch на sustain у Hydra — артикуляция, не громкость.
+
+    Раньше _humanize_velocity зажимал такие атаки в VELOCITY_CEILING=119 и
+    pinch harmonic превращался в обычный громкий sustain; тесты подавали на
+    вход только <=119 и пробел не ловили.
+    """
+    track = MidiTrack()
+    track.extend([
+        MetaMessage("track_name", name="Guitar (Solo)", time=0),
+        Message("note_on", note=60, velocity=127, time=0),   # pinch
+        Message("note_off", note=60, velocity=0, time=120),
+        Message("note_on", note=64, velocity=123, time=0),   # rake zone
+        Message("note_off", note=64, velocity=0, time=120),
+        Message("note_on", note=67, velocity=95, time=0),    # normal attack
+        Message("note_off", note=67, velocity=0, time=120),
+        MetaMessage("end_of_track", time=0),
+    ])
+
+    enriched, stats = solo.humanize_solo_track(
+        track, ticks_per_beat=960, seed=19, velocity=True,
+    )
+
+    velocities = {note: velocity for _tick, note, velocity in _note_velocities(enriched)}
+    assert velocities[60] == 127
+    assert velocities[64] == 123
+    assert velocities[67] != 95  # normal attacks are still humanized
+    assert stats["velocity_events_changed"] == 1
+
+
 def test_pitch_mode_densifies_only_between_immutable_anchors():
     baseline = _solo_track()
     enriched, stats = solo.humanize_solo_track(

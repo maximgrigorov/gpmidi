@@ -108,8 +108,13 @@ def _humanize_velocity(
         if (
             message.type != "note_on"
             or int(message.velocity) <= 0
+            or int(message.velocity) > VELOCITY_CEILING
             or int(message.note) in HYDRA_SERVICE_NOTES
         ):
+            # velocity > VELOCITY_CEILING — это vel-зоны Hydra на sustain
+            # (120-126 = Rake, 127 = Pinch): артикуляция, а не громкость.
+            # Зажать такую атаку в 119 значит превратить pinch/rake в обычный
+            # громкий sustain — оставляем 120-127 нетронутыми.
             continue
         phase = tick % ticks_per_beat
         eighth = round(ticks_per_beat / 2)
