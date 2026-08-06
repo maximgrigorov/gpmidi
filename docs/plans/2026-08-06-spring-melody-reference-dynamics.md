@@ -22,12 +22,12 @@ Master:
 
 Stems и их роли:
 
-- `(...)(Vocals).wav` → исходный lead-вокал; в текущем Logic-проекте роль временно исполняет дорожка `Voice` с solo violin.
-- `(...)(Guitar).wav` → **единый неразделимый stem rhythm + solo guitar**. В Nova и Logic регулируется только целиком; попытка разделить ритм и соло запрещена.
-- `(...)(Synth).wav` → исходная общая роль Synth; в текущем проекте переносится на пару `Synth 1 + Synth 2`, обе озвучены Hydra.
-- `(...)(Keyboard).wav` → исходная общая роль Keyboard; в текущем проекте переносится на пару treble-clef + bass-clef.
-- `(...)(Drums).wav` → Drums.
-- `(...)(Bass).wav` → Bass.
+- `(...)(Vocals).wav` → `Voice (Strings)_SM.wav`.
+- `(...)(Guitar).wav` → reference — **единый неразделимый stem rhythm + solo guitar**; в текущем проекте его роль переносят на `Rhytm Guitar_SM.wav` + `Lead Guitar_SM.wav` одновременно. Раздельная automation из reference не выводится.
+- `(...)(Synth).wav` → `Stell Guitar 1_SM.wav` + `Steel Guitar 2_SM.wav` одновременно. В Nova не использовать внутреннее название Hydra.
+- `(...)(Keyboard).wav` → `Piano 1_SM.wav` + `Piano 2_SM.wav` одновременно.
+- `(...)(Drums).wav` → `Drums_SM.wav`.
+- `(...)(Bass).wav` → `Bass_SM.wav`.
 
 Reference MIDI:
 
@@ -91,11 +91,12 @@ Reference MIDI:
 
 - Пересекающиеся диапазоны разных инструментов группировать в одно сообщение по тактам.
 - Не писать отдельную команду для common-mode подъёма всего ансамбля.
-- `Guitar` всегда упоминать как единый stem: rhythm и solo одновременно.
-- `Synth` переводить в совместное изменение пары Hydra `Synth 1 + Synth 2`.
-- `Keyboard` переводить в совместное изменение пары treble/bass clef; внутри пары не изобретать раздельную automation, которой нет в reference stem.
-- `Vocals` переводить на текущую `Voice`/solo violin только как динамическую роль. Тембральную обработку вокала на скрипку не переносить.
+- `Guitar` переводить в одинаковое одновременное изменение `Rhytm Guitar_SM.wav` + `Lead Guitar_SM.wav`.
+- `Synth` переводить в совместное изменение `Stell Guitar 1_SM.wav` + `Steel Guitar 2_SM.wav`.
+- `Keyboard` переводить в совместное изменение `Piano 1_SM.wav` + `Piano 2_SM.wav`; внутри пары не изобретать раздельную automation, которой нет в reference stem.
+- `Vocals` переводить на `Voice (Strings)_SM.wav` только как динамическую роль. Тембральную обработку вокала на strings не переносить.
 - Формулировать коротко: диапазон тактов, что поднять/опустить, ориентировочная величина и музыкальная роль.
+- В каждом диапазоне указывать точные project timestamps `MM:SS.mmm–MM:SS.mmm`, вычисленные из MIDI tempo map. Номер такта без тайминга недостаточен для Nova.
 
 ## 7. Артефакты
 
@@ -123,7 +124,7 @@ Reference MIDI:
 - 23 сгруппированных сообщения Nova;
 - self-contained HTML: `/home/hermes/reports/spring-melody-reference-dynamics/reference_dynamics.html`;
 - опубликованный URL: `http://192.168.40.254/shared/spring-melody-reference-dynamics/reference_dynamics.html`;
-- SHA-256 финального HTML: `6e59ae7f96750e41c34efcc83fc6080e95512629ad95ff422e216f266b8225f0`.
+- SHA-256 финального HTML v2: `191ad0b18b7c33e9d23fe5628d275647350c0d7438bebd843d2ff96e83183836`.
 
 ## 8. Содержание HTML
 
@@ -134,8 +135,9 @@ Reference MIDI:
 5. График относительных отклонений `R_i,b` с линиями `±2.0 dB`.
 6. Heatmap «инструмент × такт».
 7. Отобранные диапазоны и готовые сообщения Nova с Copy-кнопками.
-8. Полная таблица метрик и collapsed technical details.
-9. Явное ограничение: измеряется слышимый результат stem, а не скрытая исходная plugin/fader automation.
+8. Полная таблица `такт → точное начало → точный конец`.
+9. Полная таблица метрик и collapsed technical details.
+10. Явное ограничение: измеряется слышимый результат stem, а не скрытая исходная plugin/fader automation.
 
 ## 9. Проверка
 
@@ -143,7 +145,7 @@ Reference MIDI:
 - Границы тактов монотонны, не выходят за WAV и совпадают между всеми reference MIDI.
 - K-weighted и RMS-кривые качественно согласуются; сильные расхождения отмечаются как спектрально обусловленные.
 - Silence не превращается в команду «опустить ещё сильнее».
-- Ни одна инструкция не разделяет rhythm/solo внутри Guitar stem.
+- Каждая Guitar-инструкция называет `Rhytm Guitar_SM.wav` и `Lead Guitar_SM.wav` вместе и требует одинакового изменения обеих дорожек.
 - Слабые изменения ниже порога не попадают в prompts.
 - JSON/CSV и числа в HTML генерируются одним кодом.
 - HTML открывается без внешней сети, графики и Copy-кнопки работают.
@@ -161,6 +163,8 @@ Reference MIDI:
 - локальные и опубликованные HTML/JSON/CSV/prompts/manifest совпали byte-for-byte;
 - Chromium desktop render 1920×1080: PASS; 4/4 images loaded, horizontal overflow отсутствует, 23/23 Copy-кнопки найдены, JS errors отсутствуют;
 - первоначальный дефект графика с отображением неактивного noise floor до `−100 dB` исправлен: неактивные участки теперь показаны разрывами линий.
+- HTML v2 semantic validation: PASS — точные девять Nova track names, 96 границ для 95 тактов, timestamps во всех 23 prompts и 37 диапазонах, 95 строк полной timing-grid; старые `Hydra`/`Synth 1`/`Synth 2` в пользовательских артефактах отсутствуют.
+- HTML v2 browser validation: PASS — 4/4 графика загружены, 23/23 Copy-кнопки, горизонтальный overflow отсутствует, JS errors отсутствуют; served-файлы совпадают с локальными byte-for-byte.
 
 ## 10. Воспроизведение и handoff
 
@@ -188,3 +192,5 @@ Reference MIDI:
 - `2026-08-06`: после sensitivity-check порог повышен с `1.5` до `2.0 dB`, а single-bar gate с `2.5` до `3.0 dB`. Это уменьшило результат с 46 диапазонов / 28 prompts до 37 / 23, сохранив 13 длинных диапазонов от четырёх тактов; отброшены преимущественно мелкие Voice/Synth-флуктуации.
 - `2026-08-06`: добавлена независимая RMS-проверка K-weighted кривых. Фактическая корреляция по ролям составила `0.884–0.994`, поэтому выбранные изменения не объясняются одним perceptual weighting.
 - `2026-08-06`: из-за несовместимости системных NumPy/SciPy анализ запускается в отдельном venv `/home/hermes/.cache/spring-melody-reference-dynamics-venv` с NumPy 1.26.4, SciPy 1.13.1, SoundFile 0.13.1, Matplotlib 3.8.4 и mido 1.3.3; рабочее окружение gpmidi не изменялось.
+- `2026-08-06`: после ответа Nova заменены внутренние/условные названия на точные имена девяти текущих дорожек. Reference Guitar теперь явно управляет `Rhytm Guitar_SM.wav` + `Lead Guitar_SM.wav` совместно; reference Synth — `Stell Guitar 1_SM.wav` + `Steel Guitar 2_SM.wav` совместно.
+- `2026-08-06`: каждый Nova-prompt и каждый detected range дополнен точными start/end timestamps; в HTML добавлена полная таблица границ всех 95 тактов. Причина: Nova не может найти такты без временных координат waveform.

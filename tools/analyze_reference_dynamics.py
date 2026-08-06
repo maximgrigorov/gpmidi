@@ -47,13 +47,24 @@ COLORS = {
     "Keyboard pair": "#76b7b2",
 }
 CURRENT_TARGET = {
-    "Voice": "Voice (temporary solo violin)",
-    "Guitar": "the merged Guitar stem (rhythm + solo together)",
-    "Synth pair": "Synth 1 and Synth 2 together as the Hydra pair",
-    "Drums": "Drums",
-    "Bass": "Bass",
-    "Keyboard pair": "both Keyboard tracks together (treble + bass clef)",
+    "Voice": "Voice (Strings)_SM.wav",
+    "Guitar": "Rhytm Guitar_SM.wav and Lead Guitar_SM.wav together",
+    "Synth pair": "Stell Guitar 1_SM.wav and Steel Guitar 2_SM.wav together",
+    "Drums": "Drums_SM.wav",
+    "Bass": "Bass_SM.wav",
+    "Keyboard pair": "Piano 1_SM.wav and Piano 2_SM.wav together",
 }
+CURRENT_TRACKS = [
+    ("Acoustic Guitar", "Steel Guitar 2_SM.wav"),
+    ("Bass Guitar", "Bass_SM.wav"),
+    ("Electric Guitar", "Rhytm Guitar_SM.wav"),
+    ("Strings", "Voice (Strings)_SM.wav"),
+    ("Electric Guitar", "Lead Guitar_SM.wav"),
+    ("Drums", "Drums_SM.wav"),
+    ("Piano", "Piano 2_SM.wav"),
+    ("Acoustic Guitar", "Stell Guitar 1_SM.wav"),
+    ("Piano", "Piano 1_SM.wav"),
+]
 
 # ITU-R BS.1770 K-weighting coefficients for 48 kHz.
 K_SHELF_B = np.array([1.53512485958697, -2.69169618940638, 1.19839281085285])
@@ -304,17 +315,36 @@ def detect_segments(role: str, relative: np.ndarray, active: np.ndarray, thresho
     return segments
 
 
-def segment_to_text(segment: Segment) -> str:
+def format_timestamp(seconds: float) -> str:
+    total_ms = int(round(seconds * 1000.0))
+    minutes, remainder = divmod(total_ms, 60_000)
+    secs, millis = divmod(remainder, 1000)
+    return f"{minutes:02d}:{secs:02d}.{millis:03d}"
+
+
+def segment_record(segment: Segment, boundaries: list[float]) -> dict[str, Any]:
+    record = dict(segment.__dict__)
+    record.update({
+        "start_seconds": boundaries[segment.start_bar - 1],
+        "end_seconds": boundaries[segment.end_bar],
+        "start_timestamp": format_timestamp(boundaries[segment.start_bar - 1]),
+        "end_timestamp": format_timestamp(boundaries[segment.end_bar]),
+    })
+    return record
+
+
+def segment_to_text(segment: Segment, boundaries: list[float]) -> str:
     target = CURRENT_TARGET[segment.role]
     amount = round(abs(segment.median_db) * 2) / 2
     bars = f"bar {segment.start_bar}" if segment.start_bar == segment.end_bar else f"bars {segment.start_bar}–{segment.end_bar}"
+    timing = f"{format_timestamp(boundaries[segment.start_bar - 1])}–{format_timestamp(boundaries[segment.end_bar])}"
     verb = "bring up" if segment.direction == "raise" else "pull back"
-    caveat = " Keep rhythm and solo guitar linked; do not automate them separately." if segment.role == "Guitar" else ""
+    caveat = " Apply the same level change to both guitar tracks; the reference does not support separate rhythm/lead automation." if segment.role == "Guitar" else ""
     caution = " This is a strong structural contrast; audition before keeping the full amount." if abs(segment.median_db) >= 6.0 else ""
-    return f"For {bars}, {verb} {target} by about {amount:.1f} dB relative to the other active instruments.{caveat}{caution}"
+    return f"For {bars} ({timing}), {verb} {target} by about {amount:.1f} dB relative to the other active instruments.{caveat}{caution}"
 
 
-def group_prompts(segments: list[Segment]) -> list[dict[str, Any]]:
+def group_prompts(segments: list[Segment], boundaries: list[float]) -> list[dict[str, Any]]:
     # Conservative grouping: only segments with near-identical windows are combined.
     remaining = sorted(segments, key=lambda s: (s.start_bar, s.end_bar, ROLE_ORDER.index(s.role)))
     groups: list[list[Segment]] = []
@@ -337,13 +367,17 @@ def group_prompts(segments: list[Segment]) -> list[dict[str, Any]]:
     for number, group in enumerate(groups, 1):
         start = min(s.start_bar for s in group)
         end = max(s.end_bar for s in group)
-        sentences = [segment_to_text(s) for s in group]
+        sentences = [segment_to_text(s, boundaries) for s in group]
         sentences.append("Keep the transition smooth and leave all smaller fluctuations unchanged for the later mix/master pass.")
         prompts.append({
             "number": number,
             "start_bar": start,
             "end_bar": end,
-            "segments": [s.__dict__ for s in group],
+            "start_seconds": boundaries[start - 1],
+            "end_seconds": boundaries[end],
+            "start_timestamp": format_timestamp(boundaries[start - 1]),
+            "end_timestamp": format_timestamp(boundaries[end]),
+            "segments": [segment_record(s, boundaries) for s in group],
             "text": " ".join(sentences),
         })
     return prompts
@@ -417,16 +451,22 @@ def make_plots(output: Path, processed: dict[str, Any], threshold: float) -> dic
 def build_html(data: dict[str, Any], uris: dict[str, str]) -> str:
     prompts = data["prompts"]
     prompt_cards = "\n".join(
-        f'''<article class="prompt-card"><header><b>Nova {p["number"]}</b><span>такты {p["start_bar"]}–{p["end_bar"]}</span></header><p class="prompt">{html.escape(p["text"])}</p><button onclick="copyPrompt(this)">Copy</button></article>'''
+        f'''<article class="prompt-card"><header><b>Nova {p["number"]}</b><span>такты {p["start_bar"]}–{p["end_bar"]} · {p["start_timestamp"]}–{p["end_timestamp"]}</span></header><p class="prompt">{html.escape(p["text"])}</p><button onclick="copyPrompt(this)">Copy</button></article>'''
         for p in prompts
     ) or '<p class="ok">Нет устойчивых относительных отклонений выше порога.</p>'
     seg_rows = []
     for seg in data["segments"]:
-        seg_rows.append(f"<tr><td>{html.escape(seg['role'])}</td><td>{seg['start_bar']}–{seg['end_bar']}</td><td>{'поднять' if seg['direction']=='raise' else 'опустить'}</td><td>{seg['median_db']:+.2f}</td><td>{seg['peak_db']:+.2f}</td></tr>")
+        seg_rows.append(f"<tr><td>{html.escape(seg['role'])}</td><td>{seg['start_bar']}–{seg['end_bar']}</td><td>{seg['start_timestamp']}–{seg['end_timestamp']}</td><td>{'поднять' if seg['direction']=='raise' else 'опустить'}</td><td>{seg['median_db']:+.2f}</td><td>{seg['peak_db']:+.2f}</td></tr>")
     role_cards = "".join(
         f'<div><b>{r}</b><span>{html.escape(CURRENT_TARGET[r])}</span><small>K/RMS correlation {data["metric_validation"][r]["k_vs_rms_correlation"]:.3f}</small></div>' for r in ROLE_ORDER
     )
     meta = data["bar_grid"]
+    boundaries = meta["boundaries_seconds"]
+    timing_rows = "".join(
+        f"<tr><td>{bar}</td><td><code>{format_timestamp(boundaries[bar - 1])}</code></td><td><code>{format_timestamp(boundaries[bar])}</code></td><td>{boundaries[bar] - boundaries[bar - 1]:.3f} s</td></tr>"
+        for bar in range(1, meta["full_bars"] + 1)
+    )
+    track_rows = "".join(f"<li><b>{html.escape(kind)}</b> — <code>{html.escape(name)}</code></li>" for kind, name in CURRENT_TRACKS)
     inputs = "".join(f"<li><code>{html.escape(v['wav']['path'])}</code><small>SHA-256 {v['wav']['sha256']}</small></li>" for v in data["inputs"]["stems"].values())
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spring Melody — динамика reference stems</title>
 <style>
@@ -435,16 +475,18 @@ def build_html(data: dict[str, Any], uris: dict[str, str]) -> str:
 <p class="lead">REFERENCE MIX ANALYSIS / 2026-08-06</p><h1>Spring Melody: потактовая динамика инструментов</h1>
 <p class="lead">Отчёт восстанавливает слышимую относительную иерархию из шести готовых stems. Он намеренно не копирует каждое колебание: Nova получает только устойчивые отклонения выше порога.</p>
 <div class="verdict"><div><b>{meta['full_bars']}</b><span>полных тактов 4/4</span></div><div><b>{data['thresholds']['main_db']:.1f} dB</b><span>основной порог</span></div><div><b>{len(data['segments'])}</b><span>отобранных диапазонов</span></div><div><b>{len(prompts)}</b><span>сообщений Nova</span></div></div>
-<div class="notice"><b>Guitar — один merged stem.</b> Rhythm и solo в reference неразделимы, поэтому любая рекомендация меняет их одновременно. Более точная внутренняя динамика остаётся для ручной правки на слух.</div>
+<div class="notice"><b>Reference Guitar — один merged stem.</b> В текущем проекте это две дорожки: <code>Rhytm Guitar_SM.wav</code> и <code>Lead Guitar_SM.wav</code>. Каждая рекомендация меняет обе одновременно; раздельная automation из reference не выводится.</div>
 <h2>Mapping на текущий Logic/Cryo проект</h2><div class="mapping">{role_cards}</div>
+<details open><summary>Точный список дорожек, известный Nova</summary><ul>{track_rows}</ul></details>
+<details><summary>Полная сетка: такт → начало → конец</summary><table><thead><tr><th>Такт</th><th>Начало</th><th>Конец</th><th>Длительность</th></tr></thead><tbody>{timing_rows}</tbody></table></details>
 <h2>1. Что реально происходит внутри stems</h2><figure><img src="{uris['within']}" alt="Внутренняя динамика"><figcaption>Каждая линия центрирована по собственной активной медиане. Это ещё не инструкция для фейдера: здесь смешаны общая энергия секции и смена относительной роли.</figcaption></figure>
 <h2>2. Общая динамика ансамбля</h2><figure><img src="{uris['common']}" alt="Common mode"><figcaption>Эта кривая удалена перед поиском Nova-команд. Она описывает общий подъём/спад песни, который не надо дублировать одинаковой automation на каждом stem.</figcaption></figure>
 <h2>3. Относительная роль каждого инструмента</h2><figure><img src="{uris['relative']}" alt="Relative deviations"><figcaption>Пунктир — порог ±{data['thresholds']['main_db']:.1f} dB. Серые зоны оставлены без инструкций.</figcaption></figure>
 <figure><img src="{uris['heatmap']}" alt="Heatmap"><figcaption>Heatmap помогает увидеть передачу фокуса между инструментами по тактам.</figcaption></figure>
 <h2>4. Минимальный набор сообщений Nova</h2><div class="prompts">{prompt_cards}</div>
-<h2>5. Отобранные диапазоны</h2><table><thead><tr><th>Инструмент</th><th>Такты</th><th>Действие</th><th>Медиана, dB</th><th>Пик, dB</th></tr></thead><tbody>{''.join(seg_rows)}</tbody></table>
+<h2>5. Отобранные диапазоны</h2><table><thead><tr><th>Инструмент</th><th>Такты</th><th>Тайминг</th><th>Действие</th><th>Медиана, dB</th><th>Пик, dB</th></tr></thead><tbody>{''.join(seg_rows)}</tbody></table>
 <details><summary>Метод</summary><p>Границы тактов вычислены из общей reference MIDI tempo map: {meta['tempo_event_count']} tempo-события, {meta['tempo_bpm_min']:.2f}–{meta['tempo_bpm_max']:.2f} BPM. Для каждого полного такта измерена ungated K-weighted mean-square энергия, включая паузы, и независимо обычный RMS. Затем из каждой stem-кривой вычтена её активная медиана, а из каждого такта — robust common-mode активных stems. Median filter шириной три такта подавляет одиночные выбросы. Диапазон сохраняется при двух тактах выше порога; одиночный такт — только от {data['thresholds']['single_bar_db']:.1f} dB. Корреляция K-weighted и RMS кривых показана в mapping: это проверка, что диапазоны не возникли только из perceptual weighting.</p></details>
-<details><summary>Ограничения</summary><p>Мы восстанавливаем слышимый результат, но не можем отделить исходный фейдер от исполнения, компрессии и тембра. Это не мешает перенести полезную макродинамику. Old Vocals задаёт динамическую роль текущей Voice/скрипки, но не её тембр. Synth и Keyboard переносятся только как совместные пары.</p></details>
+<details><summary>Ограничения</summary><p>Мы восстанавливаем слышимый результат, но не можем отделить исходный фейдер от исполнения, компрессии и тембра. Это не мешает перенести полезную макродинамику. Old Vocals задаёт динамическую роль <code>Voice (Strings)_SM.wav</code>, но не её тембр. Reference Synth переносится только на связанную пару <code>Stell Guitar 1_SM.wav</code> + <code>Steel Guitar 2_SM.wav</code>; Keyboard — на <code>Piano 1_SM.wav</code> + <code>Piano 2_SM.wav</code>.</p></details>
 <details><summary>Входы и provenance</summary><ul>{inputs}</ul><p>Master/stem consistency: correlation {data['master_validation']['correlation']:.4f}, residual after optimal scalar gain {data['master_validation']['residual_relative_db']:.2f} dB relative to master.</p></details>
 <script>function copyPrompt(b){{const t=b.parentElement.querySelector('.prompt').innerText;const done=()=>{{b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1300)}};if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t).then(done);else{{const a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();done()}}}}</script>
 </main></body></html>'''
@@ -568,18 +610,19 @@ def main() -> None:
         role_segments = detect_segments(role, rel, active_by_role[role], args.threshold_db, args.single_bar_threshold_db)
         segments.extend(role_segments)
     segments.sort(key=lambda s: (s.start_bar, s.end_bar, ROLE_ORDER.index(s.role)))
-    prompts = group_prompts(segments)
+    prompts = group_prompts(segments, boundaries)
 
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "purpose": "audible relative reference-stem dynamics, not hidden DAW automation recovery",
         "inputs": input_meta,
         "bar_grid": bar_meta,
+        "current_tracks": [{"type": kind, "name": name} for kind, name in CURRENT_TRACKS],
         "thresholds": {"main_db": args.threshold_db, "single_bar_db": args.single_bar_threshold_db, "smoothing_bars": 3},
         "raw_metrics": raw,
         "processed": processed,
         "metric_validation": metric_validation,
-        "segments": [s.__dict__ for s in segments],
+        "segments": [segment_record(s, boundaries) for s in segments],
         "prompts": prompts,
         "master_validation": master_validation,
     }
@@ -589,17 +632,17 @@ def main() -> None:
     csv_path = args.output / "reference_dynamics.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["bar", "start_s", "end_s", "role", "active", "k_loudness_db", "rms_dbfs", "within_stem_db", "smoothed_within_db", "common_mode_db", "relative_db"])
+        writer.writerow(["bar", "start_s", "end_s", "start_timestamp", "end_timestamp", "role", "active", "k_loudness_db", "rms_dbfs", "within_stem_db", "smoothed_within_db", "common_mode_db", "relative_db"])
         for idx in range(bar_meta["full_bars"]):
             for role in ROLE_ORDER:
                 p = processed["roles"][role]
                 writer.writerow([
-                    idx + 1, boundaries[idx], boundaries[idx + 1], role, p["active"][idx], raw[role]["k_loudness_db"][idx], raw[role]["rms_dbfs"][idx],
+                    idx + 1, boundaries[idx], boundaries[idx + 1], format_timestamp(boundaries[idx]), format_timestamp(boundaries[idx + 1]), role, p["active"][idx], raw[role]["k_loudness_db"][idx], raw[role]["rms_dbfs"][idx],
                     p["within_stem_db"][idx], p["smoothed_within_db"][idx], common[idx], p["relative_db"][idx],
                 ])
 
     prompt_path = args.output / "reference_dynamics_prompts.txt"
-    prompt_path.write_text("\n\n".join(f"NOVA {p['number']} — BARS {p['start_bar']}–{p['end_bar']}\n{p['text']}" for p in prompts) + "\n", encoding="utf-8")
+    prompt_path.write_text("\n\n".join(f"NOVA {p['number']} — BARS {p['start_bar']}–{p['end_bar']} — {p['start_timestamp']}–{p['end_timestamp']}\n{p['text']}" for p in prompts) + "\n", encoding="utf-8")
 
     uris = make_plots(args.output, processed, args.threshold_db)
     html_path = args.output / "reference_dynamics.html"
