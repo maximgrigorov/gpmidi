@@ -19,9 +19,10 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import mido
@@ -407,8 +408,12 @@ def make_plots(output: Path, processed: dict[str, Any], threshold: float) -> dic
     ax.axhline(0, color="#94a3b8", lw=.8)
     ax.set_xlim(.5, processed["bar_count"] + .5)
     ax.set(title="Внутренняя динамика каждого stem относительно его активной медианы", xlabel="Такт", ylabel="dB")
-    ax.grid(alpha=.18); ax.legend(ncol=6, loc="upper center", bbox_to_anchor=(.5, 1.16))
-    ax.tick_params(colors="#cbd5e1"); ax.xaxis.label.set_color("#cbd5e1"); ax.yaxis.label.set_color("#cbd5e1"); ax.title.set_color("#f8fafc")
+    ax.grid(alpha=.18)
+    ax.legend(ncol=6, loc="upper center", bbox_to_anchor=(.5, 1.16))
+    ax.tick_params(colors="#cbd5e1")
+    ax.xaxis.label.set_color("#cbd5e1")
+    ax.yaxis.label.set_color("#cbd5e1")
+    ax.title.set_color("#f8fafc")
     uris["within"] = png_data_uri(fig, plots / "01_within_stem_dynamics.png")
 
     fig, ax = plt.subplots(figsize=(18, 4.5), facecolor="#0f172a")
@@ -418,7 +423,11 @@ def make_plots(output: Path, processed: dict[str, Any], threshold: float) -> dic
     ax.axhline(0, color="#94a3b8", lw=.8)
     ax.set_xlim(.5, processed["bar_count"] + .5)
     ax.set(title="Common-mode: общий подъём/спад ансамбля — не превращаем в шесть отдельных команд", xlabel="Такт", ylabel="dB")
-    ax.grid(alpha=.18); ax.tick_params(colors="#cbd5e1"); ax.xaxis.label.set_color("#cbd5e1"); ax.yaxis.label.set_color("#cbd5e1"); ax.title.set_color("#f8fafc")
+    ax.grid(alpha=.18)
+    ax.tick_params(colors="#cbd5e1")
+    ax.xaxis.label.set_color("#cbd5e1")
+    ax.yaxis.label.set_color("#cbd5e1")
+    ax.title.set_color("#f8fafc")
     uris["common"] = png_data_uri(fig, plots / "02_common_mode.png")
 
     fig, axes = plt.subplots(len(ROLE_ORDER), 1, figsize=(18, 13), sharex=True, facecolor="#0f172a")
@@ -426,11 +435,13 @@ def make_plots(output: Path, processed: dict[str, Any], threshold: float) -> dic
         ax.set_facecolor("#111c34")
         vals = np.array(processed["roles"][role]["relative_db"], dtype=float)
         ax.plot(bars, vals, color=COLORS[role], lw=1.8)
-        ax.axhline(threshold, color="#ef4444", ls="--", lw=.8); ax.axhline(-threshold, color="#ef4444", ls="--", lw=.8)
+        ax.axhline(threshold, color="#ef4444", ls="--", lw=.8)
+        ax.axhline(-threshold, color="#ef4444", ls="--", lw=.8)
         ax.fill_between(bars, -threshold, threshold, color="#334155", alpha=.25)
         ax.set_xlim(.5, processed["bar_count"] + .5)
         ax.set_ylabel(role, rotation=0, ha="right", va="center", color="#f8fafc")
-        ax.grid(alpha=.15); ax.tick_params(colors="#cbd5e1")
+        ax.grid(alpha=.15)
+        ax.tick_params(colors="#cbd5e1")
     axes[-1].set_xlabel("Такт", color="#cbd5e1")
     axes[0].set_title("Относительные отклонения после удаления common-mode", color="#f8fafc", pad=12)
     uris["relative"] = png_data_uri(fig, plots / "03_relative_deviations.png")
@@ -441,9 +452,15 @@ def make_plots(output: Path, processed: dict[str, Any], threshold: float) -> dic
     fig, ax = plt.subplots(figsize=(18, 4.5), facecolor="#0f172a")
     ax.set_facecolor("#111c34")
     im = ax.imshow(masked, aspect="auto", cmap="RdBu_r", vmin=-vmax, vmax=vmax, extent=[.5, processed["bar_count"]+.5, len(ROLE_ORDER)-.5, -.5])
-    ax.set_yticks(range(len(ROLE_ORDER)), ROLE_ORDER); ax.set_xlabel("Такт"); ax.set_title("Heatmap относительной роли: красный = вперёд, синий = назад")
-    ax.tick_params(colors="#cbd5e1"); ax.xaxis.label.set_color("#cbd5e1"); ax.title.set_color("#f8fafc")
-    cb=fig.colorbar(im, ax=ax, pad=.01); cb.set_label("dB", color="#cbd5e1"); cb.ax.tick_params(colors="#cbd5e1")
+    ax.set_yticks(range(len(ROLE_ORDER)), ROLE_ORDER)
+    ax.set_xlabel("Такт")
+    ax.set_title("Heatmap относительной роли: красный = вперёд, синий = назад")
+    ax.tick_params(colors="#cbd5e1")
+    ax.xaxis.label.set_color("#cbd5e1")
+    ax.title.set_color("#f8fafc")
+    cb=fig.colorbar(im, ax=ax, pad=.01)
+    cb.set_label("dB", color="#cbd5e1")
+    cb.ax.tick_params(colors="#cbd5e1")
     uris["heatmap"] = png_data_uri(fig, plots / "04_relative_heatmap.png")
     return uris
 
@@ -502,8 +519,11 @@ def validate_master(master_path: Path, mix_sum: np.ndarray) -> dict[str, float]:
     for start in range(0, len(master), chunk):
         x = mix_sum[start:start + chunk].astype(np.float64, copy=False).reshape(-1)
         y = master[start:start + chunk].astype(np.float64, copy=False).reshape(-1)
-        sums["x"] += float(np.sum(x)); sums["y"] += float(np.sum(y))
-        sums["xx"] += float(np.dot(x, x)); sums["yy"] += float(np.dot(y, y)); sums["xy"] += float(np.dot(x, y))
+        sums["x"] += float(np.sum(x))
+        sums["y"] += float(np.sum(y))
+        sums["xx"] += float(np.dot(x, x))
+        sums["yy"] += float(np.dot(y, y))
+        sums["xy"] += float(np.dot(x, y))
         sums["n"] += len(x)
     gain = sums["xy"] / max(sums["xx"], EPS)
     residual_square_sum = sums["yy"] - 2.0 * gain * sums["xy"] + gain * gain * sums["xx"]
