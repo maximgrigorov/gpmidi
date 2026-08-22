@@ -31,6 +31,7 @@ from werkzeug.utils import secure_filename
 from arrangement_openai import (
     INSTRUCTIONS,
     MAX_INSTRUCTIONS_CHARS,
+    OpenAIDraftError,
     create_openai_draft,
     get_openai_config,
     is_openai_configured,
@@ -1028,12 +1029,29 @@ def create_job(uploaded_file=None, humanize: bool = False,
                 "usage_actual": draft_result.get("usage", {}),
             }
             arrangement_artifacts = [context_name, prompt_name, plan_name, usage_name]
+        except OpenAIDraftError as exc:
+            arrangement = {
+                "status": "draft_error",
+                "error": str(exc),
+                "diagnostic_code": exc.code,
+                "context_name": context_name,
+                "context_url": url_for("download_track", job_id=job_id, filename=context_name) if context_name else None,
+            }
+            if exc.provider_request_id:
+                arrangement["provider_request_id"] = exc.provider_request_id
+            if prompt_name and prompt_sha256 and (output_dir / prompt_name).is_file():
+                arrangement["prompt_name"] = prompt_name
+                arrangement["prompt_url"] = url_for(
+                    "download_track", job_id=job_id, filename=prompt_name
+                )
+                arrangement["prompt_sha256"] = prompt_sha256
+                arrangement_artifacts = [context_name, prompt_name]
         except Exception:
-            # Catch error so baseline job still succeeds with arrangement draft_error status
-            # Keep context artifact and baseline, use fixed sanitized user message
+            # Unexpected local failures remain fully generic and cannot leak details.
             arrangement = {
                 "status": "draft_error",
                 "error": "OpenAI draft request failed - please check your configuration",
+                "diagnostic_code": "unexpected_local_error",
                 "context_name": context_name,
                 "context_url": url_for("download_track", job_id=job_id, filename=context_name) if context_name else None,
             }

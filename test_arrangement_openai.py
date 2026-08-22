@@ -177,12 +177,72 @@ def test_remote_and_decode_errors_are_sanitized(monkeypatch, failure):
     assert caught.value.__cause__ is None
 
 
+@pytest.mark.parametrize(("status", "expected_code", "expected_message"), [
+    (400, "provider_rejected", "rejected the request (HTTP 400)"),
+    (401, "authentication_failed", "authentication failed (HTTP 401)"),
+    (429, "rate_limited", "rate limit (HTTP 429)"),
+    (500, "provider_unavailable", "temporarily unavailable (HTTP 500)"),
+])
+def test_http_failures_expose_safe_diagnostic_category_without_response_body(
+    monkeypatch, status, expected_code, expected_message
+):
+    reply = response()
+    reply.status_code = status
+    reply.headers = {"x-request-id": "req_safe_123"}
+    reply.text = "unit-test-token upstream secret body"
+    error = requests.HTTPError("unit-test-token upstream secret body", response=reply)
+    reply.raise_for_status.side_effect = error
+    monkeypatch.setattr(provider.requests, "post", MagicMock(return_value=reply))
+
+    with pytest.raises(provider.OpenAIDraftError) as caught:
+        provider.create_openai_draft(context(), config())
+
+    assert caught.value.code == expected_code
+    assert expected_message in str(caught.value)
+    assert caught.value.provider_request_id == "req_safe_123"
+    assert "unit-test-token" not in str(caught.value)
+    assert "secret body" not in str(caught.value)
+    assert caught.value.__cause__ is None
+
+
+def test_timeout_and_empty_output_have_distinct_safe_diagnostics(monkeypatch):
+    monkeypatch.setattr(
+        provider.requests, "post", MagicMock(side_effect=requests.Timeout("unit-test-token"))
+    )
+    with pytest.raises(provider.OpenAIDraftError) as timeout:
+        provider.create_openai_draft(context(), config())
+    assert timeout.value.code == "timeout"
+    assert "timed out" in str(timeout.value)
+
+    reply = response()
+    reply.json.return_value["output"] = []
+    monkeypatch.setattr(provider.requests, "post", MagicMock(return_value=reply))
+    with pytest.raises(provider.OpenAIDraftError) as empty:
+        provider.create_openai_draft(context(), config())
+    assert empty.value.code == "empty_output"
+    assert "no usable output" in str(empty.value)
+
+
+def test_empty_output_does_not_expose_untrusted_response_id(monkeypatch):
+    reply = response()
+    reply.json.return_value["id"] = "unit-test-token secret body"
+    reply.json.return_value["output"] = []
+    monkeypatch.setattr(provider.requests, "post", MagicMock(return_value=reply))
+
+    with pytest.raises(provider.OpenAIDraftError) as caught:
+        provider.create_openai_draft(context(), config())
+
+    assert caught.value.provider_request_id is None
+    assert "unit-test-token" not in str(caught.value)
+
+
 def test_empty_output_is_failure(monkeypatch):
     reply = response()
     reply.json.return_value["output"] = []
     monkeypatch.setattr(provider.requests, "post", MagicMock(return_value=reply))
-    with pytest.raises(provider.OpenAIDraftError, match="request or response failed"):
+    with pytest.raises(provider.OpenAIDraftError, match="no usable output") as caught:
         provider.create_openai_draft(context(), config())
+    assert caught.value.code == "empty_output"
 
 
 def test_incomplete_plan_missing_solo_track_fails_closed(monkeypatch):

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from typing import Any
 
 import requests
@@ -91,6 +92,43 @@ explicit approval step."""
 
 class OpenAIDraftError(RuntimeError):
     """Safe provider error whose message contains no remote body or credential."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "draft_failed",
+        provider_request_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.provider_request_id = provider_request_id
+
+
+def _safe_identifier(value: Any) -> str | None:
+    text = str(value or "")
+    return text if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", text) else None
+
+
+def _safe_request_id(response: requests.Response | None) -> str | None:
+    if response is None:
+        return None
+    return _safe_identifier(response.headers.get("x-request-id"))
+
+
+def _http_diagnostic(error: requests.HTTPError) -> OpenAIDraftError:
+    response = error.response
+    status = int(response.status_code) if response is not None else 0
+    request_id = _safe_request_id(response)
+    if status in {401, 403}:
+        code, message = "authentication_failed", f"OpenAI authentication failed (HTTP {status})"
+    elif status == 429:
+        code, message = "rate_limited", "OpenAI rate limit (HTTP 429)"
+    elif 500 <= status <= 599:
+        code, message = "provider_unavailable", f"OpenAI is temporarily unavailable (HTTP {status})"
+    else:
+        code, message = "provider_rejected", f"OpenAI rejected the request (HTTP {status or 'unknown'})"
+    return OpenAIDraftError(message, code=code, provider_request_id=request_id)
 
 
 def normalize_instructions(value: str | None = None) -> str:
@@ -216,6 +254,8 @@ def create_openai_draft(
         "store": False,
         "text": {"format": {"type": "json_schema", "name": "gpmidi_expression_plan", "strict": True, "schema": PLAN_SCHEMA}},
     }
+    response: requests.Response | None = None
+    result: dict[str, Any] = {}
     try:
         response = requests.post(
             API_URL,
@@ -225,12 +265,30 @@ def create_openai_draft(
         )
         response.raise_for_status()
         result = response.json()
-        raw_plan = json.loads(_output_text(result))
+        output_text = _output_text(result)
+        if not output_text.strip():
+            raise OpenAIDraftError(
+                "OpenAI returned no usable output",
+                code="empty_output",
+                provider_request_id=_safe_identifier(result.get("id")) or _safe_request_id(response),
+            )
+        raw_plan = json.loads(output_text)
         if not isinstance(raw_plan, dict):
             raise ValueError("plan is not an object")
-    except (requests.RequestException, ValueError, TypeError, json.JSONDecodeError):
-        # Keep request metadata out of any upstream traceback/logging contract.
-        raise OpenAIDraftError("OpenAI draft request or response failed") from None
+    except OpenAIDraftError:
+        raise
+    except requests.Timeout:
+        raise OpenAIDraftError("OpenAI request timed out", code="timeout") from None
+    except requests.HTTPError as exc:
+        raise _http_diagnostic(exc) from None
+    except requests.RequestException:
+        raise OpenAIDraftError("OpenAI transport failed", code="transport_failed") from None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise OpenAIDraftError(
+            "OpenAI returned malformed JSON",
+            code="malformed_response",
+            provider_request_id=_safe_identifier(result.get("id")) or _safe_request_id(response),
+        ) from None
 
     track_names = [str(track.get("name", "")) for track in context.get("tracks", [])]
     try:

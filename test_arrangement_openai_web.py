@@ -208,6 +208,46 @@ def test_provider_failure_keeps_baseline_and_sanitizes(monkeypatch, tmp_path):
     ).hexdigest()
 
 
+def test_provider_failure_exposes_only_safe_diagnostic_metadata(monkeypatch, tmp_path):
+    import app as web
+    from arrangement_openai import OpenAIDraftError
+
+    job_root = tmp_path / "sessions"
+    monkeypatch.setattr(web, "uploads_root", lambda: job_root)
+    monkeypatch.setattr(web, "parse_song", lambda _path: object())
+    monkeypatch.setattr(web, "summarize_song", lambda _song: {"title": "x"})
+    monkeypatch.setattr(web, "build_track_summary", lambda *_args, **_kwargs: ([], []))
+    monkeypatch.setattr(web, "build_combined_midi", lambda _tracks: None)
+    monkeypatch.setattr(web, "load_manifest", lambda: {"jobs": []})
+    saved = {}
+    monkeypatch.setattr(web, "save_manifest", lambda value: saved.update(value))
+    monkeypatch.setattr(web, "is_openai_configured", lambda: True)
+
+    def prepare(_song, _tracks, _midi, output, _name):
+        name = "song_arrangement-context.json"
+        (output / name).write_text(json.dumps({"context": {"measure_count": 1, "tracks": []}}))
+        return {"status": "awaiting_hermes_draft", "context_name": name}, [name]
+
+    monkeypatch.setattr(web, "prepare_hermes_arrangement_context", prepare)
+    failure = OpenAIDraftError(
+        "OpenAI rejected the request (HTTP 400)",
+        code="provider_rejected",
+        provider_request_id="req_safe_123",
+    )
+    monkeypatch.setattr(
+        web, "create_openai_draft", lambda *_a, **_k: (_ for _ in ()).throw(failure)
+    )
+    upload = FileStorage(stream=io.BytesIO(b"fixture"), filename="song.gp5")
+    with web.app.test_request_context("/"):
+        web.create_job(upload, openai_arrangement_draft=True)
+
+    arrangement = saved["jobs"][0]["arrangement"]
+    assert arrangement["error"] == "OpenAI rejected the request (HTTP 400)"
+    assert arrangement["diagnostic_code"] == "provider_rejected"
+    assert arrangement["provider_request_id"] == "req_safe_123"
+    assert "secret" not in json.dumps(arrangement)
+
+
 def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):
     import app as web
     job_id = "job-openai"
