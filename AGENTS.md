@@ -148,6 +148,24 @@
   evidence only. It does not supersede the accepted baseline until the user gives
   an explicit musical GO.
 
+## Post-mapped agent enrichment — 2026-09-18
+- Reusable agent instructions live in
+  `docs/AGENT_POWER_METAL_ENRICHMENT.md`. They apply to new songs; Spring Melody
+  bar numbers and note choices must not become reusable defaults.
+- `solo_expression_humanize.py --finger-vibrato` adds deterministic irregular
+  pitch-wheel micro-bends only to eligible long monophonic Lead/Solo notes. It
+  skips authored PB curves and overlaps, preserves existing anchors and resets
+  PB before note-off. The configured `--pitch-bend-range` must match Kontakt.
+- `--changed-tracks-only` emits a meta-only conductor plus the enriched Lead
+  instead of every unchanged track.
+- `midi_patch_export.py` is the generic packaging path for full agent/manual
+  candidates: stable track count/order/names are required, and the output is the
+  candidate conductor plus only semantically changed tracks. Use
+  `--require-note-identity` for controller/expression-only work; omit it only
+  when note/rhythm edits were explicitly requested and report them.
+- Generated per-song MIDI, audio, GP files and helper scripts are listening
+  artifacts and must not be committed.
+
 ## Web UI options
 - `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
   optional, all off by default. The ghost checkbox is gated on humanize in JS —

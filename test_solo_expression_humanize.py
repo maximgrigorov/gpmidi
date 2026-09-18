@@ -44,6 +44,31 @@ def _plain_track() -> MidiTrack:
     ])
 
 
+def _long_solo_track(*, authored_bend: bool = False, overlap: bool = False) -> MidiTrack:
+    track = MidiTrack([
+        MetaMessage("track_name", name="Lead Guitar", time=0),
+        MetaMessage("set_tempo", tempo=800_000, time=0),  # 75 BPM
+        Message("pitchwheel", pitch=0, time=0),
+        Message("note_on", note=64, velocity=95, time=0),
+    ])
+    if overlap:
+        track.extend([
+            Message("note_on", note=67, velocity=88, time=240),
+            Message("note_off", note=67, velocity=0, time=960),
+            Message("note_off", note=64, velocity=0, time=720),
+        ])
+    elif authored_bend:
+        track.extend([
+            Message("pitchwheel", pitch=1170, time=480),
+            Message("pitchwheel", pitch=0, time=480),
+            Message("note_off", note=64, velocity=0, time=960),
+        ])
+    else:
+        track.append(Message("note_off", note=64, velocity=0, time=1920))
+    track.append(MetaMessage("end_of_track", time=0))
+    return track
+
+
 def _absolute(track: MidiTrack, predicate=lambda _m: True):
     tick = 0
     rows = []
@@ -159,6 +184,57 @@ def test_pitch_mode_densifies_only_between_immutable_anchors():
     assert stats["pitch_events_added"] == len(output) - len(anchors)
 
 
+def test_finger_vibrato_adds_irregular_micro_bends_only_to_eligible_long_note():
+    baseline = _long_solo_track()
+    first, stats = solo.humanize_solo_track(
+        baseline,
+        ticks_per_beat=960,
+        seed=23,
+        finger_vibrato=True,
+        finger_vibrato_style="expressive",
+        pitch_bend_range=7,
+    )
+    second, second_stats = solo.humanize_solo_track(
+        baseline,
+        ticks_per_beat=960,
+        seed=23,
+        finger_vibrato=True,
+        finger_vibrato_style="expressive",
+        pitch_bend_range=7,
+    )
+
+    assert _note_signature(first) == _note_signature(baseline)
+    assert _absolute(first) == _absolute(second)
+    assert stats == second_stats
+    assert stats["finger_vibrato_notes"] == 1
+    assert stats["finger_vibrato_events_added"] > 2
+    assert all(anchor in _pitch_anchors(first) for anchor in _pitch_anchors(baseline))
+    generated = [pitch for _tick, pitch in _pitch_anchors(first) if pitch]
+    assert generated
+    assert len(set(pitch for pitch in generated if pitch > 0)) >= 4
+    assert max(generated) <= round(8192 * 0.38 / 7)
+    assert min(generated) > -round(8192 * 0.38 / 7)
+    assert _pitch_anchors(first)[-1] == (1920, 0)
+
+
+@pytest.mark.parametrize("track", [
+    _long_solo_track(authored_bend=True),
+    _long_solo_track(overlap=True),
+])
+def test_finger_vibrato_skips_authored_bends_and_polyphonic_spans(track: MidiTrack):
+    enriched, stats = solo.humanize_solo_track(
+        track,
+        ticks_per_beat=960,
+        seed=23,
+        finger_vibrato=True,
+        finger_vibrato_style="expressive",
+    )
+
+    assert _absolute(enriched) == _absolute(track)
+    assert stats["finger_vibrato_notes"] == 0
+    assert stats["finger_vibrato_events_added"] == 0
+
+
 def test_modulation_mode_keeps_event_ticks_and_zero_resets():
     baseline = _solo_track()
     enriched, stats = solo.humanize_solo_track(
@@ -202,6 +278,8 @@ def test_all_modes_are_deterministic_and_leave_non_solo_tracks_semantically_iden
         "velocity": True,
         "pitch_bend": True,
         "modulation": True,
+        "finger_vibrato": False,
+        "finger_vibrato_style": None,
     }
     assert manifest_a["safety"] == {
         "note_timing_preserved": True,
@@ -211,3 +289,34 @@ def test_all_modes_are_deterministic_and_leave_non_solo_tracks_semantically_iden
         "non_solo_tracks_preserved": True,
         "pitch_anchors_preserved": True,
     }
+
+
+def test_file_processing_can_emit_conductor_plus_changed_track_only(tmp_path: Path):
+    source = tmp_path / "accepted-baseline.mid"
+    output = tmp_path / "changed-only.mid"
+    conductor = MidiTrack([
+        MetaMessage("track_name", name="Conductor", time=0),
+        MetaMessage("set_tempo", tempo=800_000, time=0),
+        MetaMessage("time_signature", numerator=4, denominator=4, time=0),
+        MetaMessage("end_of_track", time=7680),
+    ])
+    midi = MidiFile(type=1, ticks_per_beat=960)
+    midi.tracks.extend([conductor, _long_solo_track(), _plain_track()])
+    midi.save(source)
+
+    manifest = solo.process_file(
+        source,
+        output,
+        seed=23,
+        finger_vibrato=True,
+        finger_vibrato_style="expressive",
+        changed_tracks_only=True,
+    )
+    result = MidiFile(output)
+
+    assert result.type == 1
+    assert [solo._track_name(track) for track in result.tracks] == ["Conductor", "Lead Guitar"]
+    assert manifest["output_mode"] == "changed_tracks_only"
+    assert manifest["conductor_track_preserved"] is True
+    assert manifest["omitted_track_indices"] == [2]
+    assert manifest["stats"]["finger_vibrato_notes"] == 1

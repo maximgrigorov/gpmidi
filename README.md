@@ -9,6 +9,8 @@ delivered to AILab through an exact-SHA Tekton pipeline.
 - **Complete setup and deployment guide:**
   [`docs/CODEX_PROJECT_GUIDE.md`](docs/CODEX_PROJECT_GUIDE.md)
 - **Project invariants:** [`AGENTS.md`](AGENTS.md)
+- **Agent power-metal enrichment workflow:**
+  [`docs/AGENT_POWER_METAL_ENRICHMENT.md`](docs/AGENT_POWER_METAL_ENRICHMENT.md)
 - **Measured lessons:** [`LESSONS.md`](LESSONS.md)
 - **Current accepted state:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)
 - **Open issues from code review:** [`ROADMAP.md`](ROADMAP.md)
