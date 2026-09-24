@@ -32,6 +32,16 @@ def test_image_builds_have_enough_ephemeral_storage_for_large_ml_wheels():
     assert "ephemeral-storage-limit" not in build_task
 
 
+def test_image_builds_do_not_hold_compressed_layers_in_memory():
+    # Kaniko's default compressed caching keeps each compressed layer in RAM.
+    # The torch cu128 layer OOM-killed the 12Gi build during its snapshot.
+    task_text = TASKS.read_text(encoding="utf-8")
+    build_task = task_text.split("name: kaniko-build-push", 1)[1].split(
+        "\n---\n", 1
+    )[0]
+    assert "- --compressed-caching=false" in build_task
+
+
 def test_model_sync_uses_a_writable_huggingface_cache():
     task_text = TASKS.read_text(encoding="utf-8")
     sync_task = task_text.split("name: sheetsage2-model-sync", 1)[1].split(

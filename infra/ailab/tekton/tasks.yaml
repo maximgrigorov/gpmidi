@@ -340,6 +340,9 @@ spec:
     - --skip-tls-verify
     - --cache=false
     - --snapshot-mode=redo
+    # Default compressed caching holds each compressed layer in memory; the
+    # torch cu128 layer OOM-killed a 12Gi build during its snapshot.
+    - --compressed-caching=false
     - --push-retry=3
     - --custom-platform=linux/amd64
     env:
