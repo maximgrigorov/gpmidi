@@ -208,6 +208,21 @@
   unisons): 9.3-12.2 ms without the lock (fails 0/20 seeds), 1.5-2.1 ms with it
   (20/20). Evidence: `docs/evidence/rhythm-section-lock.json`.
 
+## Picking hand (opt-in, requested 2026-09-24)
+- `--pick-direction` (web: "pick direction (Hydra up/down)") sends Hydra
+  Picking Mode keyswitches (C7 = 108 up, C#7 = 109 down; manual, "Other
+  Performance Keyswitches" — verify in the preset). Hydra's own Alternate flips
+  per press and knows neither rhythm nor legato. Rhythm: downstroke while the
+  gap to the previous pick is >= `strum.rhythm_downpick_min_ioi_ms` (140 ms),
+  else 16th parity; solo: strict alternate over picked notes (legato targets
+  are not picked), a rest longer than a beat restarts with a downstroke.
+- `--palm-mute-motion` (needs `--humanize`) adds a slow AR(1) velocity drift to
+  palm-muted hits (`palm_mute_motion` in `guitar_metal.yaml`), own RNG stream so
+  nothing else changes. Hydra turns velocity into mute depth only with
+  "Vel -> Tightness" ON in the preset.
+- `picking_hand_check.pm_velocity_coherence` must be measured against the
+  no-humanize reference: notated PP/MP/F sections alone gave lag-1 0.89.
+
 ## Render defaults (changed 2026-09-24 with explicit user approval)
 - `--expand-gp-hidden-32nds` is ON by default on every tonal track (opt out:
   `--no-expand-gp-hidden-32nds`); GP8 beats that hold several notes played one

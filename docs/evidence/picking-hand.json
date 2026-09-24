@@ -1,0 +1,80 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "request": "user 2026-09-24: palm mutes are static, should move like a real hand; Hydra supports upstrokes, relevant for solo, rhythm is mostly downstrokes",
+ "hydra_manual": {
+  "source": "https://impactsoundworks.com/docs/Shreddage%203%20Hydra%20Manual.pdf",
+  "picking_mode": "Up/Down/Alternate/Economy; keyswitches C7 Up, C#7 Down, D7 Alternate, D#7 Economy; Alternate flips per press",
+  "palm_mute": "MUTE Tightness knob; 'Vel -> Tightness: lower velocities will decay even faster' -- must be ON in the preset",
+  "legato": "overlap within 12 semitones; Force Same-String on by default (cross-string hammer 'not realistic')"
+ },
+ "pick_direction": {
+  "rule": "rhythm: down while IOI >= 140 ms (rhythm_downpick_min_ioi_ms), else 16th parity; solo: strict alternate over picked notes, legato targets skipped, rest > a beat -> down",
+  "measured_default_render": {
+   "pnd Rhytm": {
+    "down": 898,
+    "up": 0,
+    "ks": 1
+   },
+   "SpringMelody Rhytm": {
+    "down": 326,
+    "up": 0,
+    "ks": 1
+   },
+   "TtN Rhytm": {
+    "down": 594,
+    "up": 3,
+    "ks": 7
+   },
+   "pnd Solo": {
+    "down": 236,
+    "up": 228,
+    "ks": 457
+   }
+  },
+  "keyswitch_numbers": "108 (C7 up), 109 (C#7 down) in the file's numbering (C-1 = 12); verify in the preset"
+ },
+ "palm_mute_motion": {
+  "model": "AR(1) velocity drift over consecutive P.M. hits: std 6, coherence 0.8, reset after a pause > a beat; own RNG stream",
+  "check": "picking_hand_check.pm_velocity_coherence vs the no-humanize reference, lag-1 >= 0.3 on >= 30 pairs",
+  "lag1_mean_20_seeds": {
+   "pnd Rhytm": [
+    0.14,
+    0.66
+   ],
+   "SpringMelody Rhytm": [
+    -0.02,
+    0.5
+   ],
+   "TtN Rhytm": [
+    0.01,
+    0.69
+   ],
+   "pnd Solo": [
+    0.0,
+    0.46
+   ]
+  },
+  "passes_of_20_off_on": {
+   "pnd Rhytm": [
+    0,
+    20
+   ],
+   "SpringMelody Rhytm": [
+    0,
+    20
+   ],
+   "TtN Rhytm": [
+    0,
+    20
+   ],
+   "pnd Solo": [
+    0,
+    17
+   ]
+  },
+  "check_fooled_without_reference": "notated PP/MP/F sections gave lag-1 0.89 (pnd Rhytm) and 0.78 (TtN Rhytm) with NO motion; strummed chords split into two hits killed the signal until notes within half a 16th were clustered into one hit"
+ },
+ "byte_identity": "without --pick-direction / --palm-mute-motion all 330 exported files are identical to the previous branch",
+ "web_check": "SpringMelody Guitar (Rhytm) via the browser: 485/485 downstrokes, PM lag-1 0.438, verify clean"
+}
