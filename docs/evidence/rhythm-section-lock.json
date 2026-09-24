@@ -1,0 +1,171 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "request": "user 2026-09-24: rhythm section should sound 'in coalition', like a metal band; double rhythm guitar with its own seed",
+ "step0_input": {
+  "method": "notation grid, three songs; attacks of guitar/bass beats vs drum hits",
+  "on_kick_pct": {
+   "rhythm guitars": "22-35",
+   "basses": "31-49"
+  },
+  "on_any_drum_pct": "57-87",
+  "near_misses_within_1_32": "0-18 per track -> differences from the kick are arrangement, not transcription errors; parts are NOT edited, only timing is shared"
+ },
+ "model": "humanize.locked_beat_shift: kick shift at the same grid tick (else snare, else linear interpolation between kick/snare anchors within a bar) + own residual; no drums within a bar -> free (regular humanize timing). Hand delay is suppressed on kick/snare-locked beats (edited to the drum in metal production).",
+ "profiles": {
+  "guitar_metal": {
+   "kick_residual_ms": 2.0,
+   "snare_residual_ms": 3.0,
+   "between_residual_ms": 4.0,
+   "config_version": 4
+  },
+  "bass_metal": {
+   "kick_residual_ms": 1.5,
+   "snare_residual_ms": 2.5,
+   "between_residual_ms": 3.0,
+   "config_version": 2
+  }
+ },
+ "acceptance_kick_unison_spread": {
+  "check": "rhythm_lock_check.kick_unison_spread, std <= 4 ms, >= 20 unisons",
+  "seeds": 20,
+  "rows": [
+   {
+    "track": "pnd.gp5/Electric Bass",
+    "unisons": 204,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 10.73,
+     "locked": 1.48
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 226,
+     "snare": 140,
+     "between": 268,
+     "free": 28
+    }
+   },
+   {
+    "track": "pnd.gp5/Rhytm Guitar",
+    "unisons": 203,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 11.38,
+     "locked": 2.0
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 208,
+     "snare": 196,
+     "between": 509,
+     "free": 5
+    }
+   },
+   {
+    "track": "SpringMelody.gp/Acoustic Bass",
+    "unisons": 220,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 11.86,
+     "locked": 1.51
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 229,
+     "snare": 100,
+     "between": 121,
+     "free": 50
+    }
+   },
+   {
+    "track": "SpringMelody.gp/Guitar (Rhytm)",
+    "unisons": 125,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 12.21,
+     "locked": 1.96
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 131,
+     "snare": 43,
+     "between": 208,
+     "free": 6
+    }
+   },
+   {
+    "track": "TtN.gp/Bass",
+    "unisons": 251,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 9.3,
+     "locked": 1.5
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 251,
+     "snare": 212,
+     "between": 297,
+     "free": 57
+    }
+   },
+   {
+    "track": "TtN.gp/Clean Guitar",
+    "unisons": 34,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 9.53,
+     "locked": 2.05
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 34,
+     "snare": 29,
+     "between": 58,
+     "free": 244
+    }
+   },
+   {
+    "track": "TtN.gp/Rhytm Guitar",
+    "unisons": 185,
+    "kick_unison_std_ms_mean_20_seeds": {
+     "independent": 9.76,
+     "locked": 2.03
+    },
+    "check_passes_of_20": {
+     "independent": 0,
+     "locked": 20
+    },
+    "beats_seed7": {
+     "kick": 190,
+     "snare": 157,
+     "between": 259,
+     "free": 36
+    }
+   }
+  ]
+ },
+ "double_track_web_check_TtN_rhythm": {
+  "same_notes": true,
+  "take_to_take_attack_std_ms": 4.7,
+  "velocities_differ": "1842 of 1996",
+  "both_takes_kick_unison_std_ms": [
+   2.1,
+   2.12
+  ]
+ },
+ "byte_identity": "without --lock-to-drums / --double-rhythm-guitars all 330 exported files are identical to the previous branch"
+}

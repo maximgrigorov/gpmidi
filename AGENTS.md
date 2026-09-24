@@ -187,6 +187,27 @@
 - Use `onset_std_ms` (deviation from the notated attack) for guitar timing, not
   `jitter_ms`: the latter counts quantized 32nds as jitter (LESSONS.md p.3).
 
+## Rhythm section together (opt-in, requested 2026-09-24)
+- `--lock-to-drums` (needs `--humanize`; web: per-track "lock to drums") makes
+  bass and guitars share the drummer's timing: at a kick on the same grid tick a
+  beat takes the kick's humanized shift plus a small residual (guitar 2 ms, bass
+  1.5 ms), else the snare's, between kick/snare hits it follows the linear
+  drummer curve, and more than a bar away from drums it plays free. Numbers live
+  in the `lock_to_drums` sections of `guitar_metal.yaml` / `bass_metal.yaml`.
+- Drums are built FIRST (CLI pre-pass, web `build_track_summary`, arrangement
+  `_render_baseline`) and fill `timeline` in `build_drum_midi`; the drum MIDI
+  itself does not change.
+- The fret-hand delay does not apply on kick/snare-locked beats (metal
+  production edits those to the drum); between hits it does.
+- Parts are NOT edited: near-misses within 1/32 of a kick are 0-18 per track, so
+  the differences are arrangement, not transcription errors.
+- `--double-rhythm-guitars` (web: "double track L/R") writes
+  "<name> (double).mid" next to every non-solo guitar, seed + 10007
+  (`DOUBLE_TRACK_SEED_OFFSET`), also in `_ALL.mid`. Same notes, own feel.
+- Acceptance: `rhythm_lock_check.kick_unison_spread` (std <= 4 ms on >= 20
+  unisons): 9.3-12.2 ms without the lock (fails 0/20 seeds), 1.5-2.1 ms with it
+  (20/20). Evidence: `docs/evidence/rhythm-section-lock.json`.
+
 ## Render defaults (changed 2026-09-24 with explicit user approval)
 - `--expand-gp-hidden-32nds` is ON by default on every tonal track (opt out:
   `--no-expand-gp-hidden-32nds`); GP8 beats that hold several notes played one
