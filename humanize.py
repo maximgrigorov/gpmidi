@@ -64,6 +64,8 @@ def load_profile(name: str) -> dict:
             raise ValueError(f"В профиле {path} отсутствует или испорчена секция '{section}'")
     if "fret_hand_cost" in data:
         _validate_fret_hand_cost(data["fret_hand_cost"], path)
+    if "lock_to_drums" in data:
+        _validate_section(data["lock_to_drums"], LOCK_TO_DRUMS_KEYS, "lock_to_drums", path)
     ghost = data.get("ghost_notes")
     if isinstance(ghost, dict) and isinstance(ghost.get("velocity"), dict):
         low, high = ghost["velocity"].get("min"), ghost["velocity"].get("max")
@@ -294,6 +296,75 @@ def _validate_fret_hand_cost(section, path):
         raise ValueError(f"В профиле {path}: 'fret_hand_cost' содержит недопустимые значения")
     if not values["shift_ms"] <= values["saturation_ms"]:
         raise ValueError(f"В профиле {path}: fret_hand_cost.shift_ms > saturation_ms")
+
+
+LOCK_TO_DRUMS_KEYS = (
+    "kick_residual_ms", "snare_residual_ms", "between_residual_ms",
+    "max_anchor_gap_frac16", "max_shift_frac16",
+)
+
+
+def _validate_section(section, keys, name, path):
+    if not isinstance(section, dict):
+        raise ValueError(f"В профиле {path}: секция '{name}' не является отображением")
+    missing = [key for key in keys if key not in section]
+    if missing:
+        raise ValueError(f"В профиле {path}: в '{name}' нет ключей {missing}")
+    if min(float(section[key]) for key in keys) < 0:
+        raise ValueError(f"В профиле {path}: '{name}' содержит отрицательные значения")
+
+
+class DrumPulse:
+    """Тайминг барабанщика по нотной сетке: где и насколько сыграли бочка и малый.
+
+    timeline — {нотный тик: {"kick": сдвиг, "snare": сдвиг}} в тиках, как его
+    заполняет build_drum_midi(timeline=...). На тике с бочкой опора — бочка
+    (бас и ритм в метале сводят именно к ней), иначе малый. Между опорами —
+    линейная интерполяция: общий пульс группы, а не дрожь каждого удара хэта.
+    """
+
+    def __init__(self, timeline):
+        points = []
+        for tick, hits in timeline.items():
+            if "kick" in hits:
+                points.append((tick, hits["kick"], "kick"))
+            elif "snare" in hits:
+                points.append((tick, hits["snare"], "snare"))
+        self.points = sorted(points)
+        self.ticks = [p[0] for p in self.points]
+
+    def anchor(self, tick, max_gap_ticks):
+        """(сдвиг в тиках, "kick"|"snare"|"between") или None — барабанов рядом нет."""
+        i = bisect.bisect_left(self.ticks, tick)
+        if i < len(self.ticks) and self.ticks[i] == tick:
+            return float(self.points[i][1]), self.points[i][2]
+        if 0 < i < len(self.ticks):
+            (t0, s0, _k0), (t1, s1, _k1) = self.points[i - 1], self.points[i]
+            if t1 - t0 <= max_gap_ticks:
+                return s0 + (s1 - s0) * (tick - t0) / float(t1 - t0), "between"
+        return None
+
+
+def locked_beat_shift(grid_tick, bpm, tpb, prof, rng, pulse):
+    """Сдвиг бита, привязанный к барабанщику. (новый start_tick, опора) или None.
+
+    None — барабанов в пределах max_anchor_gap_frac16 нет (интро, брейк): бит
+    играется свободно, вызывающий берёт обычный pitched_beat_shift. Иначе бит
+    берёт сдвиг опоры плюс собственный остаток *_residual_ms: на унисоне с
+    бочкой почти ноль (так звучит собранная метал-группа), между опорами —
+    больше.
+    """
+    lock = prof["lock_to_drums"]
+    six = tpb / 4
+    found = pulse.anchor(grid_tick, float(lock["max_anchor_gap_frac16"]) * six)
+    if found is None:
+        return None
+    shift, kind = found
+    ms_per_tick = 60000.0 / (bpm * tpb)
+    shift += rng.gauss(0.0, float(lock[f"{kind}_residual_ms"])) / ms_per_tick
+    limit = float(lock["max_shift_frac16"]) * six
+    shift = max(-limit, min(limit, shift))
+    return max(0, int(round(grid_tick + shift))), kind
 
 
 def fret_hand_cost_ms(delta_frets, shift_frets, prof):
