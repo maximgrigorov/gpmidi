@@ -169,6 +169,24 @@ class TestScenarioCoverage:
             "status_code": 200,
         }
 
+    def test_exec_selects_a_running_ready_pod_not_a_completed_rollout_pod(self):
+        class Cluster(live.Cluster):
+            def pod_names(self, app):
+                return ["completed-pod", "running-pod"]
+
+            def _run(self, *args, timeout=120):
+                if args[:2] == ("get", "pod"):
+                    return {
+                        "completed-pod": "Succeeded||false",
+                        "running-pod": "Running||true",
+                    }[args[2]]
+                if args[0] == "exec":
+                    return args[1]
+                raise AssertionError(args)
+
+        cluster = Cluster("kubectl", "test")
+        assert cluster.exec_in("web", ["true"]) == "running-pod"
+
     def test_no_scenario_uses_skip(self):
         source = (
             Path(__file__).resolve().parent / "e2e" / "live_acceptance.py"

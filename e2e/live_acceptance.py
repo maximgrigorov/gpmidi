@@ -567,25 +567,36 @@ class Cluster:
             self._run("delete", "pod", name, "--wait=false")
         return names
 
-    def wait_ready(self, app: str, timeout: float = 240, exclude: tuple = ()) -> str:
-        """Wait until a pod that is *not* in `exclude` is ready.
+    def _pod_is_running_ready(self, name: str) -> bool:
+        state = self._run(
+            "get", "pod", name, "-o",
+            "jsonpath={.status.phase}{'|'}{.metadata.deletionTimestamp}{'|'}"
+            "{.status.containerStatuses[*].ready}",
+        )
+        phase, deleting, readiness = (state.split("|", 2) + ["", ""])[:3]
+        flags = readiness.split()
+        return (
+            phase == "Running"
+            and not deleting
+            and bool(flags)
+            and all(flag == "true" for flag in flags)
+        )
 
-        Deletion is issued with `--wait=false`, so the old pod lingers in
-        Terminating while still reporting Ready. Without excluding it, this would
-        return the pod that is going away.
-        """
+    def wait_ready(self, app: str, timeout: float = 240, exclude: tuple = ()) -> str:
+        """Wait until a running, non-terminating ready pod is available."""
         deadline = time.monotonic() + timeout
         last = ""
         while time.monotonic() < deadline:
             for name in self.pod_names(app):
                 if name in exclude:
                     continue
-                ready = self._run(
-                    "get", "pod", name,
-                    "-o", "jsonpath={.status.containerStatuses[*].ready}",
-                )
-                last = f"{name}={ready}"
-                if ready and "false" not in ready.split():
+                try:
+                    ready = self._pod_is_running_ready(name)
+                except AcceptanceFailure as error:
+                    last = f"{name}={error}"
+                    continue
+                last = f"{name}=ready:{ready}"
+                if ready:
                     return name
             time.sleep(3)
         raise AcceptanceFailure(
@@ -593,10 +604,8 @@ class Cluster:
         )
 
     def exec_in(self, app: str, command: list[str], timeout: float = 60) -> str:
-        names = self.pod_names(app)
-        if not names:
-            raise AcceptanceFailure(f"no pod found for app={app}")
-        return self._run("exec", names[0], "--", *command, timeout=timeout)
+        pod = self.wait_ready(app, timeout=timeout)
+        return self._run("exec", pod, "--", *command, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
