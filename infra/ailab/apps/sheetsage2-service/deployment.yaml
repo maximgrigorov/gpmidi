@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sheetsage2-service
+  namespace: gpmidi-ml
+  labels:
+    app: sheetsage2-service
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sheetsage2-service
+  template:
+    metadata:
+      labels:
+        app: sheetsage2-service
+    spec:
+      serviceAccountName: sheetsage2-controller
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: sheetsage2-service
+        image: 192.168.30.2:3300/mgrigorov/sheetsage2-service@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: IfNotPresent
+        command: ["uvicorn"]
+        args: ["sheetsage2_service.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        env:
+        - name: SHEETSAGE2_DATA_ROOT
+          value: /data
+        - name: SHEETSAGE2_PVC
+          value: sheetsage2-data
+        - name: SHEETSAGE2_MODEL_PVC
+          value: sheetsage2-models
+        - name: KUBERNETES_NAMESPACE
+          value: gpmidi-ml
+        - name: SHEETSAGE2_WORKER_IMAGE
+          value: 192.168.30.2:3300/mgrigorov/sheetsage2-service@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 192Mi
+          limits:
+            cpu: "1"
+            memory: 768Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: sheetsage2-data
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi

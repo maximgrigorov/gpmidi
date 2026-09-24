@@ -66,18 +66,24 @@ spec:
     value: $(tasks.build-reference-time.results.digest)
   - name: gpmidi-web-digest
     value: $(tasks.build-gpmidi-web.results.digest)
+  - name: sheetsage2-service-digest
+    value: $(tasks.build-sheetsage2-service.results.digest)
   - name: asset-api-pod-image-id
     value: $(tasks.deploy-asset-api.results.pod-image-id)
   - name: reference-time-pod-image-id
     value: $(tasks.deploy-reference-time.results.pod-image-id)
   - name: gpmidi-web-pod-image-id
     value: $(tasks.deploy-gpmidi-web.results.pod-image-id)
+  - name: sheetsage2-service-pod-image-id
+    value: $(tasks.deploy-sheetsage2-service.results.pod-image-id)
   - name: asset-api-previous-image
     value: $(tasks.deploy-asset-api.results.previous-image)
   - name: reference-time-previous-image
     value: $(tasks.deploy-reference-time.results.previous-image)
   - name: gpmidi-web-previous-image
     value: $(tasks.deploy-gpmidi-web.results.previous-image)
+  - name: sheetsage2-service-previous-image
+    value: $(tasks.deploy-sheetsage2-service.results.previous-image)
 
   tasks:
   - name: clone
@@ -185,10 +191,27 @@ spec:
     - name: docker-config
       workspace: docker-config
 
-  - name: build-gpmidi-web
+  - name: build-sheetsage2-service
     taskRef:
       name: kaniko-build-push
     runAfter: [audit-reference-time]
+    params:
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/sheetsage2-service:$(tasks.clone.results.commit-sha)
+    - name: context
+      value: services/sheetsage2_service
+    - name: dockerfile
+      value: services/sheetsage2_service/Dockerfile.worker
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    - name: docker-config
+      workspace: docker-config
+
+  - name: build-gpmidi-web
+    taskRef:
+      name: kaniko-build-push
+    runAfter: [audit-sheetsage2-service]
     params:
     - name: image
       value: $(params.registry)/$(params.registry-owner)/gpmidi-web:$(tasks.clone.results.commit-sha)
@@ -242,6 +265,29 @@ spec:
       value: reference-time
     - name: expect-user
       value: "appuser|1000"
+    workspaces:
+    - name: evidence
+      workspace: evidence
+    - name: docker-config
+      workspace: docker-config
+
+  - name: audit-sheetsage2-service
+    taskRef:
+      name: image-audit
+    runAfter: [build-sheetsage2-service]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/sheetsage2-service:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-sheetsage2-service.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    - name: name
+      value: sheetsage2-service
+    - name: expect-user
+      value: "sheetsage|10001"
     workspaces:
     - name: evidence
       workspace: evidence
@@ -315,10 +361,48 @@ spec:
     - name: evidence
       workspace: evidence
 
+  - name: sync-sheetsage2-models
+    taskRef:
+      name: sheetsage2-model-sync
+    runAfter: [audit-sheetsage2-service]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/sheetsage2-service:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-sheetsage2-service.results.digest)
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
+  - name: deploy-sheetsage2-service
+    taskRef:
+      name: deploy-by-digest
+    runAfter: [sync-sheetsage2-models, deploy-reference-time]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: deployment
+      value: sheetsage2-service
+    - name: container
+      value: sheetsage2-service
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/sheetsage2-service:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-sheetsage2-service.results.digest)
+    - name: commit-sha
+      value: $(tasks.clone.results.commit-sha)
+    - name: worker-image-env
+      value: SHEETSAGE2_WORKER_IMAGE
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
   - name: deploy-gpmidi-web
     taskRef:
       name: deploy-by-digest
-    runAfter: [audit-gpmidi-web, deploy-reference-time]
+    runAfter: [audit-gpmidi-web, deploy-sheetsage2-service]
     params:
     - name: ci-image
       value: $(params.ci-image)
@@ -381,6 +465,21 @@ spec:
     - name: evidence
       workspace: evidence
 
+  - name: smoke-sheetsage2-service
+    taskRef:
+      name: smoke-test
+    runAfter: [pvc-after]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: service-name
+      value: sheetsage2-service
+    - name: healthz-path
+      value: /healthz
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
   - name: smoke-gpmidi-web
     taskRef:
       name: smoke-test
@@ -401,7 +500,7 @@ spec:
   - name: live-e2e
     taskRef:
       name: live-e2e
-    runAfter: [smoke-asset-api, smoke-reference-time, smoke-gpmidi-web]
+    runAfter: [smoke-asset-api, smoke-reference-time, smoke-sheetsage2-service, smoke-gpmidi-web]
     params:
     - name: ci-image
       value: $(params.ci-image)

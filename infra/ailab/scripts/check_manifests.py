@@ -131,7 +131,14 @@ def main(argv: list[str]) -> int:
                 continue
             pod_spec = ((doc.get("spec") or {}).get("template") or {}).get("spec") or {}
             workloads[name] = doc
-            check_workload(kind, name, pod_spec, failures)
+            token_allowed = name == "sheetsage2-service"
+            check_workload(
+                kind, name, pod_spec, failures, require_no_token=not token_allowed
+            )
+            if token_allowed and pod_spec.get("serviceAccountName") != "sheetsage2-controller":
+                failures.append(
+                    "Deployment/sheetsage2-service: must use dedicated sheetsage2-controller ServiceAccount"
+                )
         elif kind == "CronJob":
             # A scheduled job runs in the same restricted namespace and gets the
             # same treatment, minus the NetworkPolicy coverage rule.

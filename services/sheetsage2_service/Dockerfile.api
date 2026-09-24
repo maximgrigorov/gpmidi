@@ -1,0 +1,15 @@
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SHEETSAGE2_DATA_ROOT=/data \
+    PORT=8000
+WORKDIR /app
+COPY requirements-api.txt ./
+RUN pip install --no-cache-dir --default-timeout=120 --retries=5 -r requirements-api.txt
+COPY sheetsage2_service ./sheetsage2_service
+RUN groupadd --gid 10001 sheetsage \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin sheetsage
+USER 10001:10001
+EXPOSE 8000
+CMD ["uvicorn", "sheetsage2_service.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

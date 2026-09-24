@@ -10,4 +10,5 @@ resources:
 - apps/asset-api
 - apps/reference-time
 - apps/gpmidi-web
+- apps/sheetsage2-service
 - tekton

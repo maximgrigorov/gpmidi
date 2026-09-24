@@ -81,6 +81,22 @@ button { font-family: inherit; color: inherit; background: none; border: none; }
 }
 .name { font-weight: 650; font-size: 14px; letter-spacing: -0.01em; text-transform: lowercase; }
 .sub { color: var(--fg-subtle); font-size: 11px; margin-top: 1px; }
+.tool-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.tool-nav a {
+  padding: 8px;
+  border-radius: var(--r);
+  color: var(--fg-muted);
+  text-align: center;
+  font-weight: 600;
+}
+.tool-nav a.active { background: var(--accent-soft); color: var(--accent); }
+.tool-nav a:hover { text-decoration: none; background: var(--surface-hover); }
 
 .sidebar-scroll {
   flex: 1;

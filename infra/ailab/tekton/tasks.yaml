@@ -158,6 +158,20 @@ spec:
       /opt/venv-svc/bin/python -m pytest -q 2>&1 \
         | tee /workspace/evidence/pytest-asset-api.txt
       exit "${PIPESTATUS[0]}"
+
+  - name: sheetsage2-pytest
+    image: $(params.ci-image)
+    workingDir: /workspace/source/services/sheetsage2_service
+    timeout: 20m
+    computeResources:
+      requests: {cpu: 200m, memory: 384Mi}
+      limits: {cpu: 1500m, memory: 2Gi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      PYTHONPATH=. /opt/venv-svc/bin/python -m pytest -q 2>&1 \
+        | tee /workspace/evidence/pytest-sheetsage2.txt
+      exit "${PIPESTATUS[0]}"
 ---
 apiVersion: tekton.dev/v1
 kind: Task
@@ -513,6 +527,10 @@ spec:
     type: string
   - name: commit-sha
     type: string
+  - name: worker-image-env
+    description: Optional Deployment env var that must receive the same immutable image.
+    type: string
+    default: ""
   workspaces:
   - name: evidence
   results:
@@ -544,6 +562,10 @@ spec:
       echo "deploying immutable digest: $BY_DIGEST"
       kubectl -n "$NS" set image "deployment/$DEP" \
         "$(params.container)=$BY_DIGEST"
+      if [ -n '$(params.worker-image-env)' ]; then
+        kubectl -n "$NS" set env "deployment/$DEP" \
+          "$(params.worker-image-env)=$BY_DIGEST"
+      fi
       kubectl -n "$NS" annotate --overwrite "deployment/$DEP" \
         gpmidi.ailab/source-commit="$(params.commit-sha)" \
         gpmidi.ailab/image-digest="$(params.digest)"
@@ -565,6 +587,15 @@ spec:
           exit 1
           ;;
       esac
+      if [ -n '$(params.worker-image-env)' ]; then
+        ENV_VALUE=$(kubectl -n "$NS" get deploy "$DEP" -o json \
+          | jq -r --arg NAME '$(params.worker-image-env)' \
+            '.spec.template.spec.containers[] | select(.name == "$(params.container)") | .env[] | select(.name == $NAME) | .value')
+        [ "$ENV_VALUE" = "$BY_DIGEST" ] || {
+          echo "ERROR: worker image env is '$ENV_VALUE', expected '$BY_DIGEST'" >&2
+          exit 1
+        }
+      fi
 
       GEN=$(kubectl -n "$NS" get deploy "$DEP" -o jsonpath='{.metadata.generation}')
       REV=$(kubectl -n "$NS" get deploy "$DEP" \
@@ -583,6 +614,104 @@ spec:
         echo "revision: $REV"
         echo "previous_image: $PREV"
       } | tee "/workspace/evidence/deploy-$DEP.txt"
+---
+# Seed the persistent, read-only-at-inference model cache once per pinned revision.
+# The sync command verifies both weight SHA-256 values before publishing them.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sheetsage2-model-sync
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  - name: image
+    type: string
+  - name: digest
+    type: string
+  workspaces:
+  - name: evidence
+  steps:
+  - name: sync-and-verify
+    image: $(params.ci-image)
+    timeout: 45m
+    computeResources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      NS=gpmidi-ml
+      REF='$(params.image)'
+      BY_DIGEST="${REF%:*}@$(params.digest)"
+      kubectl -n "$NS" delete job sheetsage2-model-sync --ignore-not-found --wait=true
+      cat <<EOF | kubectl -n "$NS" apply -f -
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: sheetsage2-model-sync
+        labels:
+          app: sheetsage2-model-sync
+      spec:
+        backoffLimit: 1
+        activeDeadlineSeconds: 2700
+        ttlSecondsAfterFinished: 300
+        template:
+          metadata:
+            labels:
+              app: sheetsage2-model-sync
+          spec:
+            restartPolicy: Never
+            automountServiceAccountToken: false
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 10001
+              runAsGroup: 10001
+              fsGroup: 10001
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: sync
+              image: $BY_DIGEST
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "sheetsage2_service.model_sync"]
+              env:
+              - name: HF_HUB_OFFLINE
+                value: "0"
+              - name: TRANSFORMERS_OFFLINE
+                value: "0"
+              - name: SHEETSAGE2_MODEL_ROOT
+                value: /models
+              resources:
+                requests: {cpu: 500m, memory: 512Mi}
+                limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 1Gi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+              - name: models
+                mountPath: /models
+              - name: tmp
+                mountPath: /tmp
+            volumes:
+            - name: models
+              persistentVolumeClaim:
+                claimName: sheetsage2-models
+            - name: tmp
+              emptyDir:
+                sizeLimit: 512Mi
+      EOF
+      if ! kubectl -n "$NS" wait --for=condition=complete job/sheetsage2-model-sync --timeout=2400s; then
+        kubectl -n "$NS" describe job sheetsage2-model-sync || true
+        kubectl -n "$NS" logs job/sheetsage2-model-sync --all-containers=true || true
+        exit 1
+      fi
+      kubectl -n "$NS" logs job/sheetsage2-model-sync --all-containers=true \
+        | tee /workspace/evidence/sheetsage2-model-sync.txt
+      kubectl -n "$NS" delete job sheetsage2-model-sync --wait=true
 ---
 # PVC persistence: the volumes that hold Project and analysis data must be the
 # same PersistentVolumes before and after a deploy, and must still be readable.
@@ -613,7 +742,7 @@ spec:
       set -euo pipefail
       NS=gpmidi-ml
       OUT="/workspace/evidence/pvc-$(params.phase).json"
-      kubectl -n "$NS" get pvc project-assets reference-time-data -o json \
+      kubectl -n "$NS" get pvc project-assets reference-time-data sheetsage2-data sheetsage2-models -o json \
         | jq '[.items[] | {name: .metadata.name, uid: .metadata.uid,
                            volume: .spec.volumeName, phase: .status.phase,
                            capacity: .status.capacity.storage}]' \

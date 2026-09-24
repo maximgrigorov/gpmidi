@@ -80,6 +80,8 @@ RUN set -eux; \
 # --- service environment (mirrors asset-api and reference-time) -----------
 COPY services/reference_time/requirements.txt /tmp/rt-requirements.txt
 COPY services/asset_api/requirements.txt /tmp/asset-requirements.txt
+COPY services/sheetsage2_service/requirements-api.txt /tmp/sheetsage2-api-requirements.txt
+COPY services/sheetsage2_service/requirements-test.txt /tmp/sheetsage2-test-requirements.txt
 COPY services/transcription_spike/requirements-test.txt /tmp/transcription/requirements-test.txt
 COPY services/transcription_spike/requirements.txt /tmp/transcription/requirements.txt
 RUN set -eux; \
@@ -91,6 +93,8 @@ RUN set -eux; \
         pytest==8.3.5 pytest-asyncio==0.25.3 httpx==0.28.1 PyGuitarPro==0.11; \
     "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
         -r /tmp/asset-requirements.txt; \
+    "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
+        -r /tmp/sheetsage2-api-requirements.txt -r /tmp/sheetsage2-test-requirements.txt; \
     "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \
         -r /tmp/transcription/requirements-test.txt; \
     "$VENV_SVC/bin/pip" install --default-timeout=120 --retries=5 \

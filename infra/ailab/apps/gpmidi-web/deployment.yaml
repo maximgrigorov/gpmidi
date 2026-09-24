@@ -46,6 +46,10 @@ spec:
           value: http://asset-api.gpmidi-ml.svc.cluster.local:8000/asset-api
         - name: REFERENCE_TIME_BASE
           value: http://reference-time.gpmidi-ml.svc.cluster.local:8000/reference-time
+        - name: SHEETSAGE2_API_BASE
+          value: http://sheetsage2-service.gpmidi-ml.svc.cluster.local:8000
+        - name: SHEETSAGE2_API_TIMEOUT
+          value: "180"
         - name: ASSET_API_VERIFY_TLS
           value: "false"
         - name: ASSET_API_TIMEOUT

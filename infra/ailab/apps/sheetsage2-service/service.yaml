@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sheetsage2-service
+  namespace: gpmidi-ml
+spec:
+  selector:
+    app: sheetsage2-service
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP

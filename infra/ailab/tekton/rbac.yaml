@@ -34,6 +34,12 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  name: tekton-model-sync
+  namespace: gpmidi-ml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
   name: tekton-prune
   namespace: gpmidi-ml
 ---
@@ -117,6 +123,37 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: tekton-e2e
+  namespace: gpmidi-ml
+---
+# Model sync may create and delete only batch Jobs and inspect their pods/logs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-model-sync
+  namespace: gpmidi-ml
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-model-sync
+  namespace: gpmidi-ml
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-model-sync
+subjects:
+- kind: ServiceAccount
+  name: tekton-model-sync
   namespace: gpmidi-ml
 ---
 # Retention only. This is the single identity that may delete PipelineRuns and

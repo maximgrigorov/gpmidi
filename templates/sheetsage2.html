@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audio → MIDI · SheetSage2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .tool-nav{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px 14px;border-bottom:1px solid var(--border)}
+    .tool-nav a{padding:8px;border-radius:6px;color:var(--fg-muted);text-align:center;font-weight:600}.tool-nav a.active{background:var(--accent-soft);color:var(--accent)}
+    .status-card{padding:20px}.status-line{display:flex;align-items:center;gap:10px;margin:12px 0}.status-dot{width:10px;height:10px;border-radius:50%;background:var(--warn)}
+    .status-dot.succeeded{background:var(--ok)}.status-dot.failed{background:var(--err)}.status-dot.running{background:var(--accent);animation:pulse 1.2s infinite}.status-dot.queued{background:var(--warn);animation:pulse 1.2s infinite}
+    @keyframes pulse{50%{opacity:.35}}.download-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}.error-box{padding:14px;border-radius:8px;background:var(--err-soft);color:var(--err);font-weight:600}
+    .info-list{padding:16px 20px 18px 38px}.session-status{font-size:11px;color:var(--fg-muted)}
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="mark">M</div><div><div class="name">конвертер midi</div><div class="sub">Audio intelligence tools</div></div></div>
+    <nav class="tool-nav"><a href="{{ url_for('index') }}">GP → MIDI</a><a class="active" href="{{ url_for('sheetsage2_page') }}">Audio → MIDI</a></nav>
+    <div class="sidebar-scroll">
+      <div class="panel upload-panel">
+        <div class="panel-head compact-head"><div><h2>SheetSage2</h2><p class="muted">Загрузите оригинальный микс.</p></div></div>
+        <form action="{{ url_for('sheetsage2_upload') }}" method="post" enctype="multipart/form-data" class="upload-form" id="audioUploadForm">
+          <input type="file" name="file" id="audioFile" accept=".wav,.flac,.mp3,audio/wav,audio/flac,audio/mpeg" hidden required>
+          <label class="dropzone" for="audioFile"><span class="drop-icon">♫</span><strong>WAV, FLAC или MP3</strong><span>перетащите или выберите файл</span><small>До {{ max_size_mb }} МБ</small></label>
+          <div class="filename muted" id="audioFilename">Файл не выбран</div>
+          <button type="submit" class="btn primary">Запустить анализ</button>
+        </form>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+      <div class="panel sessions-panel"><div class="panel-head compact-head"><div><h2>Задачи</h2><p class="muted">Результаты хранятся на AILab</p></div><span class="count-pill">{{ jobs|length }}</span></div>
+        {% if jobs %}<div class="session-list">{% for job in jobs %}<a class="session-item {% if current_job and current_job.id == job.id %}active{% endif %}" href="{{ url_for('sheetsage2_page', job=job.id) }}"><div class="session-main"><div class="session-name">{{ job.original_filename }}</div><div class="session-meta mono">{{ job.id }}</div></div><span class="session-status">{{ job.status }}</span></a>{% endfor %}</div>{% else %}<p class="muted empty-note">Пока нет анализов.</p>{% endif %}
+      </div>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div class="crumbs"><span>Инструменты</span><span class="sep">/</span><span class="here">Audio → MIDI · SheetSage2</span></div></header>
+    <div class="page">
+      <section class="page-head"><div><h1>Audio → MIDI · SheetSage2</h1><p class="subtitle">Единый многодорожечный MIDI для ручного сравнения по тактам в отдельной сессии Guitar Pro.</p></div></section>
+      {% if service_error %}<div class="error-box">{{ service_error }}</div>{% endif %}
+      {% if current_job %}
+      <section class="panel status-card" id="jobCard" data-job-id="{{ current_job.id }}" data-status="{{ current_job.status }}">
+        <h2>{{ current_job.original_filename }}</h2>
+        <div class="status-line"><span class="status-dot {{ current_job.status }}" id="statusDot"></span><strong id="statusText">{{ current_job.status }}</strong></div>
+        {% if current_job.message %}<div class="error-box" id="jobMessage">{{ current_job.message }}</div>{% else %}<div id="jobMessage"></div>{% endif %}
+        <div class="download-grid" id="downloads" {% if current_job.status != 'succeeded' %}hidden{% endif %}>
+          <a class="btn primary" href="{{ url_for('sheetsage2_download', job_id=current_job.id, kind='midi') }}">Скачать общий MIDI</a>
+          <a class="btn" href="{{ url_for('sheetsage2_download', job_id=current_job.id, kind='archive') }}">Скачать ZIP</a>
+          <a class="btn" target="_blank" href="{{ url_for('sheetsage2_download', job_id=current_job.id, kind='report') }}">Открыть отчёт</a>
+        </div>
+      </section>
+      {% else %}
+      <section class="panel empty-state status-card"><h1>Загрузите оригинальный микс</h1><p class="subtitle">После анализа появятся вокальная и инструментальная мелодии, аккорды, ритмическая сетка, тональность и структура — в одном Type‑1 MIDI и ZIP.</p></section>
+      {% endif %}
+      <section class="panel"><div class="panel-head"><div><h2>Что получится</h2><p class="muted">Без изменения существующего GP → Shreddage workflow</p></div></div><ul class="info-list"><li><strong>Один общий MIDI</strong> с Vocal, Instrumental и Chords для импорта в Guitar Pro.</li><li>ZIP с исходными MIDI, ABC, timed annotations, JSON и HTML-отчётом.</li><li>GPU-контейнер запускается только на задачу и полностью завершается после неё.</li><li>Если VRAM занята, интерфейс попросит остановить нагрузку, очистить VRAM и повторить запрос.</li><li>Автотранскрипция — материал для ручной проверки, а не гарантированное разделение всех инструментов.</li></ul></section>
+      <p class="muted">SheetSage2 weights: CC BY‑NC 4.0 · только личное/исследовательское некоммерческое использование.</p>
+    </div>
+  </main>
+</div>
+<script>
+const input=document.getElementById('audioFile'); if(input){input.addEventListener('change',()=>{document.getElementById('audioFilename').textContent=input.files[0]?.name||'Файл не выбран';});}
+const card=document.getElementById('jobCard');
+const labels={queued:'В очереди — ждём GPU',running:'SheetSage2 анализирует аудио',succeeded:'Готово',failed:'Ошибка',unavailable:'Сервис недоступен'};
+if(card && !['succeeded','failed'].includes(card.dataset.status)){
+  const poll=async()=>{try{const r=await fetch(`/audio-to-midi/jobs/${card.dataset.jobId}/status`,{cache:'no-store'});const j=await r.json();document.getElementById('statusText').textContent=labels[j.status]||j.status;const dot=document.getElementById('statusDot');dot.className=`status-dot ${j.status}`;if(j.message){const box=document.getElementById('jobMessage');box.className='error-box';box.textContent=j.message;}if(j.status==='succeeded'){document.getElementById('downloads').hidden=false;return;}if(j.status==='failed')return;}catch(e){}setTimeout(poll,3000)};setTimeout(poll,1500);
+}
+</script>
+</body></html>

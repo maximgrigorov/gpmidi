@@ -92,6 +92,10 @@ spec:
     serviceAccountName: tekton-deploy
   - pipelineTaskName: deploy-reference-time
     serviceAccountName: tekton-deploy
+  - pipelineTaskName: sync-sheetsage2-models
+    serviceAccountName: tekton-model-sync
+  - pipelineTaskName: deploy-sheetsage2-service
+    serviceAccountName: tekton-deploy
   - pipelineTaskName: deploy-gpmidi-web
     serviceAccountName: tekton-deploy
   - pipelineTaskName: live-e2e

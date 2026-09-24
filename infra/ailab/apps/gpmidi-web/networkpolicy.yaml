@@ -42,6 +42,13 @@ spec:
     - protocol: TCP
       port: 8000
   - to:
+    - podSelector:
+        matchLabels:
+          app: sheetsage2-service
+    ports:
+    - protocol: TCP
+      port: 8000
+  - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kube-system

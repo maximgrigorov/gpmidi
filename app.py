@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import uuid
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import requests
 from flask import (
     Flask,
     Response,
@@ -22,6 +24,7 @@ from flask import (
     request,
     send_file,
     session,
+    stream_with_context,
     url_for,
 )
 from mido import MidiFile
@@ -69,7 +72,12 @@ APP_ROOT = Path(__file__).resolve().parent
 DATA_ROOT = Path(os.environ.get("GPMIDI_DATA_ROOT", str(APP_ROOT / "data")))
 SESSIONS_ROOT = DATA_ROOT / "sessions"
 ALLOWED_EXTENSIONS = {".gp", ".gp3", ".gp4", ".gp5", ".gpx"}
-MAX_CONTENT_LENGTH = 128 * 1024 * 1024
+GP_MAX_CONTENT_LENGTH = 128 * 1024 * 1024
+AUDIO_MAX_CONTENT_LENGTH = 512 * 1024 * 1024
+SHEETSAGE2_API_BASE = os.environ.get(
+    "SHEETSAGE2_API_BASE", "http://sheetsage2-service.gpmidi-ml.svc.cluster.local:8000"
+).rstrip("/")
+SHEETSAGE2_API_TIMEOUT = float(os.environ.get("SHEETSAGE2_API_TIMEOUT", "180"))
 SESSION_HISTORY_LIMIT = 8
 DEFAULT_TEMPO_US = 500000
 CUPS_SERVER = os.environ.get("CUPS_SERVER", "192.168.20.64")
@@ -77,7 +85,7 @@ CUPS_PRINTER = os.environ.get("CUPS_PRINTER", "")
 MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+app.config["MAX_CONTENT_LENGTH"] = AUDIO_MAX_CONTENT_LENGTH
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 # The session cookie is the only authorization for every job, download and
 # delete route, so keep it out of JS and off cross-site form posts.
@@ -249,6 +257,10 @@ def parse_track_options(
 
 def allowed_file(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
+
+
+def _gp_upload_too_large(content_length: int | None) -> bool:
+    return content_length is not None and content_length > GP_MAX_CONTENT_LENGTH
 
 
 
@@ -1148,6 +1160,134 @@ def create_job(uploaded_file=None, humanize: bool = False,
     return job_id
 
 
+def _sheetsage2_owner_headers() -> dict[str, str]:
+    token = str(session.get("sheetsage2_owner_token") or "")
+    if not re.fullmatch(r"[a-f0-9]{64}", token):
+        token = secrets.token_hex(32)
+        session["sheetsage2_owner_token"] = token
+    return {"X-Owner-Token": token}
+
+
+@app.get("/audio-to-midi")
+def sheetsage2_page():
+    jobs: list[dict[str, Any]] = []
+    current = None
+    service_error = None
+    try:
+        owner_headers = _sheetsage2_owner_headers()
+        response = requests.get(
+            f"{SHEETSAGE2_API_BASE}/v1/jobs", headers=owner_headers, timeout=10
+        )
+        response.raise_for_status()
+        jobs = list(response.json().get("jobs") or [])
+        requested_id = request.args.get("job", "")
+        if requested_id:
+            detail = requests.get(
+                f"{SHEETSAGE2_API_BASE}/v1/jobs/{requested_id}",
+                headers=owner_headers,
+                timeout=10,
+            )
+            detail.raise_for_status()
+            current = detail.json()
+            jobs = [current] + [item for item in jobs if item.get("id") != requested_id]
+        elif jobs:
+            current = jobs[0]
+    except (requests.RequestException, ValueError):
+        service_error = "Сервис SheetSage2 сейчас недоступен. Повторите позже."
+    return render_template(
+        "sheetsage2.html", jobs=jobs, current_job=current,
+        service_error=service_error,
+        max_size_mb=AUDIO_MAX_CONTENT_LENGTH // (1024 * 1024),
+    )
+
+
+@app.post("/audio-to-midi/upload")
+def sheetsage2_upload():
+    uploaded = request.files.get("file")
+    if uploaded is None or not uploaded.filename:
+        flash("Выберите WAV, FLAC или MP3.", "error")
+        return redirect(url_for("sheetsage2_page"))
+    extension = Path(uploaded.filename).suffix.lower()
+    if extension not in {".wav", ".flac", ".mp3"}:
+        flash("Поддерживаются WAV, FLAC и MP3.", "error")
+        return redirect(url_for("sheetsage2_page"))
+    try:
+        response = requests.put(
+            f"{SHEETSAGE2_API_BASE}/v1/jobs",
+            data=uploaded.stream,
+            headers={
+                **_sheetsage2_owner_headers(),
+                "X-Filename": secure_filename(uploaded.filename),
+                "Content-Type": uploaded.mimetype or "application/octet-stream",
+            },
+            timeout=SHEETSAGE2_API_TIMEOUT,
+        )
+        response.raise_for_status()
+        job = response.json()
+    except requests.HTTPError as exc:
+        try:
+            message = exc.response.json().get("detail")
+        except (AttributeError, ValueError):
+            message = None
+        flash(message or "SheetSage2 отклонил аудиофайл.", "error")
+        return redirect(url_for("sheetsage2_page"))
+    except (requests.RequestException, ValueError):
+        flash("Не удалось поставить задачу SheetSage2 в очередь.", "error")
+        return redirect(url_for("sheetsage2_page"))
+    flash("Аудио принято. GPU-контейнер запустится, когда видеокарта освободится.", "success")
+    return redirect(url_for("sheetsage2_page", job=job["id"]))
+
+
+@app.get("/audio-to-midi/jobs/<job_id>/status")
+def sheetsage2_status(job_id: str):
+    try:
+        response = requests.get(
+            f"{SHEETSAGE2_API_BASE}/v1/jobs/{job_id}",
+            headers=_sheetsage2_owner_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return jsonify(response.json())
+    except requests.HTTPError as exc:
+        return jsonify({"status": "failed", "message": "Задача не найдена."}), exc.response.status_code
+    except (requests.RequestException, ValueError):
+        return jsonify({"status": "unavailable", "message": "Сервис SheetSage2 недоступен."}), 503
+
+
+@app.get("/audio-to-midi/jobs/<job_id>/download/<kind>")
+def sheetsage2_download(job_id: str, kind: str):
+    if kind not in {"archive", "midi", "report"}:
+        abort(404)
+    try:
+        upstream = requests.get(
+            f"{SHEETSAGE2_API_BASE}/v1/jobs/{job_id}/downloads/{kind}",
+            headers=_sheetsage2_owner_headers(),
+            stream=True,
+            timeout=SHEETSAGE2_API_TIMEOUT,
+        )
+        upstream.raise_for_status()
+    except requests.HTTPError as exc:
+        _abort_upstream(exc.response.status_code, "Артефакт SheetSage2 недоступен.")
+    except requests.RequestException:
+        abort(503, description="Сервис SheetSage2 недоступен.")
+
+    @stream_with_context
+    def generate():
+        try:
+            yield from upstream.iter_content(chunk_size=64 * 1024)
+        finally:
+            upstream.close()
+
+    headers = {}
+    if upstream.headers.get("Content-Disposition"):
+        headers["Content-Disposition"] = upstream.headers["Content-Disposition"]
+    return Response(
+        generate(), status=upstream.status_code,
+        content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+        headers=headers,
+    )
+
+
 @app.get("/healthz")
 def healthz():
     """Liveness/readiness probe.
@@ -1170,7 +1310,7 @@ def index():
     jobs = manifest.get("jobs", [])
     return render_template(
         "index.html", current_job=current_job, jobs=jobs,
-        max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
+        max_size_mb=GP_MAX_CONTENT_LENGTH // (1024 * 1024),
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
         hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
         openai_configured=is_openai_configured(),
@@ -1190,6 +1330,8 @@ def new_session():
 
 @app.post("/upload")
 def upload():
+    if _gp_upload_too_large(request.content_length):
+        abort(413, description="Файл Guitar Pro слишком большой.")
     if "file" not in request.files:
         flash("Файл не получен.", "error")
         return redirect(url_for("index"))
@@ -1233,7 +1375,7 @@ def job_details(job_id: str):
     current_job = _attach_midi_downloads(current_job)
     return render_template(
         "index.html", current_job=current_job, jobs=jobs,
-        max_size_mb=MAX_CONTENT_LENGTH // (1024 * 1024),
+        max_size_mb=GP_MAX_CONTENT_LENGTH // (1024 * 1024),
         printing_enabled=bool(CUPS_PRINTER), tunable_params=TUNABLE_PARAMS,
         hydra_pitch_bend_range=HYDRA_PITCH_BEND_RANGE,
         openai_configured=is_openai_configured(),
