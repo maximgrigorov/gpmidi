@@ -347,7 +347,7 @@ spec:
       value: /workspace/docker-config
     computeResources:
       requests: {cpu: 500m, memory: 1Gi}
-      limits: {cpu: "2", memory: 6Gi, ephemeral-storage: 24Gi}
+      limits: {cpu: "2", memory: 12Gi, ephemeral-storage: 24Gi}
     # The root gpmidi-web image installs large Python wheels from PyPI. A 25m
     # limit failed during a verified but unusually slow download (~20–45 kB/s),
     # after all source/security gates had passed. Keep this below the Pipeline's

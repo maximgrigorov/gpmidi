@@ -20,5 +20,6 @@ def test_image_builds_have_enough_ephemeral_storage_for_large_ml_wheels():
     build_task = task_text.split("name: kaniko-build-push", 1)[1].split(
         "\n---\n", 1
     )[0]
+    assert "memory: 12Gi" in build_task
     assert "ephemeral-storage: 24Gi" in build_task
     assert "ephemeral-storage-limit" not in build_task
