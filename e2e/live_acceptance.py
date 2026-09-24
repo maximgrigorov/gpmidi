@@ -1791,14 +1791,18 @@ def scenario_14_neighbours_healthy(check: Check, shared: dict) -> None:
     check.require(
         now.get("gpu") is not None, "the GPU is still reported by the stats API"
     )
-    if baseline["llm_url"]:
-        llm = api.plain(baseline["llm_url"], timeout=20)
+    llm_baseline = baseline["llm"]
+    if llm_baseline["reachable"]:
+        llm = api.plain(llm_baseline["url"], timeout=20)
         check.require(
             llm.status_code < 500,
             "the active LLM endpoint still answers",
             f"HTTP {llm.status_code}",
         )
+        check.fact("llm_status_code_before", llm_baseline["status_code"])
         check.fact("llm_status_code", llm.status_code)
+    else:
+        check.fact("llm_baseline", "not reachable before acceptance run")
 
     converter = api.flask_get("/")
     check.equal(converter.status_code, 200, "the existing converter UI still renders")
@@ -1817,6 +1821,25 @@ def _profile_active(value) -> bool:
             if key in value:
                 return _profile_active(value[key])
     return False
+
+
+def capture_optional_endpoint(api: Api, url: str | None) -> dict:
+    """Record whether an optional neighbour was reachable before mutation.
+
+    A configured default URL does not prove that the service was active. Only a
+    neighbour that answered before the acceptance run can be required to answer
+    afterwards.
+    """
+    result = {"url": url, "reachable": False, "status_code": None}
+    if not url:
+        return result
+    try:
+        response = api.plain(url, timeout=20)
+    except requests.RequestException:
+        return result
+    result["reachable"] = True
+    result["status_code"] = response.status_code
+    return result
 
 
 def capture_environment(api: Api, args) -> dict:
@@ -1846,7 +1869,7 @@ def capture_environment(api: Api, args) -> dict:
         "homepage_url": args.homepage_url,
         "gitea_url": args.gitea_url,
         "stats_url": stats_url,
-        "llm_url": args.llm_url,
+        "llm": capture_optional_endpoint(api, args.llm_url),
         "active_profiles": active,
         "gpu_before": gpu,
     }

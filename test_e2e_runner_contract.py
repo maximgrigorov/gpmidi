@@ -142,6 +142,33 @@ class TestScenarioCoverage:
         assert len(set(keys)) == 14
         assert all(callable(s[3]) for s in live.SCENARIOS)
 
+    def test_optional_llm_probe_records_an_unreachable_baseline(self):
+        class Api:
+            @staticmethod
+            def plain(url, timeout):
+                raise live.requests.ConnectionError("offline")
+
+        assert live.capture_optional_endpoint(Api(), "http://llm.invalid/health") == {
+            "url": "http://llm.invalid/health",
+            "reachable": False,
+            "status_code": None,
+        }
+
+    def test_optional_llm_probe_records_a_reachable_baseline(self):
+        class Response:
+            status_code = 200
+
+        class Api:
+            @staticmethod
+            def plain(url, timeout):
+                return Response()
+
+        assert live.capture_optional_endpoint(Api(), "http://llm.invalid/health") == {
+            "url": "http://llm.invalid/health",
+            "reachable": True,
+            "status_code": 200,
+        }
+
     def test_no_scenario_uses_skip(self):
         source = (
             Path(__file__).resolve().parent / "e2e" / "live_acceptance.py"
