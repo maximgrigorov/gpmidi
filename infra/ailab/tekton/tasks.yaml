@@ -531,6 +531,12 @@ spec:
     description: Optional Deployment env var that must receive the same immutable image.
     type: string
     default: ""
+  - name: readiness-path
+    description: >-
+      Optional readinessProbe httpGet path declared by the repository manifest.
+      set image alone never delivers a probe change to the live Deployment.
+    type: string
+    default: ""
   workspaces:
   - name: evidence
   results:
@@ -558,6 +564,13 @@ spec:
         -o jsonpath="{.spec.template.spec.containers[?(@.name=='$(params.container)')].image}")
       echo "previous image: $PREV"
       printf '%s' "$PREV" > '$(results.previous-image.path)'
+
+      READY_PATH='$(params.readiness-path)'
+      if [ -n "$READY_PATH" ]; then
+        echo "reconciling readinessProbe path: $READY_PATH"
+        kubectl -n "$NS" patch "deployment/$DEP" --type=strategic -p \
+          "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(params.container)\",\"readinessProbe\":{\"httpGet\":{\"path\":\"$READY_PATH\"}}}]}}}}"
+      fi
 
       echo "deploying immutable digest: $BY_DIGEST"
       kubectl -n "$NS" set image "deployment/$DEP" \
@@ -607,6 +620,12 @@ spec:
           exit 1
         }
       fi
+      LIVE_READY_PATH=$(kubectl -n "$NS" get deploy "$DEP" \
+        -o jsonpath="{.spec.template.spec.containers[?(@.name=='$(params.container)')].readinessProbe.httpGet.path}")
+      if [ -n "$READY_PATH" ] && [ "$LIVE_READY_PATH" != "$READY_PATH" ]; then
+        echo "ERROR: readinessProbe path is '$LIVE_READY_PATH', expected '$READY_PATH'" >&2
+        exit 1
+      fi
 
       GEN=$(kubectl -n "$NS" get deploy "$DEP" -o jsonpath='{.metadata.generation}')
       REV=$(kubectl -n "$NS" get deploy "$DEP" \
@@ -623,6 +642,7 @@ spec:
         echo "pod_image_id: $IMAGE_ID"
         echo "generation: $GEN"
         echo "revision: $REV"
+        echo "readiness_path: $LIVE_READY_PATH"
         echo "previous_image: $PREV"
       } | tee "/workspace/evidence/deploy-$DEP.txt"
 ---

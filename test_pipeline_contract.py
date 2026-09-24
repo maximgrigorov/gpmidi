@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 TASKS = Path("infra/ailab/tekton/tasks.yaml")
+PIPELINE = Path("infra/ailab/tekton/pipeline.yaml")
 SHEETSAGE2_NETWORK_POLICY = Path(
     "infra/ailab/apps/sheetsage2-service/networkpolicy.yaml"
 )
+SHEETSAGE2_DEPLOYMENT = Path("infra/ailab/apps/sheetsage2-service/deployment.yaml")
 
 
 def test_deploy_task_selects_the_ready_pod_for_the_exact_image():
@@ -46,3 +50,34 @@ def test_sheetsage2_controller_can_reach_the_k3s_api_endpoint():
     assert "cidr: 10.43.0.1/32" in policy
     assert "cidr: 192.168.30.2/32" in policy
     assert "port: 6443" in policy
+
+
+def test_sheetsage2_deploy_delivers_the_declared_readiness_probe():
+    # deploy-by-digest only patched the image, so a probe change in the
+    # Deployment manifest never reached the live object: AILab kept probing
+    # /healthz after /readyz was declared. The pipeline must deliver it.
+    deployment = yaml.safe_load(SHEETSAGE2_DEPLOYMENT.read_text(encoding="utf-8"))
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    declared = container["readinessProbe"]["httpGet"]["path"]
+    assert declared == "/readyz"
+
+    pipeline = next(
+        doc for doc in yaml.safe_load_all(PIPELINE.read_text(encoding="utf-8"))
+        if doc and doc["metadata"]["name"] == "gpmidi-ci"
+    )
+    deploy = next(
+        task for task in pipeline["spec"]["tasks"]
+        if task["name"] == "deploy-sheetsage2-service"
+    )
+    params = {param["name"]: param["value"] for param in deploy["params"]}
+    assert params["readiness-path"] == declared
+
+    task = next(
+        doc for doc in yaml.safe_load_all(TASKS.read_text(encoding="utf-8"))
+        if doc and doc["metadata"]["name"] == "deploy-by-digest"
+    )
+    task_params = {param["name"]: param for param in task["spec"]["params"]}
+    assert task_params["readiness-path"]["default"] == ""
+    script = task["spec"]["steps"][0]["script"]
+    assert script.index("readinessProbe") < script.index("rollout status")
+    assert "readiness_path:" in script

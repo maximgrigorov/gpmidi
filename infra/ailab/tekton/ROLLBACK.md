@@ -49,6 +49,18 @@ sudo k3s kubectl -n $NS set image deployment/reference-time \
 sudo k3s kubectl -n $NS rollout status deployment/reference-time --timeout=300s
 ```
 
+### SheetSage2 readiness path
+
+`deploy-sheetsage2-service` also reconciles the readinessProbe path to
+`/readyz` (fail-closed on the Kubernetes API). Images built before commit
+`f03b733` have no `/readyz` endpoint, so a rollback to such a digest must also
+restore the old path, or the pod never becomes Ready:
+
+```bash
+sudo k3s kubectl -n gpmidi-ml patch deployment/sheetsage2-service --type=strategic \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"sheetsage2-service","readinessProbe":{"httpGet":{"path":"/healthz"}}}]}}}}'
+```
+
 ## 3. Prove the rollback
 
 Readiness is not proof. Compare the live pod's `imageID` with the digest you

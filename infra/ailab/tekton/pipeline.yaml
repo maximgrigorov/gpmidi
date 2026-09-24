@@ -395,6 +395,8 @@ spec:
       value: $(tasks.clone.results.commit-sha)
     - name: worker-image-env
       value: SHEETSAGE2_WORKER_IMAGE
+    - name: readiness-path
+      value: /readyz
     workspaces:
     - name: evidence
       workspace: evidence
