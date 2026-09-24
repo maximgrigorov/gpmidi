@@ -115,6 +115,8 @@ TRACK_EFFECTS = {
         "humanize_timing_over_gp_offsets",
         "lock_to_drums",
         "double_track",
+        "pick_direction",
+        "palm_mute_motion",
     ],
     "BASS": [
         "humanize",
@@ -640,6 +642,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         humanize_timing_over_gp_offsets: bool = False,
                         lock_to_drums: bool = False,
                         double_track: bool = False,
+                        pick_direction: bool = False,
+                        palm_mute_motion: bool = False,
                         selected_track_indices: set[int] | None = None,
                         track_options: dict[int, dict[str, bool]] | None = None,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
@@ -664,6 +668,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "humanize_timing_over_gp_offsets": humanize_timing_over_gp_offsets,
                 "lock_to_drums": lock_to_drums,
                 "double_track": double_track,
+                "pick_direction": pick_direction,
+                "palm_mute_motion": palm_mute_motion,
             }
         return dict(effects or {})
 
@@ -717,6 +723,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 humanize_timing_over_gp_offsets=effect_enabled("humanize_timing_over_gp_offsets"),
                 lock_to_drums=effect_enabled("lock_to_drums"),
                 drum_timeline=drum_timeline,
+                pick_direction=effect_enabled("pick_direction"),
+                palm_mute_motion=effect_enabled("palm_mute_motion"),
             )
 
         preview_data = analyze_midi_preview(midi_track, track_type, track.name or f"Track {idx}")
@@ -747,6 +755,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 humanize_timing_over_gp_offsets=effect_enabled("humanize_timing_over_gp_offsets"),
                 lock_to_drums=effect_enabled("lock_to_drums"),
                 drum_timeline=drum_timeline,
+                pick_direction=effect_enabled("pick_direction"),
+                palm_mute_motion=effect_enabled("palm_mute_motion"),
             )
             rename_midi_track(double_midi, (track.name or f"Track {idx}") + DOUBLE_TRACK_SUFFIX)
             double_file = MidiFile(type=0, ticks_per_beat=TICKS_PER_BEAT)
@@ -979,6 +989,8 @@ def create_job(uploaded_file=None, humanize: bool = False,
                humanize_timing_over_gp_offsets: bool = False,
                lock_to_drums: bool = False,
                double_track: bool = False,
+               pick_direction: bool = False,
+               palm_mute_motion: bool = False,
                prepare_arrangement_context: bool = False,
                openai_arrangement_draft: bool = False,
                arrangement_prompt: str | None = None,
@@ -1028,6 +1040,8 @@ def create_job(uploaded_file=None, humanize: bool = False,
         humanize_timing_over_gp_offsets=humanize_timing_over_gp_offsets,
         lock_to_drums=lock_to_drums,
         double_track=double_track,
+        pick_direction=pick_direction,
+        palm_mute_motion=palm_mute_motion,
         selected_track_indices=selected_track_indices,
         track_options=track_options,
     )
@@ -1057,6 +1071,11 @@ def create_job(uploaded_file=None, humanize: bool = False,
             for options in track_options.values())
         double_track = any(
             options.get("double_track") and options.get("humanize")
+            for options in track_options.values())
+        pick_direction = any(
+            options.get("pick_direction") for options in track_options.values())
+        palm_mute_motion = any(
+            options.get("palm_mute_motion") and options.get("humanize")
             for options in track_options.values())
 
     prepare_arrangement_context = bool(prepare_arrangement_context or openai_arrangement_draft)
@@ -1256,6 +1275,8 @@ def create_job(uploaded_file=None, humanize: bool = False,
         "humanize_timing_over_gp_offsets": humanize_timing_over_gp_offsets,
         "lock_to_drums": lock_to_drums,
         "double_track": double_track,
+        "pick_direction": pick_direction,
+        "palm_mute_motion": palm_mute_motion,
         "prepare_arrangement_context": prepare_arrangement_context,
         "openai_arrangement_draft": openai_arrangement_draft,
         "arrangement_apply_token": secrets.token_urlsafe(24) if openai_arrangement_draft else None,
@@ -1489,6 +1510,8 @@ def apply_arrangement(job_id: str):
                 "keep_gp_played_overlaps": bool(job.get("keep_gp_played_overlaps")),
                 "humanize_timing_over_gp_offsets": bool(job.get("humanize_timing_over_gp_offsets")),
                 "lock_to_drums": bool(job.get("lock_to_drums")),
+                "pick_direction": bool(job.get("pick_direction")),
+                "palm_mute_motion": bool(job.get("palm_mute_motion")),
             },
             included_track_indices={
                 int(track["index"]) for track in job.get("tracks", [])

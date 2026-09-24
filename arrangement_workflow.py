@@ -141,6 +141,8 @@ def _render_track(
         humanize_timing_over_gp_offsets=bool(options.get("humanize_timing_over_gp_offsets")),
         lock_to_drums=bool(options.get("lock_to_drums")),
         drum_timeline=drum_timeline,
+        pick_direction=bool(options.get("pick_direction")),
+        palm_mute_motion=bool(options.get("palm_mute_motion")),
     )
 
 

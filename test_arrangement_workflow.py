@@ -139,6 +139,8 @@ def test_render_track_propagates_job_options_to_target_renderers(monkeypatch):
             "humanize_timing_over_gp_offsets": False,
             "lock_to_drums": False,
             "drum_timeline": None,
+            "pick_direction": False,
+            "palm_mute_motion": False,
         }),
         ("drums", {"humanize": True, "humanize_seed": 19, "ghost_notes": True}),
         ("other", {"expand_gp_hidden_32nds": True}),

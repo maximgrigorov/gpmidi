@@ -146,6 +146,12 @@
                 {% if current_job.double_track %}
                   <span class="badge on">второй дубль ритм-гитары</span>
                 {% endif %}
+                {% if current_job.pick_direction %}
+                  <span class="badge on">направление медиатора (Hydra)</span>
+                {% endif %}
+                {% if current_job.palm_mute_motion %}
+                  <span class="badge on">глушение как движение руки</span>
+                {% endif %}
                 {% if current_job.expand_gp_hidden_32nds %}
                   <span class="badge on">скрытые GP 32-е развёрнуты</span>
                 {% endif %}
@@ -280,6 +286,12 @@
                         {% endif %}
                         {% if 'double_track' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_double_track" data-needs-humanize> double track L/R (needs humanize)</label>
+                        {% endif %}
+                        {% if 'pick_direction' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_pick_direction"> pick direction (Hydra up/down)</label>
+                        {% endif %}
+                        {% if 'palm_mute_motion' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_palm_mute_motion" data-needs-humanize> palm-mute motion (needs humanize)</label>
                         {% endif %}
                         {% if not track.available_effects %}<span class="muted">Нет дополнительных эффектов.</span>{% endif %}
                       </div>

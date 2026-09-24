@@ -301,6 +301,7 @@ def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):
         "expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": True,
         "fret_hand_cost": False, "keep_gp_played_overlaps": False,
         "humanize_timing_over_gp_offsets": False, "lock_to_drums": False,
+        "pick_direction": False, "palm_mute_motion": False,
     }
     assert calls[0]["included_track_indices"] == {2}
     assert client.post(f"/jobs/{job_id}/arrangement/apply").status_code == 302
