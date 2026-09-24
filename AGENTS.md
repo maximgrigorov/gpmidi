@@ -108,6 +108,10 @@
   It checks invariants on the produced artifact, not musicality. Every check is a
   fossilised real bug — see the module docstring. ERROR fails the summary; WARN
   and INFO are advisory.
+- `KEY_RETRIGGER` (ERROR on GUITAR/BASS, WARN on OTHER, skipped on DRUMS): a
+  note attacking a key that still sounds — its predecessor's note_off will
+  silence it. It fires on `origin/main` humanize artifacts (1236 guitar, 677
+  bass) and is silent on current guitar/bass exports in every mode.
 - A check that never fires is worthless: validate changes against the
   pre-fix artifacts, which still contain BEND_CEILING and CC1_PROPELLER.
   Two earlier versions of the CC1 check silently passed the very file they were
@@ -155,7 +159,8 @@
   Without the flag every export is byte-for-byte identical: 330 MIDI files,
   4 inputs x 6 flag combinations, compared against `origin/main`.
 - Numbers live in `config/humanize_profiles/guitar_metal.yaml` (`fret_hand_cost`,
-  config_version 2); the position-change threshold is reused from
+  config_version 3: 9 ms at the threshold, saturating to 16); the position-change
+  threshold is reused from
   `shreddage_hydra_3.5.yaml` (`fret_noise_on_hand_shift.min_fret_shift`), never
   duplicated. Travel time is in ms (physical, tempo-independent); only the cap is
   `*_frac16`. The user approved ms over frac16 on 2026-09-24.
@@ -170,15 +175,37 @@
 - It is a solo-line feature by measurement: hand shifts >= 4 frets on 25% of solo
   beats but 3.1% of rhythm beats (pnd Rhytm: 2 of 873).
 - Acceptance is `hand_cost_check.differential` (one-sided Mann-Whitney, shift
-  beats vs no-shift beats, legato targets excluded). It must FAIL without the
-  feature — quantized and humanize-only — and does (`test_fret_hand_cost.py`;
-  1 false pass in 300 seeded humanize-only runs, 300/300 passes with the feature).
+  beats vs no-shift beats, legato targets excluded) measured against the
+  REFERENCE — the same export without `--humanize`. Against the notated grid the
+  authored GP offsets (default on solo tracks) drown the delay (LESSONS.md p.16).
+  It must FAIL without the feature — quantized and humanize-only — and does
+  (`test_fret_hand_cost.py`). Timing std is checked as a 60-seed mean inside
+  5-9 ms (`hand_cost_check.corridor`); `tools/fret_hand_cost_acceptance.py`
+  prints both.
 - Use `onset_std_ms` (deviation from the notated attack) for guitar timing, not
   `jitter_ms`: the latter counts quantized 32nds as jitter (LESSONS.md p.3).
 
+## Render defaults (changed 2026-09-24 with explicit user approval)
+- `--expand-gp-hidden-32nds` is ON by default on every tonal track (opt out:
+  `--no-expand-gp-hidden-32nds`); GP8 beats that hold several notes played one
+  after another are split into 32nds.
+- GP8 played attack offsets are kept by default on SOLO tracks only
+  (`is_solo_track`: GUITAR/BASS with solo/lead in the name).
+  `--preserve-gp-played-offsets` keeps them on every Guitar/Bass track,
+  `--no-preserve-gp-played-offsets` nowhere. `resolve_track_render_options`
+  is the single place that maps CLI options to a track.
+- The web UI pre-checks the same boxes (`default_track_effects`).
+- A same-pitch overlap is clipped in EVERY mode (`clip_same_pitch_overlaps`):
+  the old note_off would silence the new note. Hammer onto the same pitch gets
+  no legato overlap; a hammer onto another string is legato only when the target
+  is reachable on the source string within a position (`min_fret_shift`).
+  Against `origin/main` with the same options only 27 guitar note ENDS changed;
+  attacks, pitches, velocities and all drum/OTHER files are identical.
+
 ## Web UI options
 - `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
-  optional, all off by default. The ghost checkbox is gated on humanize in JS —
+  optional, all off by default (hidden 32nds and solo played offsets are the
+  exception, see Render defaults). The ghost checkbox is gated on humanize in JS —
   ghosts only exist inside humanization.
 - `fret_hand_cost` is a per-track GUITAR effect (`track_N_fret_hand_cost`); its
   checkbox is disabled until that track's humanize is checked.
@@ -187,17 +214,18 @@
   what produced it.
 
 ## Still open (do not "fix" silently — ask first)
-- **`--humanize` note ends follow the SHIFTED start** (LESSONS.md p.15, measured
-  2026-09-24): 1909 guitar/bass notes lost (the old note_off kills a same-pitch
-  successor) and 40-65% of hammer/pull overlaps broken. Fix on branch
-  `fix/humanize-note-ends` (`clip_humanized_overlaps` + grid-decided legato),
-  1909 -> 0, byte-identical without `--humanize`. It changes approved humanize
-  output: merge only with the user's explicit GO.
-- Plain export: a hammer onto the SAME pitch gets the 40 ms legato overlap and
-  its target is cut to 40 ms (Spring Melody Solo bars 5 and 59, TtN Solo bar
-  174). Fixing it changes the notation export — ask first.
-- Under `--humanize` notes on DIFFERENT strings can still overlap by a few ms;
-  Hydra plays legato on overlap. Unverified in the instrument.
+- `--humanize` note ends (LESSONS.md p.15): fixed on `fix/humanize-note-ends`
+  (1909 lost notes -> 0), user GO 2026-09-24; merge is done by a separate agent.
+- OTHER tracks (keys/synth/vocals, `build_other_midi`) still retrigger keys:
+  58 KEY_RETRIGGER findings on the default export of three songs, 487 with
+  `--preserve-gp-played-offsets`. Same bug class, other instruments — ask first.
+- Authored GP offsets (default on solo) create overlaps absent from the
+  notation: 52 of 236 transitions on Spring Melody Solo (max 303 ms), 62 of 268
+  on TtN Solo. Hydra plays them legato. They are part of the accepted Spring
+  Melody baseline, so they are NOT clipped — the user decides.
+- With `--humanize` on a solo track, humanize timing (and the hand delay) is
+  added ON TOP of the authored offsets. Whether authored timing should replace
+  humanize timing there is the user's call.
 - ~~Initial keyswitch is assumed, not set.~~ **DONE** in commit `4336ce8`: an
   explicit sustain KS is emitted at tick 0 in `build_instrument_midi`, and
   `verify_midi.py` ships the matching `KS_NO_INIT` check. The reason stays on

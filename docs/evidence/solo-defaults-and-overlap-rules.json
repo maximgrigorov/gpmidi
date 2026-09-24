@@ -1,0 +1,363 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "decisions_2026_09_24": {
+  "1": "fix lost notes in the notation export (same-pitch hammer)",
+  "3": "cross-string hammer: refinger onto the source string when reachable within a position, otherwise drop it; no cross-string overlaps from humanize",
+  "4": "--expand-gp-hidden-32nds on everywhere by default; --preserve-gp-played-offsets on by default for solo tracks only",
+  "6": "finish the tails"
+ },
+ "key_retrigger_findings": {
+  "origin_main": {
+   "(defaults)": {
+    "OTHER": 56,
+    "GUITAR": 10
+   },
+   "--humanize": {
+    "OTHER": 56,
+    "GUITAR": 1236,
+    "BASS": 677
+   },
+   "--humanize --fret-noise-on-hand-shift --auto-sustain-vibrato": {
+    "OTHER": 56,
+    "GUITAR": 1236,
+    "BASS": 677
+   },
+   "--humanize --ghost-notes --seed=11": {
+    "OTHER": 56,
+    "GUITAR": 1324,
+    "BASS": 641
+   },
+   "--expand-gp-hidden-32nds --preserve-gp-played-offsets": {
+    "OTHER": 487,
+    "GUITAR": 108,
+    "BASS": 108
+   },
+   "--humanize --preserve-gp-played-offsets --fret-noise-on-hand-shift": {
+    "OTHER": 487,
+    "GUITAR": 1905,
+    "BASS": 677
+   }
+  },
+  "this_branch": {
+   "(defaults)": {
+    "OTHER": 58
+   },
+   "--humanize": {
+    "OTHER": 58
+   },
+   "--humanize --fret-noise-on-hand-shift --auto-sustain-vibrato": {
+    "OTHER": 58
+   },
+   "--humanize --ghost-notes --seed=11": {
+    "OTHER": 58
+   },
+   "--expand-gp-hidden-32nds --preserve-gp-played-offsets": {
+    "OTHER": 487
+   },
+   "--humanize --preserve-gp-played-offsets --fret-noise-on-hand-shift": {
+    "OTHER": 487
+   }
+  },
+  "note": "verify_midi KEY_RETRIGGER totals per track type. Combination labels are this branch's; '(defaults)' on origin_main means its old defaults (no expand, no offsets)."
+ },
+ "notation_export_vs_main_same_options": {
+  "options": "expand_gp_hidden_32nds=True, preserve_gp_played_offsets on solo tracks",
+  "attacks_pitches_velocities": "identical on all 11 guitar/bass tracks",
+  "note_ends_changed": {
+   "SpringMelody/Guitar (Solo)": [
+    4,
+    3
+   ],
+   "SpringMelody/Guitar (Rhytm)": [
+    1,
+    7
+   ],
+   "TtN/Clean Guitar": [
+    4,
+    0
+   ],
+   "TtN/Solo Guitar": [
+    5,
+    2
+   ],
+   "TtN/Rhytm Guitar": [
+    1,
+    0
+   ]
+  },
+  "columns": [
+   "earlier (same-pitch clip / same-pitch hammer)",
+   "later (cross-string hammer refingered -> legato)"
+  ],
+  "drums_and_other": "36/36 files byte-identical to origin/main run with --expand-gp-hidden-32nds"
+ },
+ "hand_cost_curve_retune": {
+  "reason": "with played offsets on solo by default the corridor is measured against the no-humanize reference; Spring Melody Solo mean rose to 9.01 ms",
+  "grid_40_seeds": {
+   "10/18": {
+    "SM Solo std": 9.02,
+    "power": "40/40 all"
+   },
+   "9/16": {
+    "SM Solo std": 8.78,
+    "power": "TtN Solo 39/40, others 40/40"
+   },
+   "8/15": {
+    "SM Solo std": 8.65,
+    "power": "TtN Solo 38/40, SM Rhytm 39/40"
+   }
+  },
+  "chosen": "9/16, config_version 3"
+ },
+ "acceptance_defaults_reference_v3": [
+  {
+   "track": "pnd.gp5/Solo Guitar",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": true
+   },
+   "check_off_on": [
+    false,
+    true
+   ],
+   "p_on": 0.0,
+   "gain_ms_on": 9.72,
+   "seeds_pass_off_on": [
+    0,
+    60
+   ],
+   "corridor_on": {
+    "mean_ms": 8.27,
+    "max_ms": 8.78,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    58,
+    58
+   ]
+  },
+  {
+   "track": "pnd.gp5/Rhytm Guitar",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": false
+   },
+   "check_off_on": [
+    false,
+    false
+   ],
+   "p_on": 0.041664,
+   "gain_ms_on": 7.99,
+   "seeds_pass_off_on": [
+    0,
+    0
+   ],
+   "corridor_on": {
+    "mean_ms": 7.02,
+    "max_ms": 7.4,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    1,
+    1
+   ]
+  },
+  {
+   "track": "pnd.gp5/Steel Guitar",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": false
+   },
+   "check_off_on": [
+    false,
+    false
+   ],
+   "p_on": 1.0,
+   "gain_ms_on": 0.0,
+   "seeds_pass_off_on": [
+    0,
+    0
+   ],
+   "corridor_on": {
+    "mean_ms": 7.02,
+    "max_ms": 7.99,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    0,
+    0
+   ]
+  },
+  {
+   "track": "SpringMelody.gp/Guitar (Solo)",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": true
+   },
+   "check_off_on": [
+    false,
+    true
+   ],
+   "p_on": 0.0,
+   "gain_ms_on": 13.75,
+   "seeds_pass_off_on": [
+    1,
+    60
+   ],
+   "corridor_on": {
+    "mean_ms": 8.77,
+    "max_ms": 9.57,
+    "seeds_above": 18,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    31,
+    31
+   ]
+  },
+  {
+   "track": "SpringMelody.gp/Guitar (Rhytm)",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": false
+   },
+   "check_off_on": [
+    false,
+    true
+   ],
+   "p_on": 0.0,
+   "gain_ms_on": 8.33,
+   "seeds_pass_off_on": [
+    0,
+    60
+   ],
+   "corridor_on": {
+    "mean_ms": 8.25,
+    "max_ms": 8.93,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    22,
+    22
+   ]
+  },
+  {
+   "track": "TtN.gp/Clean Guitar",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": false
+   },
+   "check_off_on": [
+    false,
+    true
+   ],
+   "p_on": 0.0,
+   "gain_ms_on": 9.9,
+   "seeds_pass_off_on": [
+    0,
+    60
+   ],
+   "corridor_on": {
+    "mean_ms": 6.86,
+    "max_ms": 7.36,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    22,
+    22
+   ]
+  },
+  {
+   "track": "TtN.gp/Solo Guitar",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": true
+   },
+   "check_off_on": [
+    false,
+    true
+   ],
+   "p_on": 9e-06,
+   "gain_ms_on": 7.29,
+   "seeds_pass_off_on": [
+    0,
+    59
+   ],
+   "corridor_on": {
+    "mean_ms": 6.74,
+    "max_ms": 7.37,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    16,
+    16
+   ]
+  },
+  {
+   "track": "TtN.gp/Rhytm Guitar",
+   "render_options": {
+    "expand_gp_hidden_32nds": true,
+    "preserve_gp_played_offsets": false
+   },
+   "check_off_on": [
+    false,
+    false
+   ],
+   "p_on": 0.000234,
+   "gain_ms_on": 7.03,
+   "seeds_pass_off_on": [
+    0,
+    0
+   ],
+   "corridor_on": {
+    "mean_ms": 6.16,
+    "max_ms": 6.43,
+    "seeds_above": 0,
+    "seeds": 60,
+    "inside": true
+   },
+   "smoke_hand": {},
+   "fret_noise_events": [
+    5,
+    5
+   ]
+  }
+ ],
+ "authored_offset_overlaps_not_in_notation": {
+  "SpringMelody/Guitar (Solo)": {
+   "count": 52,
+   "of": 236,
+   "median_ms": 3,
+   "max_ms": 303
+  },
+  "TtN/Solo Guitar": {
+   "count": 62,
+   "of": 268,
+   "median_ms": 4,
+   "max_ms": 29
+  },
+  "status": "not clipped: part of the accepted Spring Melody baseline; needs the user's decision"
+ },
+ "gp8_negative_frets": "ApolloTab GP8 import reports negative fret values (TtN 90 notes, PnD.gp 6); pitch = open + value is correct, the fret number is not; beat_hand_position already ignores them"
+}
