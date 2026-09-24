@@ -108,12 +108,16 @@ TRACK_EFFECTS = {
         "fret_hand_cost",
         "expand_gp_hidden_32nds",
         "preserve_gp_played_offsets",
+        "keep_gp_played_overlaps",
+        "humanize_timing_over_gp_offsets",
     ],
     "BASS": [
         "humanize",
         "fret_noise_on_hand_shift",
         "expand_gp_hidden_32nds",
         "preserve_gp_played_offsets",
+        "keep_gp_played_overlaps",
+        "humanize_timing_over_gp_offsets",
     ],
     "OTHER": ["expand_gp_hidden_32nds"],
 }
@@ -626,6 +630,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         expand_gp_hidden_32nds: bool = False,
                         preserve_gp_played_offsets: bool = False,
                         fret_hand_cost: bool = False,
+                        keep_gp_played_overlaps: bool = False,
+                        humanize_timing_over_gp_offsets: bool = False,
                         selected_track_indices: set[int] | None = None,
                         track_options: dict[int, dict[str, bool]] | None = None,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
@@ -653,6 +659,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
                 "preserve_gp_played_offsets": preserve_gp_played_offsets,
                 "fret_hand_cost": fret_hand_cost,
+                "keep_gp_played_overlaps": keep_gp_played_overlaps,
+                "humanize_timing_over_gp_offsets": humanize_timing_over_gp_offsets,
             }
         effective_effects: dict[str, bool] = dict(effects or {})
 
@@ -678,6 +686,8 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 expand_gp_hidden_32nds=effect_enabled("expand_gp_hidden_32nds"),
                 preserve_gp_played_offsets=effect_enabled("preserve_gp_played_offsets"),
                 fret_hand_cost=effect_enabled("fret_hand_cost"),
+                keep_gp_played_overlaps=effect_enabled("keep_gp_played_overlaps"),
+                humanize_timing_over_gp_offsets=effect_enabled("humanize_timing_over_gp_offsets"),
             )
 
         preview_data = analyze_midi_preview(midi_track, track_type, track.name or f"Track {idx}")
@@ -901,6 +911,8 @@ def create_job(uploaded_file=None, humanize: bool = False,
                expand_gp_hidden_32nds: bool = False,
                preserve_gp_played_offsets: bool = False,
                fret_hand_cost: bool = False,
+               keep_gp_played_overlaps: bool = False,
+               humanize_timing_over_gp_offsets: bool = False,
                prepare_arrangement_context: bool = False,
                openai_arrangement_draft: bool = False,
                arrangement_prompt: str | None = None,
@@ -946,6 +958,8 @@ def create_job(uploaded_file=None, humanize: bool = False,
         expand_gp_hidden_32nds=expand_gp_hidden_32nds,
         preserve_gp_played_offsets=preserve_gp_played_offsets,
         fret_hand_cost=fret_hand_cost,
+        keep_gp_played_overlaps=keep_gp_played_overlaps,
+        humanize_timing_over_gp_offsets=humanize_timing_over_gp_offsets,
         selected_track_indices=selected_track_indices,
         track_options=track_options,
     )
@@ -964,6 +978,11 @@ def create_job(uploaded_file=None, humanize: bool = False,
         # Перенос руки работает только внутри оживления той же дорожки.
         fret_hand_cost = any(
             options.get("fret_hand_cost") and options.get("humanize")
+            for options in track_options.values())
+        keep_gp_played_overlaps = any(
+            options.get("keep_gp_played_overlaps") for options in track_options.values())
+        humanize_timing_over_gp_offsets = any(
+            options.get("humanize_timing_over_gp_offsets") and options.get("humanize")
             for options in track_options.values())
 
     prepare_arrangement_context = bool(prepare_arrangement_context or openai_arrangement_draft)
@@ -1159,6 +1178,8 @@ def create_job(uploaded_file=None, humanize: bool = False,
         "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
         "preserve_gp_played_offsets": preserve_gp_played_offsets,
         "fret_hand_cost": fret_hand_cost,
+        "keep_gp_played_overlaps": keep_gp_played_overlaps,
+        "humanize_timing_over_gp_offsets": humanize_timing_over_gp_offsets,
         "prepare_arrangement_context": prepare_arrangement_context,
         "openai_arrangement_draft": openai_arrangement_draft,
         "arrangement_apply_token": secrets.token_urlsafe(24) if openai_arrangement_draft else None,
@@ -1389,6 +1410,8 @@ def apply_arrangement(job_id: str):
                 "expand_gp_hidden_32nds": bool(job.get("expand_gp_hidden_32nds")),
                 "preserve_gp_played_offsets": bool(job.get("preserve_gp_played_offsets")),
                 "fret_hand_cost": bool(job.get("fret_hand_cost")),
+                "keep_gp_played_overlaps": bool(job.get("keep_gp_played_overlaps")),
+                "humanize_timing_over_gp_offsets": bool(job.get("humanize_timing_over_gp_offsets")),
             },
             included_track_indices={
                 int(track["index"]) for track in job.get("tracks", [])

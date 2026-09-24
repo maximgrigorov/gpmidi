@@ -136,6 +136,8 @@ def _render_track(
         expand_gp_hidden_32nds=bool(options.get("expand_gp_hidden_32nds")),
         preserve_gp_played_offsets=bool(options.get("preserve_gp_played_offsets")),
         fret_hand_cost=bool(options.get("fret_hand_cost")),
+        keep_gp_played_overlaps=bool(options.get("keep_gp_played_overlaps")),
+        humanize_timing_over_gp_offsets=bool(options.get("humanize_timing_over_gp_offsets")),
     )
 
 

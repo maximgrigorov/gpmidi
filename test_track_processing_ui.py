@@ -30,6 +30,7 @@ def test_discovery_is_parse_only_and_defaults_every_track_to_selected(monkeypatc
     assert discovered[2]["available_effects"] == [
         "humanize", "auto_sustain_vibrato", "fret_noise_on_hand_shift",
         "fret_hand_cost", "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
+        "keep_gp_played_overlaps", "humanize_timing_over_gp_offsets",
     ]
 
 
@@ -222,6 +223,8 @@ def test_track_summary_only_renders_selected_tracks_with_their_own_options(monke
         "expand_gp_hidden_32nds": False,
         "preserve_gp_played_offsets": True,
         "fret_hand_cost": False,
+        "keep_gp_played_overlaps": False,
+        "humanize_timing_over_gp_offsets": False,
     })]
     assert tracks[0]["effects"]["humanize"] is True
     assert "Hydra" in " ".join(tracks[0]["processing_report"])

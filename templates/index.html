@@ -134,6 +134,12 @@
                 {% if current_job.fret_hand_cost %}
                   <span class="badge on">задержка при переносе руки вкл</span>
                 {% endif %}
+                {% if current_job.keep_gp_played_overlaps %}
+                  <span class="badge warn">перекрытия от GP8-сдвигов оставлены</span>
+                {% endif %}
+                {% if current_job.humanize_timing_over_gp_offsets %}
+                  <span class="badge on">тайминг оживления поверх GP8-сдвигов</span>
+                {% endif %}
                 {% if current_job.expand_gp_hidden_32nds %}
                   <span class="badge on">скрытые GP 32-е развёрнуты</span>
                 {% endif %}
@@ -256,6 +262,12 @@
                         {% endif %}
                         {% if 'preserve_gp_played_offsets' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_preserve_gp_played_offsets"{% if (track.default_effects or {}).get('preserve_gp_played_offsets') %} checked{% endif %}> preserve GP played offsets</label>
+                        {% endif %}
+                        {% if 'keep_gp_played_overlaps' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_keep_gp_played_overlaps"> keep GP played overlaps (Hydra legato)</label>
+                        {% endif %}
+                        {% if 'humanize_timing_over_gp_offsets' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_humanize_timing_over_gp_offsets" data-needs-humanize> humanize timing over GP offsets (needs humanize)</label>
                         {% endif %}
                         {% if not track.available_effects %}<span class="muted">Нет дополнительных эффектов.</span>{% endif %}
                       </div>
