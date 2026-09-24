@@ -12,6 +12,7 @@ _OPTION_LABELS = {
     "ghost_notes": "Ghost notes",
     "auto_sustain_vibrato": "Auto sustain vibrato",
     "fret_noise_on_hand_shift": "Fret noise on hand shift",
+    "fret_hand_cost": "Fret-hand shift delay",
     "expand_gp_hidden_32nds": "Expand hidden GP 32nds",
     "preserve_gp_played_offsets": "Preserve GP played offsets",
 }
@@ -19,7 +20,7 @@ _APPLICABLE_OPTIONS = {
     "DRUMS": {"humanize", "ghost_notes"},
     "GUITAR": {
         "humanize", "auto_sustain_vibrato", "fret_noise_on_hand_shift",
-        "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
+        "fret_hand_cost", "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
     },
     "BASS": {
         "humanize", "fret_noise_on_hand_shift", "expand_gp_hidden_32nds",

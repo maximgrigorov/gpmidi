@@ -131,6 +131,9 @@
                 {% if current_job.fret_noise_on_hand_shift %}
                   <span class="badge on">fret-noise переносов вкл</span>
                 {% endif %}
+                {% if current_job.fret_hand_cost %}
+                  <span class="badge on">задержка при переносе руки вкл</span>
+                {% endif %}
                 {% if current_job.expand_gp_hidden_32nds %}
                   <span class="badge on">скрытые GP 32-е развёрнуты</span>
                 {% endif %}
@@ -234,7 +237,7 @@
                       </label>
                       <div class="track-effect-grid" data-track-effects>
                         {% if 'humanize' in track.available_effects %}
-                          <label><input type="checkbox" name="track_{{ track.index }}_humanize"> humanize velocity/timing</label>
+                          <label><input type="checkbox" name="track_{{ track.index }}_humanize" data-humanize-effect> humanize velocity/timing</label>
                         {% endif %}
                         {% if 'ghost_notes' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_ghost_notes"> ghost notes (drums only)</label>
@@ -244,6 +247,9 @@
                         {% endif %}
                         {% if 'fret_noise_on_hand_shift' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_fret_noise_on_hand_shift"> fret-noise hand shifts</label>
+                        {% endif %}
+                        {% if 'fret_hand_cost' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_fret_hand_cost" data-needs-humanize> hand-shift delay (needs humanize)</label>
                         {% endif %}
                         {% if 'expand_gp_hidden_32nds' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_expand_gp_hidden_32nds"> hidden GP 32nds</label>
@@ -482,10 +488,23 @@
       const card = select.closest('[data-track-option-card]');
       if (!card) return;
       card.classList.toggle('is-disabled', !select.checked);
+      const humanizeOn = card.querySelector('[data-humanize-effect]');
       card.querySelectorAll('[data-track-effects] input').forEach(effect => {
-        effect.disabled = !select.checked;
+        // Задержка переноса руки живёт в профиле оживления: без humanize
+        // той же дорожки она ничего не делает, поэтому и выбрать её нельзя.
+        const needsHumanize = effect.hasAttribute('data-needs-humanize');
+        effect.disabled = !select.checked
+          || (needsHumanize && !(humanizeOn && humanizeOn.checked));
+        if (effect.disabled && needsHumanize) effect.checked = false;
       });
     }
+    document.querySelectorAll('[data-humanize-effect]').forEach(humanize => {
+      humanize.addEventListener('change', () => {
+        const card = humanize.closest('[data-track-option-card]');
+        const select = card && card.querySelector('[data-track-select]');
+        if (select) syncTrackCard(select);
+      });
+    });
     trackSelects.forEach(select => {
       syncTrackCard(select);
       select.addEventListener('change', () => {

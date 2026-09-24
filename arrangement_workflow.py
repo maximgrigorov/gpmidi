@@ -135,6 +135,7 @@ def _render_track(
         performance_seed=seed,
         expand_gp_hidden_32nds=bool(options.get("expand_gp_hidden_32nds")),
         preserve_gp_played_offsets=bool(options.get("preserve_gp_played_offsets")),
+        fret_hand_cost=bool(options.get("fret_hand_cost")),
     )
 
 

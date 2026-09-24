@@ -29,7 +29,7 @@ def test_discovery_is_parse_only_and_defaults_every_track_to_selected(monkeypatc
     assert discovered[1]["track_name"] == "Synth (Staff 1)"
     assert discovered[2]["available_effects"] == [
         "humanize", "auto_sustain_vibrato", "fret_noise_on_hand_shift",
-        "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
+        "fret_hand_cost", "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
     ]
 
 
@@ -221,6 +221,7 @@ def test_track_summary_only_renders_selected_tracks_with_their_own_options(monke
         "performance_seed": 23,
         "expand_gp_hidden_32nds": False,
         "preserve_gp_played_offsets": True,
+        "fret_hand_cost": False,
     })]
     assert tracks[0]["effects"]["humanize"] is True
     assert "Hydra" in " ".join(tracks[0]["processing_report"])

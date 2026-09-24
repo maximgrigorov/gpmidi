@@ -104,6 +104,7 @@ TRACK_EFFECTS = {
         "humanize",
         "auto_sustain_vibrato",
         "fret_noise_on_hand_shift",
+        "fret_hand_cost",
         "expand_gp_hidden_32nds",
         "preserve_gp_played_offsets",
     ],
@@ -607,6 +608,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         fret_noise_on_hand_shift: bool = False,
                         expand_gp_hidden_32nds: bool = False,
                         preserve_gp_played_offsets: bool = False,
+                        fret_hand_cost: bool = False,
                         selected_track_indices: set[int] | None = None,
                         track_options: dict[int, dict[str, bool]] | None = None,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
@@ -633,6 +635,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
                 "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
                 "preserve_gp_played_offsets": preserve_gp_played_offsets,
+                "fret_hand_cost": fret_hand_cost,
             }
         effective_effects: dict[str, bool] = dict(effects or {})
 
@@ -657,6 +660,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 performance_seed=seed,
                 expand_gp_hidden_32nds=effect_enabled("expand_gp_hidden_32nds"),
                 preserve_gp_played_offsets=effect_enabled("preserve_gp_played_offsets"),
+                fret_hand_cost=effect_enabled("fret_hand_cost"),
             )
 
         preview_data = analyze_midi_preview(midi_track, track_type, track.name or f"Track {idx}")
@@ -879,6 +883,7 @@ def create_job(uploaded_file=None, humanize: bool = False,
                fret_noise_on_hand_shift: bool = False,
                expand_gp_hidden_32nds: bool = False,
                preserve_gp_played_offsets: bool = False,
+               fret_hand_cost: bool = False,
                prepare_arrangement_context: bool = False,
                openai_arrangement_draft: bool = False,
                arrangement_prompt: str | None = None,
@@ -923,6 +928,7 @@ def create_job(uploaded_file=None, humanize: bool = False,
         fret_noise_on_hand_shift=fret_noise_on_hand_shift,
         expand_gp_hidden_32nds=expand_gp_hidden_32nds,
         preserve_gp_played_offsets=preserve_gp_played_offsets,
+        fret_hand_cost=fret_hand_cost,
         selected_track_indices=selected_track_indices,
         track_options=track_options,
     )
@@ -938,6 +944,10 @@ def create_job(uploaded_file=None, humanize: bool = False,
             options.get("expand_gp_hidden_32nds") for options in track_options.values())
         preserve_gp_played_offsets = any(
             options.get("preserve_gp_played_offsets") for options in track_options.values())
+        # Перенос руки работает только внутри оживления той же дорожки.
+        fret_hand_cost = any(
+            options.get("fret_hand_cost") and options.get("humanize")
+            for options in track_options.values())
 
     prepare_arrangement_context = bool(prepare_arrangement_context or openai_arrangement_draft)
     arrangement = None
@@ -1131,6 +1141,7 @@ def create_job(uploaded_file=None, humanize: bool = False,
         "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
         "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
         "preserve_gp_played_offsets": preserve_gp_played_offsets,
+        "fret_hand_cost": fret_hand_cost,
         "prepare_arrangement_context": prepare_arrangement_context,
         "openai_arrangement_draft": openai_arrangement_draft,
         "arrangement_apply_token": secrets.token_urlsafe(24) if openai_arrangement_draft else None,
@@ -1360,6 +1371,7 @@ def apply_arrangement(job_id: str):
                 "fret_noise_on_hand_shift": bool(job.get("fret_noise_on_hand_shift")),
                 "expand_gp_hidden_32nds": bool(job.get("expand_gp_hidden_32nds")),
                 "preserve_gp_played_offsets": bool(job.get("preserve_gp_played_offsets")),
+                "fret_hand_cost": bool(job.get("fret_hand_cost")),
             },
             included_track_indices={
                 int(track["index"]) for track in job.get("tracks", [])

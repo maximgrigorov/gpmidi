@@ -299,6 +299,7 @@ def test_explicit_apply_is_separate_and_idempotent(monkeypatch, tmp_path):
         "humanize": True, "ghost_notes": True,
         "auto_sustain_vibrato": True, "fret_noise_on_hand_shift": True,
         "expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": True,
+        "fret_hand_cost": False,
     }
     assert calls[0]["included_track_indices"] == {2}
     assert client.post(f"/jobs/{job_id}/arrangement/apply").status_code == 302
