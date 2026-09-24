@@ -322,6 +322,10 @@ spec:
   - name: dockerfile
     type: string
     default: Dockerfile
+  - name: ephemeral-storage-limit
+    description: Per-image Kaniko scratch budget; large ML wheels need more than the default.
+    type: string
+    default: 12Gi
   workspaces:
   - name: source
   - name: docker-config
@@ -347,7 +351,7 @@ spec:
       value: /workspace/docker-config
     computeResources:
       requests: {cpu: 500m, memory: 1Gi}
-      limits: {cpu: "2", memory: 6Gi, ephemeral-storage: 12Gi}
+      limits: {cpu: "2", memory: 6Gi, ephemeral-storage: $(params.ephemeral-storage-limit)}
     # The root gpmidi-web image installs large Python wheels from PyPI. A 25m
     # limit failed during a verified but unusually slow download (~20–45 kB/s),
     # after all source/security gates had passed. Keep this below the Pipeline's
