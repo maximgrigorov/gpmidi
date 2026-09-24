@@ -188,11 +188,16 @@
 
 ## Still open (do not "fix" silently — ask first)
 - **`--humanize` note ends follow the SHIFTED start** (LESSONS.md p.15, measured
-  2026-09-24). Independent per-beat shifts (a) break 40-65% of hammer/pull legato
-  overlaps and (b) retrigger the same pitch while it still sounds, so the old
-  note_off kills the new note: 616 of 1881 notes on pnd Rhytm Guitar, audible as
-  dropouts up to 2.66 s in an offline render. `--fret-hand-cost` adds neither.
-  Fixing it changes approved humanize output — needs the user's decision.
+  2026-09-24): 1909 guitar/bass notes lost (the old note_off kills a same-pitch
+  successor) and 40-65% of hammer/pull overlaps broken. Fix on branch
+  `fix/humanize-note-ends` (`clip_humanized_overlaps` + grid-decided legato),
+  1909 -> 0, byte-identical without `--humanize`. It changes approved humanize
+  output: merge only with the user's explicit GO.
+- Plain export: a hammer onto the SAME pitch gets the 40 ms legato overlap and
+  its target is cut to 40 ms (Spring Melody Solo bars 5 and 59, TtN Solo bar
+  174). Fixing it changes the notation export — ask first.
+- Under `--humanize` notes on DIFFERENT strings can still overlap by a few ms;
+  Hydra plays legato on overlap. Unverified in the instrument.
 - ~~Initial keyswitch is assumed, not set.~~ **DONE** in commit `4336ce8`: an
   explicit sustain KS is emitted at tick 0 in `build_instrument_midi`, and
   `verify_midi.py` ships the matching `KS_NO_INIT` check. The reason stays on

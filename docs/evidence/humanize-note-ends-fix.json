@@ -1,0 +1,217 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "code_of_record": "working tree of fix/humanize-note-ends before commit; see git log for the commit",
+ "base_for_before": "da035414c108edcfb44b579595eeae98b7ce7fc9",
+ "problem": "--humanize computed note ends from the SHIFTED beat start while neighbour beats shift independently (LESSONS.md p.15)",
+ "fix": [
+  "clip_humanized_overlaps: under --humanize a tail is clipped at the next attack of the same pitch (always) or the same voice+string (unless it is a bridged hammer/pull legato source)",
+  "hammer/pull bridging under --humanize is decided on the notated grid, not on shifted ticks"
+ ],
+ "byte_identity_vs_main": {
+  "files_compared": 330,
+  "identical_without_humanize": [
+   "(none)",
+   "--expand-gp-hidden-32nds --preserve-gp-played-offsets"
+  ],
+  "changed_with_humanize": "only GUITAR/BASS per-track files and _ALL.mid (19 of 55 per humanize combination); drums, keys, synth, vocals identical"
+ },
+ "lost_notes_sampler_semantics": {
+  "definition": "note audible for < 50% of its length because a note_off of the same key arrives after its attack (AVAudioUnitSampler / GM behaviour: note_off releases the key)",
+  "columns": [
+   "plain main",
+   "plain fix",
+   "humanize main",
+   "humanize fix"
+  ],
+  "tracks": {
+   "SpringMelody/Acoustic Bass": [
+    0,
+    0,
+    135,
+    0,
+    447
+   ],
+   "SpringMelody/Guitar (Rhytm)": [
+    1,
+    1,
+    45,
+    0,
+    485
+   ],
+   "SpringMelody/Guitar (Solo)": [
+    2,
+    2,
+    5,
+    0,
+    237
+   ],
+   "TtN/Bass": [
+    0,
+    0,
+    326,
+    0,
+    800
+   ],
+   "TtN/Clean Guitar": [
+    1,
+    1,
+    67,
+    0,
+    593
+   ],
+   "TtN/Rhytm Guitar": [
+    1,
+    1,
+    411,
+    0,
+    1996
+   ],
+   "TtN/Solo Guitar": [
+    1,
+    1,
+    19,
+    0,
+    269
+   ],
+   "pnd/Electric Bass": [
+    0,
+    0,
+    216,
+    0,
+    566
+   ],
+   "pnd/Rhytm Guitar": [
+    0,
+    0,
+    616,
+    0,
+    1881
+   ],
+   "pnd/Solo Guitar": [
+    0,
+    0,
+    14,
+    0,
+    472
+   ],
+   "pnd/Steel Guitar": [
+    0,
+    0,
+    55,
+    0,
+    379
+   ]
+  },
+  "total_humanize": [
+   1909,
+   0
+  ]
+ },
+ "legato_after_fix_humanize": {
+  "SpringMelody.gp/Guitar (Solo)": [
+   {
+    "humanize": true,
+    "seed": 7,
+    "pairs": 91,
+    "same_pitch_pairs": 3,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   },
+   {
+    "humanize": true,
+    "seed": 11,
+    "pairs": 91,
+    "same_pitch_pairs": 3,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   },
+   {
+    "humanize": true,
+    "seed": 23,
+    "pairs": 91,
+    "same_pitch_pairs": 3,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   }
+  ],
+  "SpringMelody.gp/Guitar (Rhytm)": [
+   {
+    "humanize": true,
+    "seed": 7,
+    "pairs": 36,
+    "same_pitch_pairs": 1,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   },
+   {
+    "humanize": true,
+    "seed": 11,
+    "pairs": 36,
+    "same_pitch_pairs": 1,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   },
+   {
+    "humanize": true,
+    "seed": 23,
+    "pairs": 36,
+    "same_pitch_pairs": 1,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   }
+  ],
+  "TtN.gp/Solo Guitar": [
+   {
+    "humanize": true,
+    "seed": 7,
+    "pairs": 16,
+    "same_pitch_pairs": 1,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   },
+   {
+    "humanize": true,
+    "seed": 11,
+    "pairs": 16,
+    "same_pitch_pairs": 1,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   },
+   {
+    "humanize": true,
+    "seed": 23,
+    "pairs": 16,
+    "same_pitch_pairs": 1,
+    "broken": 0,
+    "gap_ms_median": null,
+    "gap_ms_max": null
+   }
+  ]
+ },
+ "render_dropouts_50ms_windows_where_notation_sounds": {
+  "before_fix": {
+   "PnD": 114,
+   "SpringMelody": 11,
+   "ThroughTheNight": 103
+  },
+  "after_fix": {
+   "PnD": 2,
+   "SpringMelody": 1,
+   "ThroughTheNight": 0
+  },
+  "note": "the 3 remaining windows are phrase starts/ends after silence where the humanized attack comes 10-15 ms later, not lost notes"
+ },
+ "not_fixed_needs_decision": [
+  "plain export: a hammer onto the SAME pitch gets the 40 ms legato overlap and the target is cut to 40 ms (Spring Melody Solo bars 5 and 59, TtN Solo bar 174; 1-2 notes on 5 tracks). Changes the notation export and possibly accepted baselines.",
+  "humanize: notes on DIFFERENT strings may still overlap by a few ms; Hydra plays legato on overlap. Unverified in the instrument."
+ ]
+}
