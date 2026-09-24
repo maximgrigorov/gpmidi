@@ -30,7 +30,8 @@
                  не «свою» ноту). В списке нот всё на месте, в звуке — дыра.
                  --humanize так терял 1909 нот гитар и баса (двухсекундная B3 в
                  соло Through the Night), авторские сдвиги GP — ещё 216.
-                 Барабаны не проверяются: их звук однократный.
+                 Барабаны не проверяются: их звук однократный. ERROR на всех
+                 тональных дорожках, включая OTHER (клавиши, синты, вокал).
 
 Использование:
     python verify_midi.py song_midi/                     # все .mid в папке
@@ -125,10 +126,8 @@ def smoke_check(path, track_type=None, cfg=None):
         out.append(("ERROR", "STUCK", f"{stuck} нот без note_off — будут гудеть бесконечно"))
 
     if retriggers and track_type != "DRUMS":
-        # На Kontakt-дорожках (гитара, бас) это исправлено в экспортёре и обязано
-        # быть нулём; на OTHER — давняя проблема нотного экспорта, пока WARN.
-        severity = "WARN" if track_type == "OTHER" else "ERROR"
-        out.append((severity, "KEY_RETRIGGER",
+        # Исправлено в экспортёре для всех тональных дорожек — обязано быть нулём.
+        out.append(("ERROR", "KEY_RETRIGGER",
                     f"{retriggers} нот атакуют клавишу, которая ещё звучит: note_off "
                     f"прежней ноты погасит новую — в звуке будет дыра"))
 

@@ -145,7 +145,7 @@ def test_key_retrigger_fires_on_the_artifact_that_lost_notes(tmp_path):
     by_type = {tt: {(sev, code) for sev, code, _m in smoke_check(path, tt)}
                for tt in ("GUITAR", "OTHER", "DRUMS")}
     assert ("ERROR", "KEY_RETRIGGER") in by_type["GUITAR"]
-    assert ("WARN", "KEY_RETRIGGER") in by_type["OTHER"]
+    assert ("ERROR", "KEY_RETRIGGER") in by_type["OTHER"]
     assert not any(code == "KEY_RETRIGGER" for _sev, code in by_type["DRUMS"])
 
 

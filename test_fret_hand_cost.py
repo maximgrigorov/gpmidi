@@ -328,8 +328,8 @@ def test_check_needs_the_reference_when_authored_offsets_are_kept():
             beats.append(_beat([note]))
         bars.append(beats)
     song, track = _song(bars)
-    kept = {"preserve_gp_played_offsets": True}
-    reference, _ = _build(song, track, **kept)
+    kept = {"preserve_gp_played_offsets": True, "humanize_timing_over_gp_offsets": True}
+    reference, _ = _build(song, track, preserve_gp_played_offsets=True)
     with_feature, _ = _build(song, track, humanize=True, fret_hand_cost=True, **kept)
     without, _ = _build(song, track, humanize=True, **kept)
 
@@ -337,3 +337,30 @@ def test_check_needs_the_reference_when_authored_offsets_are_kept():
         "без эталона проверка обязана не видеть фичу — иначе этот тест ничего не доказывает"
     assert hc.differential(song, track, with_feature, CFG, reference)["passed"]
     assert not hc.differential(song, track, without, CFG, reference)["passed"]
+
+
+def test_hand_cost_is_off_where_authored_offsets_own_the_timing():
+    """Решение пользователя 2026-09-24: тайминг оживления поверх авторских
+    сдвигов GP — опция, по умолчанию выключена. Velocity оживляется всё равно."""
+    import random
+    rng = random.Random(5)
+    bars = []
+    for _ in range(4):
+        beats = []
+        for fret in JUMP_BAR:
+            note = _note(fret)
+            note.playedOffset = rng.randint(-30, 30)
+            beats.append(_beat([note]))
+        bars.append(beats)
+    song, track = _song(bars)
+    reference = _notes(_build(song, track, preserve_gp_played_offsets=True)[0])
+    default, stats = _build(song, track, humanize=True, fret_hand_cost=True,
+                            preserve_gp_played_offsets=True)
+    assert [n[0] for n in _notes(default)] == [n[0] for n in reference], "атаки обязаны остаться авторскими"
+    assert "fret_hand_cost_beats" not in stats and stats["humanize_timing"].startswith("off")
+    velocities = {m.velocity for m in default if m.type == "note_on" and m.velocity and m.note >= 28}
+    assert len(velocities) > 1, "velocity оживляется и без тайминга"
+    opted_in, stats = _build(song, track, humanize=True, fret_hand_cost=True,
+                             preserve_gp_played_offsets=True, humanize_timing_over_gp_offsets=True)
+    assert [n[0] for n in _notes(opted_in)] != [n[0] for n in reference]
+    assert stats["fret_hand_cost_beats"] > 0

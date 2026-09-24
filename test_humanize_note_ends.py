@@ -187,3 +187,22 @@ def test_humanize_keeps_notated_sustain_under_a_melody(seed):
     notes = _notes(_build(song, track, humanize=True, humanize_seed=seed))
     held = [n for n in notes if n[2] == 43]
     assert all(off - on >= 3840 - 240 for on, off, _p in held), "выдержанную ноту обрезало"
+
+
+
+def test_authored_offset_overlaps_are_clipped_unless_kept():
+    """Авторские сдвиги GP дают перекрытия, которых нет в нотах; Hydra играет их
+    легато. По умолчанию убираются, keep_gp_played_overlaps их оставляет."""
+    beats = []
+    for i, string in enumerate((1, 2, 3, 2) * 8):
+        note = _note(5, string=string)
+        note.playedOffset = -40 if i % 2 else 0          # каждая вторая нота раньше сетки
+        beats.append(_beat([note]))
+    song, track = _song([beats[:16], beats[16:]])
+
+    def overlaps(**kwargs):
+        notes = _notes(_build(song, track, preserve_gp_played_offsets=True, **kwargs))
+        return sum(1 for a, b in zip(notes, notes[1:]) if a[1] > b[0])
+
+    assert overlaps(keep_gp_played_overlaps=True) > 0, "фикстура обязана давать перекрытия"
+    assert overlaps() == 0

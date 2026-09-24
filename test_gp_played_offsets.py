@@ -236,3 +236,16 @@ def test_spring_melody_measures_66_67_preserve_relative_gp_attack_offsets():
     assert (bar66 - 12, 41) in bass_ons       # Bass m66 first note: Offset -6
     assert (bar66, 36) in drum_ons            # Drums have no playback offset
     assert (bar67 + 240 - 24, 84) in solo_ons # Solo m67 first attack: Offset -12
+
+
+def test_cli_offset_layer_options_default_off():
+    """Решение пользователя 2026-09-24: оба слоя — опции, по умолчанию выкл."""
+    def parse(*flags):
+        return g.parse_cli_options(["gp_to_shreddage.py", "song.gp", *flags])
+
+    assert parse()["keep_gp_played_overlaps"] is False
+    assert parse()["humanize_timing_over_gp_offsets"] is False
+    assert parse("--keep-gp-played-overlaps")["keep_gp_played_overlaps"] is True
+    assert parse("--humanize", "--humanize-timing-over-gp-offsets")["humanize_timing_over_gp_offsets"] is True
+    with pytest.raises(ValueError, match="--humanize"):
+        parse("--humanize-timing-over-gp-offsets")
