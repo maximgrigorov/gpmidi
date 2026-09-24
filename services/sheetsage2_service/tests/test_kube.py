@@ -28,6 +28,21 @@ def test_worker_job_is_gpu_bounded_ephemeral_and_uses_shared_storage():
     assert container["volumeMounts"][1]["readOnly"] is True
 
 
+def test_worker_job_points_every_cache_at_the_writable_tmp_mount():
+    # The root filesystem is read-only and HOME=/home/sheetsage does not exist,
+    # so trust_remote_code could not create ~/.cache/huggingface/modules.
+    manifest = build_worker_job(
+        job_id="abc123",
+        image="registry.local/sheetsage2@sha256:" + "1" * 64,
+        pvc_name="sheetsage2-data",
+    )
+    container = manifest["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item["value"] for item in container["env"]}
+    tmp_mount = next(m["mountPath"] for m in container["volumeMounts"] if m["name"] == "tmp")
+    for name in ("HOME", "HF_HOME", "XDG_CACHE_HOME"):
+        assert env[name].startswith(tmp_mount + "/"), name
+
+
 def test_worker_job_rejects_mutable_image():
     import pytest
 

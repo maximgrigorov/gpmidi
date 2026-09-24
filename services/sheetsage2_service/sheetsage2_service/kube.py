@@ -49,7 +49,14 @@ def build_worker_job(
                             "image": image,
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["python", "-m", "sheetsage2_service.worker"],
-                            "env": [{"name": "SHEETSAGE2_JOB_ID", "value": job_id}],
+                            # The root filesystem is read-only; trust_remote_code
+                            # copies model code into the HF modules cache.
+                            "env": [
+                                {"name": "SHEETSAGE2_JOB_ID", "value": job_id},
+                                {"name": "HOME", "value": "/tmp/home"},
+                                {"name": "HF_HOME", "value": "/tmp/huggingface"},
+                                {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
+                            ],
                             "resources": {
                                 "requests": {
                                     "cpu": "2",

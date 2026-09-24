@@ -64,3 +64,23 @@ def test_worker_converts_cuda_oom_to_user_facing_state(tmp_path: Path):
         "message": GPU_BUSY_MESSAGE,
     }
     assert not (job_dir / "result").exists()
+
+
+def test_worker_logs_the_failure_cause_it_normalizes(tmp_path: Path, capsys):
+    # The user sees only the normalized message; the operator needs the cause
+    # in the pod log, which is otherwise empty for every model/runtime failure.
+    job_dir = tmp_path / "jobs" / "job3"
+    input_dir = job_dir / "input"
+    input_dir.mkdir(parents=True)
+    _wav(input_dir / "song.wav")
+
+    def transcriber(_input: Path, _output: Path) -> dict:
+        raise OSError("[Errno 30] Read-only file system: '/home/sheetsage'")
+
+    assert run_worker(job_dir=job_dir, transcriber=transcriber, model_revision="rev") == 1
+    state = json.loads((job_dir / "state.json").read_text(encoding="utf-8"))
+    assert state["error_code"] == "transcription_failed"
+    assert "Read-only file system" not in state["message"]
+    logged = capsys.readouterr().err
+    assert "OSError" in logged
+    assert "Read-only file system" in logged

@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Callable
 
@@ -77,6 +79,8 @@ def run_worker(
     # This is the worker's terminal boundary: every model/runtime failure must
     # produce durable, normalized state instead of leaving the job "running".
     except Exception as exc:  # noqa: BLE001
+        # The user only sees the normalized message; keep the cause in the pod log.
+        traceback.print_exc(file=sys.stderr)
         failure = classify_exception(exc)
         result = job_dir / "result"
         if result.exists():
