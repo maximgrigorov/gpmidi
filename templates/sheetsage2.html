@@ -15,6 +15,7 @@
     .status-dot.succeeded{background:var(--ok)}.status-dot.failed{background:var(--err)}.status-dot.running{background:var(--accent);animation:pulse 1.2s infinite}.status-dot.queued{background:var(--warn);animation:pulse 1.2s infinite}
     @keyframes pulse{50%{opacity:.35}}.download-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}.error-box{padding:14px;border-radius:8px;background:var(--err-soft);color:var(--err);font-weight:600}
     .info-list{padding:16px 20px 18px 38px}.session-status{font-size:11px;color:var(--fg-muted)}
+    .dropzone.drag-active{border-color:var(--accent);background:var(--accent-soft)}
   </style>
 </head>
 <body>
@@ -27,7 +28,7 @@
         <div class="panel-head compact-head"><div><h2>SheetSage2</h2><p class="muted">Загрузите оригинальный микс.</p></div></div>
         <form action="{{ url_for('sheetsage2_upload') }}" method="post" enctype="multipart/form-data" class="upload-form" id="audioUploadForm">
           <input type="file" name="file" id="audioFile" accept=".wav,.flac,.mp3,audio/wav,audio/flac,audio/mpeg" hidden required>
-          <label class="dropzone" for="audioFile"><span class="drop-icon">♫</span><strong>WAV, FLAC или MP3</strong><span>перетащите или выберите файл</span><small>До {{ max_size_mb }} МБ</small></label>
+          <label class="dropzone" id="audioDropzone" for="audioFile"><span class="drop-icon">♫</span><strong>WAV, FLAC или MP3</strong><span>перетащите или выберите файл</span><small>До {{ max_size_mb }} МБ</small></label>
           <div class="filename muted" id="audioFilename">Файл не выбран</div>
           <button type="submit" class="btn primary">Запустить анализ</button>
         </form>
@@ -63,7 +64,14 @@
   </main>
 </div>
 <script>
-const input=document.getElementById('audioFile'); if(input){input.addEventListener('change',()=>{document.getElementById('audioFilename').textContent=input.files[0]?.name||'Файл не выбран';});}
+const input=document.getElementById('audioFile');
+const dropZone=document.getElementById('audioDropzone');
+if(input){input.addEventListener('change',()=>{document.getElementById('audioFilename').textContent=input.files[0]?.name||'Файл не выбран';});}
+if(input && dropZone){
+  dropZone.addEventListener('dragover',(event)=>{event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect='copy';dropZone.classList.add('drag-active');});
+  dropZone.addEventListener('dragleave',(event)=>{event.preventDefault();event.stopPropagation();dropZone.classList.remove('drag-active');});
+  dropZone.addEventListener('drop',(event)=>{event.preventDefault();event.stopPropagation();dropZone.classList.remove('drag-active');const files=event.dataTransfer?.files;if(files?.length){input.files=files;input.dispatchEvent(new Event('change',{bubbles:true}));}});
+}
 const card=document.getElementById('jobCard');
 const labels={queued:'В очереди — ждём GPU',running:'SheetSage2 анализирует аудио',succeeded:'Готово',failed:'Ошибка',unavailable:'Сервис недоступен'};
 if(card && !['succeeded','failed'].includes(card.dataset.status)){

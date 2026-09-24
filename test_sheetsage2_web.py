@@ -64,6 +64,24 @@ def test_audio_tool_page_and_streaming_upload(monkeypatch):
     assert captured["headers"]["X-Filename"] == "song.wav"
 
 
+def test_audio_dropzone_prevents_browser_navigation_and_selects_dropped_file(monkeypatch):
+    monkeypatch.setattr(
+        web.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse({"jobs": []}),
+    )
+
+    page = web.app.test_client().get("/audio-to-midi")
+    html = page.get_data(as_text=True)
+
+    assert 'id="audioDropzone"' in html
+    assert "dropZone.addEventListener('dragover'" in html
+    assert "dropZone.addEventListener('drop'" in html
+    assert "event.preventDefault()" in html
+    assert "input.files=files" in html
+    assert "input.dispatchEvent(new Event('change'" in html
+
+
 def test_audio_status_preserves_actionable_vram_message(monkeypatch):
     message = "Недостаточно свободной видеопамяти. Остановите нагрузку, очистите VRAM и повторите запрос."
     monkeypatch.setattr(
