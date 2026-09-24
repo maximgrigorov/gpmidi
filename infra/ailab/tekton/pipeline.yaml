@@ -202,8 +202,6 @@ spec:
       value: services/sheetsage2_service
     - name: dockerfile
       value: services/sheetsage2_service/Dockerfile.worker
-    - name: ephemeral-storage-limit
-      value: 24Gi
     workspaces:
     - name: source
       workspace: shared-workspace
