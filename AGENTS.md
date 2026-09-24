@@ -148,14 +148,51 @@
   evidence only. It does not supersede the accepted baseline until the user gives
   an explicit musical GO.
 
+## Fret-hand cost (guitar) — opt-in, approved 2026-09-24
+- `--fret-hand-cost` (CLI, only together with `--humanize`; the parser rejects it
+  alone) delays the attack of a guitar beat when the fretting hand moves:
+  `beat_hand_position` (median fretted fret, the same value `fret_noise` uses).
+  Without the flag every export is byte-for-byte identical: 330 MIDI files,
+  4 inputs x 6 flag combinations, compared against `origin/main`.
+- Numbers live in `config/humanize_profiles/guitar_metal.yaml` (`fret_hand_cost`,
+  config_version 2); the position-change threshold is reused from
+  `shreddage_hydra_3.5.yaml` (`fret_noise_on_hand_shift.min_fret_shift`), never
+  duplicated. Travel time is in ms (physical, tempo-independent); only the cap is
+  `*_frac16`. The user approved ms over frac16 on 2026-09-24.
+- Load-bearing rules, each measured (`docs/evidence/fret-hand-shift-input.json`):
+  - only the ATTACK moves, later only; note ends stay, so a delayed note can never
+    overlap the next attack (Hydra would play it legato);
+  - hammer/pull and slide-to TARGETS are never delayed: they are not re-picked,
+    and a delayed target would always break the legato overlap (LESSONS.md p.15);
+  - silence before the attack is credited to the move (22% of shifts follow a rest);
+  - the delay is computed before keyswitch emission; `fret_noise` stays on the
+    undelayed tick (same events, same ticks — tested).
+- It is a solo-line feature by measurement: hand shifts >= 4 frets on 25% of solo
+  beats but 3.1% of rhythm beats (pnd Rhytm: 2 of 873).
+- Acceptance is `hand_cost_check.differential` (one-sided Mann-Whitney, shift
+  beats vs no-shift beats, legato targets excluded). It must FAIL without the
+  feature — quantized and humanize-only — and does (`test_fret_hand_cost.py`;
+  1 false pass in 300 seeded humanize-only runs, 300/300 passes with the feature).
+- Use `onset_std_ms` (deviation from the notated attack) for guitar timing, not
+  `jitter_ms`: the latter counts quantized 32nds as jitter (LESSONS.md p.3).
+
 ## Web UI options
 - `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
   optional, all off by default. The ghost checkbox is gated on humanize in JS —
   ghosts only exist inside humanization.
+- `fret_hand_cost` is a per-track GUITAR effect (`track_N_fret_hand_cost`); its
+  checkbox is disabled until that track's humanize is checked.
 - The job page shows a badge for the mode used, and the manifest stores
-  `humanize` / `ghost_notes` per job, so an old session states what produced it.
+  `humanize` / `ghost_notes` / `fret_hand_cost` per job, so an old session states
+  what produced it.
 
 ## Still open (do not "fix" silently — ask first)
+- **`--humanize` note ends follow the SHIFTED start** (LESSONS.md p.15, measured
+  2026-09-24). Independent per-beat shifts (a) break 40-65% of hammer/pull legato
+  overlaps and (b) retrigger the same pitch while it still sounds, so the old
+  note_off kills the new note: 616 of 1881 notes on pnd Rhytm Guitar, audible as
+  dropouts up to 2.66 s in an offline render. `--fret-hand-cost` adds neither.
+  Fixing it changes approved humanize output — needs the user's decision.
 - ~~Initial keyswitch is assumed, not set.~~ **DONE** in commit `4336ce8`: an
   explicit sustain KS is emitted at tick 0 in `build_instrument_midi`, and
   `verify_midi.py` ships the matching `KS_NO_INIT` check. The reason stays on
