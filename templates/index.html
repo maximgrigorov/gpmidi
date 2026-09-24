@@ -252,10 +252,10 @@
                           <label><input type="checkbox" name="track_{{ track.index }}_fret_hand_cost" data-needs-humanize> hand-shift delay (needs humanize)</label>
                         {% endif %}
                         {% if 'expand_gp_hidden_32nds' in track.available_effects %}
-                          <label><input type="checkbox" name="track_{{ track.index }}_expand_gp_hidden_32nds"> hidden GP 32nds</label>
+                          <label><input type="checkbox" name="track_{{ track.index }}_expand_gp_hidden_32nds"{% if (track.default_effects or {}).get('expand_gp_hidden_32nds') %} checked{% endif %}> hidden GP 32nds</label>
                         {% endif %}
                         {% if 'preserve_gp_played_offsets' in track.available_effects %}
-                          <label><input type="checkbox" name="track_{{ track.index }}_preserve_gp_played_offsets"> preserve GP played offsets</label>
+                          <label><input type="checkbox" name="track_{{ track.index }}_preserve_gp_played_offsets"{% if (track.default_effects or {}).get('preserve_gp_played_offsets') %} checked{% endif %}> preserve GP played offsets</label>
                         {% endif %}
                         {% if not track.available_effects %}<span class="muted">Нет дополнительных эффектов.</span>{% endif %}
                       </div>

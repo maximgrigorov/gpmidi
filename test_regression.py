@@ -24,9 +24,10 @@
       атакой продлевается внахлёст в цель; через паузу легато не мостится)
 
   Слой «как сыграно» (<Offset>/<Duration> на нотах GP8) по умолчанию
-  игнорируется: эталон экспорта — нотная запись. Сдвиги атак можно сохранить
-  отдельным opt-in preserve_gp_played_offsets; parse_song предупреждает о нотах
-  с |Offset| > 1/32.
+  сохраняется только на соло-дорожках (решение пользователя 2026-09-24); на
+  остальных эталон экспорта — нотная запись. Скрытые 32-е по умолчанию
+  разносятся везде. build_track ниже повторяет эти дефолты CLI;
+  parse_song предупреждает о нотах с |Offset| > 1/32.
 """
 from __future__ import annotations
 
@@ -76,13 +77,16 @@ def parse_cached(path_str: str):
         return gp_import.parse_song(path_str)
 
 
-def build_track(song, track):
+def build_track(song, track, **options):
+    """Трек с дефолтами CLI (скрытые 32-е везде, сдвиги атак на соло)."""
     tt = g.resolve_track_type(track)
     if tt == "DRUMS":
         return g.build_drum_midi(song, track)
+    defaults = g.parse_cli_options(["prog", "song.gp"])
+    render = {**g.resolve_track_render_options(track, tt, defaults), **options}
     if tt == "OTHER":
-        return g.build_other_midi(song, track)
-    return g.build_instrument_midi(song, track, tt)
+        return g.build_other_midi(song, track, **render)
+    return g.build_instrument_midi(song, track, tt, **render)
 
 
 def note_on_pitches(midi_track):
@@ -153,7 +157,8 @@ def test_tie_across_barline_pnd_solo_guitar():
             break
     assert expected == 480 + 480 + 720  # sanity: как в расследовании
 
-    mt, _ = build_track(song, track)
+    # golden-кейс нотной записи: авторские сдвиги атак (дефолт соло) здесь ни при чём
+    mt, _ = build_track(song, track, preserve_gp_played_offsets=False)
     barline = 64 * TICKS_PER_BAR_4_4  # 245760
     crossing = [(on, off) for (p, on, off) in note_events(mt)
                 if p == 62 and on < barline <= off]

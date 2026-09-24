@@ -1,8 +1,9 @@
-"""Opt-in preservation of GP8 per-note playback attack offsets."""
+"""Preservation of GP8 per-note playback attack offsets (default on solo tracks)."""
 from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from guitarpro.models import NoteType
@@ -135,14 +136,33 @@ def test_played_offsets_are_not_applied_twice_with_hidden_32nds_option():
     assert stats["hidden_32nd_beats"] == 0
 
 
-def test_cli_parses_played_offsets_as_independent_opt_in():
-    options = g.parse_cli_options([
-        "gp_to_shreddage.py", "song.gp", "--preserve-gp-played-offsets",
-    ])
+def test_cli_played_offsets_default_to_solo_tracks_with_explicit_overrides():
+    """Решение пользователя 2026-09-24: по умолчанию сдвиги — только на соло."""
+    def parse(*flags):
+        return g.parse_cli_options(["gp_to_shreddage.py", "song.gp", *flags])
 
-    assert options["preserve_gp_played_offsets"] is True
-    assert options["humanize"] is False
-    assert options["expand_gp_hidden_32nds"] is False
+    assert parse()["preserve_gp_played_offsets"] == g.PLAYED_OFFSETS_SOLO
+    assert parse("--preserve-gp-played-offsets")["preserve_gp_played_offsets"] == g.PLAYED_OFFSETS_ALL
+    assert parse("--no-preserve-gp-played-offsets")["preserve_gp_played_offsets"] == g.PLAYED_OFFSETS_NONE
+    assert parse("--preserve-gp-played-offsets")["humanize"] is False
+    with pytest.raises(ValueError, match="взаимоисключающие"):
+        parse("--preserve-gp-played-offsets", "--no-preserve-gp-played-offsets")
+
+
+@pytest.mark.parametrize("name,track_type,solo", [
+    ("Solo Guitar", "GUITAR", True), ("Guitar (Solo)", "GUITAR", True),
+    ("Lead Guitar", "GUITAR", True), ("Guitar (Rhytm)", "GUITAR", False),
+    ("Bass", "BASS", False), ("Lead Synth", "OTHER", False),
+])
+def test_played_offsets_follow_the_track_role_by_default(name, track_type, solo):
+    track = SimpleNamespace(name=name)
+    defaults = g.parse_cli_options(["gp_to_shreddage.py", "song.gp"])
+    render = g.resolve_track_render_options(track, track_type, defaults)
+    assert render == {"expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": solo}
+    everywhere = g.parse_cli_options(["gp_to_shreddage.py", "song.gp", "--preserve-gp-played-offsets"])
+    assert g.resolve_track_render_options(track, track_type, everywhere)["preserve_gp_played_offsets"] is True
+    nowhere = g.parse_cli_options(["gp_to_shreddage.py", "song.gp", "--no-preserve-gp-played-offsets"])
+    assert g.resolve_track_render_options(track, track_type, nowhere)["preserve_gp_played_offsets"] is False
 
 
 def test_processing_step_forwards_played_offsets_per_track(monkeypatch):

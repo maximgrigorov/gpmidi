@@ -48,6 +48,7 @@ from gp_to_shreddage import (
     build_drum_midi,
     build_instrument_midi,
     build_other_midi,
+    is_solo_track,
     iter_voice_beats_with_canonical_ticks,
     resolve_track_type,
     safe_filename,
@@ -223,9 +224,25 @@ def discover_tracks(song: Any) -> list[dict[str, Any]]:
             "track_type_label": TRACK_LABELS.get(track_type, track_type),
             "instrument_preset": infer_instrument_preset(track_name, track_type),
             "available_effects": list(TRACK_EFFECTS.get(track_type, [])),
+            "default_effects": default_track_effects(track, track_type),
             "selected": True,
         })
     return discovered
+
+
+def default_track_effects(track, track_type: str) -> dict[str, bool]:
+    """Чекбоксы, включённые по умолчанию (решение пользователя 2026-09-24).
+
+    Скрытые 32-е GP8 разносятся везде, где эффект доступен; авторские сдвиги
+    атак сохраняются только на соло-дорожках — тот же дефолт, что у CLI.
+    """
+    available = TRACK_EFFECTS.get(track_type, [])
+    defaults = {}
+    if "expand_gp_hidden_32nds" in available:
+        defaults["expand_gp_hidden_32nds"] = True
+    if "preserve_gp_played_offsets" in available:
+        defaults["preserve_gp_played_offsets"] = is_solo_track(track, track_type)
+    return defaults
 
 
 def parse_track_options(

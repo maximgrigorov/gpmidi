@@ -14,6 +14,9 @@ gp_to_shreddage.py
                                        [--auto-sustain-vibrato]
                                        [--fret-noise-on-hand-shift] [--no-verify]
                                        [--fret-hand-cost]
+                                       [--no-expand-gp-hidden-32nds]
+                                       [--preserve-gp-played-offsets |
+                                        --no-preserve-gp-played-offsets]
 
 Результат: рядом с исходным файлом создаётся папка "<имя_файла>_midi/"
 с одним MIDI-файлом (Type 0) на каждый трек (имя файла = название трека)
@@ -26,9 +29,16 @@ gp_to_shreddage.py
     --ghost-notes  добавить гост-ноты по рабочему. ЕДИНСТВЕННАЯ опция, которая
                    МЕНЯЕТ ПАРТИЮ, а не только подачу. Только барабаны.
     --fret-hand-cost  (только с --humanize) перенос левой руки задерживает атаку
-                   бита: 0 ладов — без задержки, смена позиции — 10..18 мс минус
+                   бита: 0 ладов — без задержки, смена позиции — 9..16 мс минус
                    пауза перед атакой. Цели hammer/слайда не задерживаются.
                    Числа — в config/humanize_profiles/guitar_metal.yaml.
+    --no-expand-gp-hidden-32nds  не разносить скрытые 32-е GP8 (несколько звуков,
+                   записанных одним битом и сыгранных по очереди). По умолчанию
+                   разносятся на всех тональных дорожках.
+    --preserve-gp-played-offsets / --no-preserve-gp-played-offsets  авторские
+                   сдвиги атак GP8 («как сыграно»). По умолчанию сохраняются
+                   только на соло-дорожках (solo/lead в имени); флаги включают их
+                   на всех Guitar/Bass или выключают везде.
     --no-verify    не гонять смок-проверку выхлопа (verify_midi.py)
 
 ВАЖНО: оживление обязано применяться ПОСЛЕ Guitar Pro и ДО сэмплера. Нотация не
@@ -44,6 +54,7 @@ gp_to_shreddage.py
 Обе библиотеки используют TACT-систему кейсвитчей в Kontakt-нотации (C-1 = MIDI 12).
 """
 
+import bisect
 import logging
 import math
 import os
@@ -115,6 +126,33 @@ STOP_WORDS = [
     "brass", "horn", "wind", "flute",
     "contrabass", "contra", "upright",
 ]
+
+
+# Соло-дорожка по имени трека. На соло по умолчанию сохраняются авторские
+# сдвиги атак GP8 (--preserve-gp-played-offsets): тайминг «как сыграно» —
+# эталон соло (AGENTS.md, принятый baseline Spring Melody). Решение пользователя
+# 2026-09-24. "lead" — как в GUITAR_KEYWORDS; "Lead Vocals" отсекают STOP_WORDS.
+SOLO_TRACK_KEYWORDS = ["solo", "lead"]
+
+# Режимы сохранения авторских сдвигов атак (CLI и веб).
+PLAYED_OFFSETS_SOLO = "solo"        # по умолчанию: только соло GUITAR/BASS
+PLAYED_OFFSETS_ALL = "all"          # --preserve-gp-played-offsets
+PLAYED_OFFSETS_NONE = "none"        # --no-preserve-gp-played-offsets
+
+
+def is_solo_track(track, track_type):
+    """Соло-дорожка: GUITAR/BASS с solo/lead в имени."""
+    name = (getattr(track, "name", "") or "").lower()
+    return track_type in (TRACK_GUITAR, TRACK_BASS) and any(k in name for k in SOLO_TRACK_KEYWORDS)
+
+
+def resolve_track_render_options(track, track_type, options):
+    """Раскладка CLI-опций по конкретной дорожке -> kwargs для build_*_midi."""
+    mode = options["preserve_gp_played_offsets"]
+    preserve = mode == PLAYED_OFFSETS_ALL or (
+        mode == PLAYED_OFFSETS_SOLO and is_solo_track(track, track_type))
+    return {"expand_gp_hidden_32nds": options["expand_gp_hidden_32nds"],
+            "preserve_gp_played_offsets": preserve}
 
 
 def detect_track_type(name):
@@ -798,33 +836,73 @@ def beat_hand_position(beat):
             else (frets[middle - 1] + frets[middle]) / 2.0)
 
 
+def clip_same_pitch_overlaps(spans):
+    """Одна клавиша — одна нота. -> сколько хвостов обрезано.
+
+    Если нота той же высоты начинается раньше, чем пришёл note_off предыдущей,
+    этот note_off гасит уже НОВУЮ ноту (сэмплер отпускает клавишу, а не «свою»
+    ноту), и в звуке дыра, хотя в списке нот MIDI всё на месте. Хвост
+    предыдущей ноты обрезается по атаке следующей. Работает всегда, не только
+    под --humanize: так же теряли ноты hammer на ту же высоту в нотном экспорте
+    и авторские сдвиги GP (--preserve-gp-played-offsets: 108 гитарных и 108
+    басовых повторных атак на трёх песнях). Решение пользователя 2026-09-24.
+    Ноты с одинаковым началом (унисон на двух струнах) не трогаются.
+    """
+    clipped = 0
+    last_by_pitch = {}
+    for span in sorted(spans, key=lambda item: item["start"]):
+        prev = last_by_pitch.get(span["pitch"])
+        if (prev is not None and prev["start"] < span["start"] < prev["off"]["tick"]):
+            prev["off"]["tick"] = span["start"]
+            clipped += 1
+        last_by_pitch[span["pitch"]] = span
+    return clipped
+
+
 def clip_humanized_overlaps(spans, legato_bridged):
     """Под --humanize: одна клавиша и одна струна звучат одной нотой. -> сколько обрезано.
 
     Конец ноты считается от СДВИНУТОГО начала бита, а соседний бит сдвинут
     независимо, поэтому хвост предыдущей ноты залезает за атаку следующей
-    (LESSONS.md п.15). Для той же ВЫСОТЫ это потеря ноты: note_off старой ноты
-    приходит после атаки новой и гасит уже её — в Through the Night так
-    пропадала двухсекундная B3. Для той же СТРУНЫ это нефизично (струна звучит
-    одной нотой), а Hydra играет по перекрытию легато. Хвост обрезается по атаке
-    следующей ноты; намеренное легато-перекрытие hammer/pull (legato_bridged)
-    остаётся, кроме случая той же высоты — перекрытие одной клавиши в MIDI
-    невозможно в принципе.
+    (LESSONS.md п.15). Для той же ВЫСОТЫ это потеря ноты — её закрывает
+    clip_same_pitch_overlaps (в Through the Night так пропадала двухсекундная
+    B3). Для той же СТРУНЫ это нефизично (струна звучит одной нотой), а Hydra
+    играет по перекрытию легато: хвост обрезается по атаке следующей ноты,
+    намеренное легато-перекрытие hammer/pull (legato_bridged) остаётся.
+
+    И общее правило поверх: оживление не создаёт перекрытий, которых нет в том
+    же экспорте без --humanize (ref_start/ref_end — тайминг без сдвига бита,
+    strum и переноса руки). Нота на ДРУГОЙ струне, налезшая на следующую на
+    несколько мс, для Hydra — легато, то есть hammer-on между струнами, чего
+    рука не делает. Нотные перекрытия (выдержанная нота под мелодией, авторские
+    сдвиги GP) остаются.
     """
     clipped = 0
-    last_by_pitch, last_by_string = {}, {}
+    by_reference = sorted(spans, key=lambda item: item["ref_start"])
+    ref_starts = [item["ref_start"] for item in by_reference]
+    earliest_after = [0] * len(by_reference)      # min start среди нот с ref_start >= i-го
+    running = None
+    for i in range(len(by_reference) - 1, -1, -1):
+        start = by_reference[i]["start"]
+        running = start if running is None else min(running, start)
+        earliest_after[i] = running
+    for span in spans:
+        if id(span["off"]) in legato_bridged:
+            continue
+        i = bisect.bisect_left(ref_starts, span["ref_end"])
+        if i < len(by_reference) and span["start"] < earliest_after[i] < span["off"]["tick"]:
+            span["off"]["tick"] = earliest_after[i]
+            clipped += 1
+
+    last_by_string = {}
     for span in sorted(spans, key=lambda item: item["start"]):
-        for prev, same_pitch in ((last_by_pitch.get(span["pitch"]), True),
-                                 (last_by_string.get(span["string"]), False)):
-            if (prev is None or prev["start"] >= span["start"]
-                    or prev["off"]["tick"] <= span["start"]):
-                continue
-            if same_pitch or id(prev["off"]) not in legato_bridged:
-                prev["off"]["tick"] = span["start"]
-                clipped += 1
-        last_by_pitch[span["pitch"]] = span
+        prev = last_by_string.get(span["string"])
+        if (prev is not None and prev["start"] < span["start"] < prev["off"]["tick"]
+                and id(prev["off"]) not in legato_bridged):
+            prev["off"]["tick"] = span["start"]
+            clipped += 1
         last_by_string[span["string"]] = span
-    return clipped
+    return clipped + clip_same_pitch_overlaps(spans)
 
 
 def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
@@ -920,6 +998,12 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     pending_legato = {}             # (voice_idx, string) -> off_rec источника hammer/pull
     legato_grid_end = {}            # (voice_idx, string) -> конец источника по НОТНОЙ сетке
     legato_bridged = set()          # id(off_rec) источников, продлённых внахлёст в цель
+    legato_src_fret = {}            # (voice_idx, string) -> лад источника hammer/pull
+    # Hammer на ДРУГУЮ струну рукой не сыграть. Если цель достаётся на струне
+    # источника в пределах позиции (тот же порог, что у переноса руки), это
+    # переаппликатура — легато остаётся; иначе hammer снимается (нота бьётся).
+    refinger_reach = (float(fret_cfg["min_fret_shift"])
+                      if "min_fret_shift" in fret_cfg else None)
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
     for item_index, (measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur) in enumerate(items):
@@ -1041,6 +1125,22 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                     stats["fret_noise_events"] += 1
             previous_hand_position = hand_position
 
+        # --- hammer с предыдущего бита на ДРУГУЮ струну: переаппликатура? ---
+        cross_legato_key = None
+        fresh_notes = [n for n in beat.notes if n.type != NoteType.tie]
+        if (refinger_reach is not None and len(fresh_notes) == 1
+                and (vi, fresh_notes[0].string) not in pending_legato):
+            target = fresh_notes[0]
+            sources = [key for key in pending_legato
+                       if key[0] == vi and legato_grid_end.get(key, -1) >= grid_tick]
+            if len(sources) == 1:
+                src_fret = legato_src_fret.get(sources[0], -1)
+                fret_on_source = (clamp_note(string_pitch.get(target.string, 0) + target.value)
+                                  - string_pitch.get(sources[0][1], 0))
+                if (src_fret >= 0 and fret_on_source >= 0 and fret_on_source != src_fret
+                        and abs(fret_on_source - src_fret) < refinger_reach):
+                    cross_legato_key = sources[0]
+
         # --- keyswitch для бита: переключаем артикуляцию при изменении ---
         ks_note = beat_keyswitch(beat, track_type, cfg)
         if ks_note != current_ks:
@@ -1071,6 +1171,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 span = last_span.get(note.string)
                 if span is not None:
                     span["off"]["tick"] = start_tick + dur
+                    span["ref_end"] = grid_tick + dur
                     if eff.bend and eff.bend.points:
                         span["bend_segments"].append((start_tick, dur, eff.bend))
                         if not span["bend_pending"]:
@@ -1107,6 +1208,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 0, start_tick + played_shift + hidden_shift + strum.get(pitch, 0),
             )
             on_tick = release_anchor + hand_delay
+            # тот же тайминг без оживления: эталон для clip_humanized_overlaps
+            ref_anchor = max(0, grid_tick + played_shift + hidden_shift)
 
             # --- легато (B15): эта нота — ЦЕЛЬ ожидающего hammer/pull? ---
             # Источник (нота с флагом hammer) продлевается внахлёст в цель,
@@ -1114,16 +1217,22 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             # Под --humanize «дозвучал» решает НОТНАЯ сетка: соседние биты
             # сдвинуты независимо, и по сдвинутым тикам рвалась половина
             # связанных нотами пар (LESSONS.md п.15).
-            origin = pending_legato.get((vi, note.string))
+            # Hammer на ту же ВЫСОТУ не продлевается: одна клавиша не может
+            # перекрыться сама с собой, и перекрытие отрезало цель до 40 мс
+            # (Spring Melody Solo, такты 5 и 59).
+            legato_key = ((vi, note.string) if (vi, note.string) in pending_legato
+                          else cross_legato_key)
+            origin = pending_legato.get(legato_key) if legato_key else None
             if origin is not None:
-                if origin["tick"] >= on_tick or (
-                        hprof is not None
-                        and legato_grid_end.get((vi, note.string), -1) >= grid_tick):
+                if origin["msg"].note != pitch and (origin["tick"] >= on_tick or (
+                        (hprof is not None or legato_key != (vi, note.string))
+                        and legato_grid_end.get(legato_key, -1) >= grid_tick)):
                     overlap = ms_to_ticks(LEGATO_OVERLAP_MS, cur_bpm)
                     origin["tick"] = max(origin["tick"], on_tick + overlap)
                     legato_bridged.add(id(origin))
-                del pending_legato[(vi, note.string)]
-                legato_grid_end.pop((vi, note.string), None)
+                del pending_legato[legato_key]
+                legato_grid_end.pop(legato_key, None)
+                legato_src_fret.pop(legato_key, None)
 
             # --- принудительный сброс PB перед атакой ---
             if pb_dirty:
@@ -1147,6 +1256,12 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 note_end = start_tick + dur
             if hand_delay and note_end <= on_tick:
                 note_end = on_tick + 1
+            if hidden_entry:
+                ref_end = ref_anchor + note_duration
+            elif preserve_gp_played_offsets:
+                ref_end = ref_anchor + dur
+            else:
+                ref_end = grid_tick + dur
             off_rec = ev.add(note_end, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
             note_span = {
@@ -1157,6 +1272,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 "bend_pending": False,
                 "pitch": pitch,
                 "string": (vi, note.string),
+                "ref_start": ref_anchor,
+                "ref_end": ref_end,
             }
             all_note_spans.append(note_span)
             last_off[note.string] = off_rec
@@ -1168,6 +1285,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             if eff.hammer:
                 pending_legato[(vi, note.string)] = off_rec
                 legato_grid_end[(vi, note.string)] = grid_tick + dur
+                legato_src_fret[(vi, note.string)] = int(note.value)
 
             # --- PB / вибрато / слайды ---
             # Бенды и слайды НЕ рисуем сразу — по той же причине, что и
@@ -1218,12 +1336,14 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             elif held and hand_release_tick is not None:
                 hand_release_tick = max(hand_release_tick, grid_tick + dur)
 
-    # Под --humanize хвосты нот обрезаются по следующей атаке той же клавиши и
-    # той же струны — ДО бендов и вибрато: их кривые и сброс PB берут конец
-    # ноты из off_rec. Без --humanize экспорт не меняется.
+    # Хвосты нот обрезаются по следующей атаке той же клавиши (всегда), а под
+    # --humanize ещё и той же струны и по эталону без оживления — ДО бендов и
+    # вибрато: их кривые и сброс PB берут конец ноты из off_rec.
     if hprof is not None:
         stats["humanize_clipped_notes"] = clip_humanized_overlaps(all_note_spans,
                                                                   legato_bridged)
+    else:
+        stats["same_pitch_clipped_notes"] = clip_same_pitch_overlaps(all_note_spans)
 
     # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
     # off_rec["tick"] у каждой ноты содержит её настоящий конец.
@@ -1649,6 +1769,7 @@ def parse_cli_options(argv):
         "--humanize", "--ghost-notes", "--no-verify", "--auto-sustain-vibrato",
         "--fret-noise-on-hand-shift", "--expand-gp-hidden-32nds",
         "--preserve-gp-played-offsets", "--fret-hand-cost",
+        "--no-expand-gp-hidden-32nds", "--no-preserve-gp-played-offsets",
     }
     # A typo like --humanise used to be silently ignored, so the export ran in a
     # different mode than the caller asked for and nothing said so.
@@ -1659,6 +1780,17 @@ def parse_cli_options(argv):
     # молча ничего бы не сделал — экспорт в другом режиме, чем просили.
     if "--fret-hand-cost" in flags and "--humanize" not in flags:
         raise ValueError("--fret-hand-cost работает только вместе с --humanize")
+    for option in ("expand-gp-hidden-32nds", "preserve-gp-played-offsets"):
+        if f"--{option}" in flags and f"--no-{option}" in flags:
+            raise ValueError(f"--{option} и --no-{option} взаимоисключающие")
+    # Скрытые 32-е разносятся везде по умолчанию, авторские сдвиги атак
+    # сохраняются по умолчанию на соло (решение пользователя 2026-09-24).
+    if "--no-preserve-gp-played-offsets" in flags:
+        played_offsets = PLAYED_OFFSETS_NONE
+    elif "--preserve-gp-played-offsets" in flags:
+        played_offsets = PLAYED_OFFSETS_ALL
+    else:
+        played_offsets = PLAYED_OFFSETS_SOLO
     seed = 7
     for flag in flags:
         if flag.startswith("--seed="):
@@ -1675,8 +1807,8 @@ def parse_cli_options(argv):
         "seed": seed,
         "auto_sustain_vibrato": "--auto-sustain-vibrato" in flags,
         "fret_noise_on_hand_shift": "--fret-noise-on-hand-shift" in flags,
-        "expand_gp_hidden_32nds": "--expand-gp-hidden-32nds" in flags,
-        "preserve_gp_played_offsets": "--preserve-gp-played-offsets" in flags,
+        "expand_gp_hidden_32nds": "--no-expand-gp-hidden-32nds" not in flags,
+        "preserve_gp_played_offsets": played_offsets,
         "fret_hand_cost": "--fret-hand-cost" in flags,
     }
 
@@ -1692,21 +1824,21 @@ def main(argv):
     seed = options["seed"]
     auto_sustain_vibrato = options["auto_sustain_vibrato"]
     fret_noise_on_hand_shift = options["fret_noise_on_hand_shift"]
-    expand_gp_hidden_32nds = options["expand_gp_hidden_32nds"]
-    preserve_gp_played_offsets = options["preserve_gp_played_offsets"]
     fret_hand_cost = options["fret_hand_cost"]
 
     if options["source"] is None:
         sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
                  "[--humanize] [--ghost-notes] [--auto-sustain-vibrato] "
-                 "[--fret-noise-on-hand-shift] [--expand-gp-hidden-32nds] "
-                 "[--preserve-gp-played-offsets] [--fret-hand-cost] [--seed=N]\n"
+                 "[--fret-noise-on-hand-shift] [--no-expand-gp-hidden-32nds] "
+                 "[--preserve-gp-played-offsets | --no-preserve-gp-played-offsets] "
+                 "[--fret-hand-cost] [--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
                  "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
-                 "  --expand-gp-hidden-32nds разнести GP playback-группы на тональных треках\n"
-                 "  --preserve-gp-played-offsets сохранить GP8-сдвиги атак Guitar/Bass\n"
+                 "  --no-expand-gp-hidden-32nds НЕ разносить GP playback-группы (по умолчанию разносятся)\n"
+                 "  --preserve-gp-played-offsets GP8-сдвиги атак на ВСЕХ Guitar/Bass (по умолчанию — на соло)\n"
+                 "  --no-preserve-gp-played-offsets не сохранять GP8-сдвиги атак нигде\n"
                  "  --fret-hand-cost задержка атаки при переносе руки (только с --humanize)\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
@@ -1733,16 +1865,13 @@ def main(argv):
     for idx, track in enumerate(song.tracks, start=1):
         track_type = resolve_track_type(track)
 
+        render = resolve_track_render_options(track, track_type, options)
         if track_type == TRACK_DRUMS:
             midi_track, stats = build_drum_midi(song, track, humanize=humanize,
                                                 humanize_seed=seed,
                                                 ghost_notes=ghost_notes)
         elif track_type == TRACK_OTHER:
-            midi_track, stats = build_other_midi(
-                song, track,
-                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
-                preserve_gp_played_offsets=preserve_gp_played_offsets,
-            )
+            midi_track, stats = build_other_midi(song, track, **render)
         else:
             midi_track, stats = build_instrument_midi(
                 song, track, track_type,
@@ -1750,10 +1879,12 @@ def main(argv):
                 auto_sustain_vibrato=auto_sustain_vibrato,
                 fret_noise_on_hand_shift=fret_noise_on_hand_shift,
                 performance_seed=seed,
-                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
-                preserve_gp_played_offsets=preserve_gp_played_offsets,
                 fret_hand_cost=fret_hand_cost,
+                **render,
             )
+            if render["preserve_gp_played_offsets"]:
+                print("  [%s]: сохранены авторские сдвиги атак GP (%d нот)"
+                      % (track.name, stats["played_offset_notes"]))
             if "fret_hand_cost_beats" in stats:
                 print("  перенос руки [%s]: задержано битов %d (макс %.1f мс), "
                       "цели легато без задержки %d"
