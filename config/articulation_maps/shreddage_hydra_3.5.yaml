@@ -13,7 +13,7 @@
 
 instrument: "Shreddage 3.5 Hydra"
 library_version: "3.5"
-config_version: 2
+config_version: 3
 
 # Дефолт мануала: +/- 2 полутона (НЕ 6). Если пользователь менял ручку
 # PITCH BEND RANGE в Kontakt (MAIN tab) — обновить здесь и только здесь.
@@ -76,6 +76,17 @@ fx_keyswitches:
   force_hand_position_off: 11 # B-2
   legato_on:  114             # F#8 (дефолт)
   legato_off: 115             # G8
+  # !!! В нумерации этого файла (C-1 = 12, значит C-2 = 0) F#8 = 126, а не 114.
+  # legato_on/off в коде не используются; прежде чем задействовать — сверить.
+  #
+  # Picking Mode (мануал Hydra 3.5, «Other Performance Keyswitches»): C7 = Up,
+  # C#7 = Down — переключают направление медиатора для СЛЕДУЮЩИХ нажатий.
+  # Штатный режим Alternate меняет направление на каждое нажатие и не знает
+  # ни ритма, ни легато: восьмые не получаются сплошь вниз. --pick-direction
+  # задаёт направление сам. ПРОВЕРИТЬ в пресете (Kontakt, вкладка TACT/
+  # keyswitches), как и всё в этом файле (LESSONS.md п.10).
+  picking_mode_up:   108      # C7
+  picking_mode_down: 109      # C#7
 
 # Опциональное «оживление» сустейнов. Само наличие профиля MIDI не меняет:
 # каждый механизм включается отдельным CLI/UI-флагом и детерминирован seed.

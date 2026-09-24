@@ -66,6 +66,10 @@ def load_profile(name: str) -> dict:
         _validate_fret_hand_cost(data["fret_hand_cost"], path)
     if "lock_to_drums" in data:
         _validate_section(data["lock_to_drums"], LOCK_TO_DRUMS_KEYS, "lock_to_drums", path)
+    if "palm_mute_motion" in data:
+        _validate_section(data["palm_mute_motion"], PALM_MUTE_MOTION_KEYS, "palm_mute_motion", path)
+        if not float(data["palm_mute_motion"]["drift_coherence"]) < 1:
+            raise ValueError(f"В профиле {path}: palm_mute_motion.drift_coherence обязан быть < 1")
     ghost = data.get("ghost_notes")
     if isinstance(ghost, dict) and isinstance(ghost.get("velocity"), dict):
         low, high = ghost["velocity"].get("min"), ghost["velocity"].get("max")
@@ -312,6 +316,19 @@ def _validate_section(section, keys, name, path):
         raise ValueError(f"В профиле {path}: в '{name}' нет ключей {missing}")
     if min(float(section[key]) for key in keys) < 0:
         raise ValueError(f"В профиле {path}: '{name}' содержит отрицательные значения")
+
+
+PALM_MUTE_MOTION_KEYS = ("drift_std", "drift_coherence", "reset_gap_frac16")
+
+
+def palm_mute_drift(previous, gap_ticks, tpb, prof, rng):
+    """Следующее значение дрейфа velocity P.M. (AR(1)); None = начать заново."""
+    motion = prof["palm_mute_motion"]
+    std = float(motion["drift_std"])
+    if previous is None or gap_ticks > float(motion["reset_gap_frac16"]) * tpb / 4:
+        return rng.gauss(0.0, std)
+    coherence = float(motion["drift_coherence"])
+    return coherence * previous + math.sqrt(1 - coherence ** 2) * rng.gauss(0.0, std)
 
 
 class DrumPulse:

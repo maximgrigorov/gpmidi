@@ -50,6 +50,11 @@ gp_to_shreddage.py
                    ритм-секция звучит вместе, а не каждый сам по себе.
     --double-rhythm-guitars  (только с --humanize) рядом с каждой ритм-гитарой
                    второй дубль "<имя> (double)" с другим seed — под L/R.
+    --pick-direction  ход медиатора keyswitch-ами Hydra (C7 вверх / C#7 вниз):
+                   ритм — по чётности шестнадцатой (восьмые сплошь вниз), соло —
+                   строгое чередование по взятым нотам.
+    --palm-mute-motion  (только с --humanize) velocity P.M.-ударов дрейфует
+                   плавно, как давление ладони; в Hydra нужен Vel -> Tightness.
     --no-verify    не гонять смок-проверку выхлопа (verify_midi.py)
 
 ВАЖНО: оживление обязано применяться ПОСЛЕ Guitar Pro и ДО сэмплера. Нотация не
@@ -99,11 +104,13 @@ from humanize import (
     fret_hand_delay,
     humanize_drums,
     locked_beat_shift,
+    palm_mute_drift,
     pitched_beat_shift,
     pitched_strum_offsets,
     pitched_velocity,
     profile_for_track_type,
     profile_label,
+    sixteenth_index,
 )
 from verify_midi import smoke_check
 
@@ -942,7 +949,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           preserve_gp_played_offsets=False,
                           fret_hand_cost=False, keep_gp_played_overlaps=False,
                           humanize_timing_over_gp_offsets=False,
-                          lock_to_drums=False, drum_timeline=None):
+                          lock_to_drums=False, drum_timeline=None,
+                          pick_direction=False, palm_mute_motion=False):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
@@ -1009,6 +1017,38 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                   and "lock_to_drums" in hprof else None)
     if drum_pulse is not None:
         stats["drum_lock"] = {"kick": 0, "snare": 0, "between": 0, "free": 0}
+
+    # Направление медиатора keyswitch-ами Hydra (Picking Mode Up/Down). Штатный
+    # Alternate меняет ход на каждое нажатие, не зная ни ритма, ни легато.
+    # Ритм: вниз, пока рука успевает (rhythm_downpick_min_ioi_ms), чаще — по
+    # чётности шестнадцатой; соло: строгое чередование по взятым нотам. Запрос
+    # пользователя 2026-09-24.
+    pick_ks = None
+    if pick_direction and track_type == TRACK_GUITAR:
+        fx = cfg.get("fx_keyswitches") or {}
+        if "picking_mode_up" not in fx or "picking_mode_down" not in fx:
+            raise ValueError(f"{config_label(cfg)}: для pick_direction нужны "
+                             "fx_keyswitches.picking_mode_up / picking_mode_down")
+        pick_ks = {"up": int(fx["picking_mode_up"]), "down": int(fx["picking_mode_down"])}
+        solo_picking = is_solo_track(track, track_type)
+        pick_strum = profile_for_track_type(track_type)["strum"]
+        pick_reset_ticks = float(pick_strum["solo_pick_reset_gap_frac16"]) * TICKS_PER_BEAT / 4
+        downpick_min_ioi_ms = float(pick_strum["rhythm_downpick_min_ioi_ms"])
+        last_pick_start = None
+        emit_keyswitch(ev, 0, pick_ks["down"], base_bpm)     # состояние задаём явно
+        stats["ks"] += 1
+        stats["pick_direction"] = {"down": 0, "up": 0, "ks": 1}
+        current_pick, next_pick, last_pick_end = "down", "down", None
+
+    # Глушение ладонью как движение руки: медленный дрейф velocity P.M.-битов.
+    pm_motion = (hprof if palm_mute_motion and hprof is not None
+                 and "palm_mute_motion" in hprof else None)
+    if pm_motion is not None:
+        pm_rng = random.Random(humanize_seed ^ PALM_MUTE_MOTION_SALT)
+        pm_ks_notes = {keyswitch_note(cfg, name) for name in ("palm_mute", "power_chord_mute")
+                       if name in (cfg.get("keyswitches") or {})}
+        pm_drift, last_pm_end = None, None
+        stats["palm_mute_motion_beats"] = 0
 
     # Стоимость переноса левой руки — часть тайминга оживления: без --humanize
     # профиля нет, и флаг ничего не делает. Профиль без секции (бас) — тоже.
@@ -1216,6 +1256,34 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                         and abs(fret_on_source - src_fret) < refinger_reach):
                     cross_legato_key = sources[0]
 
+        # --- направление медиатора (opt-in) ---
+        pick_down = None
+        if pick_ks is not None:
+            fresh = [n for n in beat.notes if n.type != NoteType.tie]
+            picked = bool(fresh) and not all(
+                legato_into.get((vi, n.string), -1) >= grid_tick for n in fresh)
+            if picked:
+                if solo_picking:
+                    if last_pick_end is not None and grid_tick - last_pick_end >= pick_reset_ticks:
+                        next_pick = "down"
+                    direction = next_pick
+                    next_pick = "up" if direction == "down" else "down"
+                elif (last_pick_start is None or ticks_to_ms(grid_tick - last_pick_start, cur_bpm)
+                      >= downpick_min_ioi_ms):
+                    direction = "down"          # рука успевает — чёс вниз
+                else:
+                    direction = ("down" if sixteenth_index(grid_tick, TICKS_PER_BEAT) % 2 == 0
+                                 else "up")
+                last_pick_end = grid_tick + dur
+                last_pick_start = grid_tick
+                stats["pick_direction"][direction] += 1
+                if direction != current_pick:
+                    emit_keyswitch(ev, beat_control_tick + hand_delay, pick_ks[direction], cur_bpm)
+                    stats["ks"] += 1
+                    stats["pick_direction"]["ks"] += 1
+                    current_pick = direction
+                pick_down = direction == "down"
+
         # --- keyswitch для бита: переключаем артикуляцию при изменении ---
         ks_note = beat_keyswitch(beat, track_type, cfg)
         if ks_note != current_ks:
@@ -1223,6 +1291,14 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             stats["ks"] += 1
             current_ks = ks_note
             last_palm_tick = beat_control_tick + hand_delay
+
+        pm_offset = 0
+        if pm_motion is not None and ks_note in pm_ks_notes:
+            gap = grid_tick - last_pm_end if last_pm_end is not None else 0
+            pm_drift = palm_mute_drift(pm_drift, gap, TICKS_PER_BEAT, pm_motion, pm_rng)
+            last_pm_end = grid_tick + dur
+            pm_offset = int(round(pm_drift))
+            stats["palm_mute_motion_beats"] += 1
 
         for note in beat.notes:
             eff = note.effect
@@ -1268,14 +1344,17 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                     velocity = pitched_velocity(velocity, start_tick, TICKS_PER_BEAT,
                                                art_name, hprof, hrng,
                                                vel_cap=sustain_vel_max,
-                                               down=strum_down)
+                                               down=strum_down if pick_down is None else pick_down)
                 velocity = min(velocity, sustain_vel_max)
             elif hprof is not None:
                 # прочие артикуляции (palm_mute и т.п.): своей vel-зоны нет,
                 # но выше 127 всё равно нельзя
                 velocity = pitched_velocity(velocity, start_tick, TICKS_PER_BEAT,
                                            art_name, hprof, hrng, vel_cap=127,
-                                           down=strum_down)
+                                           down=strum_down if pick_down is None else pick_down)
+                if pm_offset:
+                    velocity = max(int(hprof["velocity"]["floor"]),
+                                   clamp_vel(velocity + pm_offset))
 
             hidden_entry = hidden_timing.get(id(note))
             hidden_shift = hidden_entry[0] if hidden_entry else 0
@@ -1395,8 +1474,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                                        next_pitch, cur_bpm))
                 pb_dirty = True
 
-        # --- состояние левой руки для следующего бита (только при fret_hand_cost) ---
-        if hand_cost is not None:
+        # --- состояние рук для следующего бита (только при fret_hand_cost / pick_direction) ---
+        if hand_cost is not None or pick_ks is not None:
             held = hand_position is not None
             for note in beat.notes:
                 key = (vi, note.string)
@@ -1818,6 +1897,10 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
     return ev.to_miditrack(), stats
 
 
+# Отдельный поток случайности для дрейфа глушения: включение --palm-mute-motion
+# не должно менять ни одного другого случайного решения оживления.
+PALM_MUTE_MOTION_SALT = 0x9A1
+
 # Второй дубль ритм-гитары: тот же экспорт с другим seed оживления. Смещение
 # больше любого seed, который принимает веб (0..9999), поэтому дубль никогда не
 # совпадёт с «первым» дублем другого прогона.
@@ -1891,6 +1974,7 @@ def parse_cli_options(argv):
         "--no-expand-gp-hidden-32nds", "--no-preserve-gp-played-offsets",
         "--keep-gp-played-overlaps", "--humanize-timing-over-gp-offsets",
         "--lock-to-drums", "--double-rhythm-guitars",
+        "--pick-direction", "--palm-mute-motion",
     }
     # A typo like --humanise used to be silently ignored, so the export ran in a
     # different mode than the caller asked for and nothing said so.
@@ -1900,7 +1984,7 @@ def parse_cli_options(argv):
     # Стоимость переноса руки живёт в профиле оживления. Без --humanize флаг
     # молча ничего бы не сделал — экспорт в другом режиме, чем просили.
     for flag in ("--fret-hand-cost", "--humanize-timing-over-gp-offsets",
-                 "--lock-to-drums", "--double-rhythm-guitars"):
+                 "--lock-to-drums", "--double-rhythm-guitars", "--palm-mute-motion"):
         if flag in flags and "--humanize" not in flags:
             raise ValueError(f"{flag} работает только вместе с --humanize")
     for option in ("expand-gp-hidden-32nds", "preserve-gp-played-offsets"):
@@ -1937,6 +2021,8 @@ def parse_cli_options(argv):
         "humanize_timing_over_gp_offsets": "--humanize-timing-over-gp-offsets" in flags,
         "lock_to_drums": "--lock-to-drums" in flags,
         "double_rhythm_guitars": "--double-rhythm-guitars" in flags,
+        "pick_direction": "--pick-direction" in flags,
+        "palm_mute_motion": "--palm-mute-motion" in flags,
     }
 
 
@@ -1960,7 +2046,8 @@ def main(argv):
                  "[--preserve-gp-played-offsets | --no-preserve-gp-played-offsets] "
                  "[--fret-hand-cost] [--keep-gp-played-overlaps] "
                  "[--humanize-timing-over-gp-offsets] [--lock-to-drums] "
-                 "[--double-rhythm-guitars] [--seed=N]\n"
+                 "[--double-rhythm-guitars] [--pick-direction] [--palm-mute-motion] "
+                 "[--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
@@ -1972,6 +2059,8 @@ def main(argv):
                  "  --humanize-timing-over-gp-offsets тайминг оживления поверх GP8-сдвигов\n"
                  "  --lock-to-drums бас и гитары держатся за бочку/малый (с --humanize)\n"
                  "  --double-rhythm-guitars второй дубль ритм-гитар со своим seed (с --humanize)\n"
+                 "  --pick-direction направление медиатора keyswitch-ами Hydra (Picking Mode)\n"
+                 "  --palm-mute-motion глушение как движение руки: дрейф velocity P.M. (с --humanize)\n"
                  "  --fret-hand-cost задержка атаки при переносе руки (только с --humanize)\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
@@ -2060,6 +2149,8 @@ def main(argv):
             keep_gp_played_overlaps=options["keep_gp_played_overlaps"],
             humanize_timing_over_gp_offsets=options["humanize_timing_over_gp_offsets"],
             lock_to_drums=options["lock_to_drums"], drum_timeline=drum_timeline,
+            pick_direction=options["pick_direction"],
+            palm_mute_motion=options["palm_mute_motion"],
             **render,
         )
         if track_type == TRACK_DRUMS:
