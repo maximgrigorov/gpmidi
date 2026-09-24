@@ -137,6 +137,8 @@ def test_render_track_propagates_job_options_to_target_renderers(monkeypatch):
             "fret_hand_cost": False,
             "keep_gp_played_overlaps": False,
             "humanize_timing_over_gp_offsets": False,
+            "lock_to_drums": False,
+            "drum_timeline": None,
         }),
         ("drums", {"humanize": True, "humanize_seed": 19, "ghost_notes": True}),
         ("other", {"expand_gp_hidden_32nds": True}),

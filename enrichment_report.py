@@ -15,6 +15,8 @@ _OPTION_LABELS = {
     "fret_hand_cost": "Fret-hand shift delay",
     "keep_gp_played_overlaps": "Keep GP played overlaps",
     "humanize_timing_over_gp_offsets": "Humanize timing over GP offsets",
+    "lock_to_drums": "Lock to drums",
+    "double_track": "Double track",
     "expand_gp_hidden_32nds": "Expand hidden GP 32nds",
     "preserve_gp_played_offsets": "Preserve GP played offsets",
 }
@@ -24,11 +26,12 @@ _APPLICABLE_OPTIONS = {
         "humanize", "auto_sustain_vibrato", "fret_noise_on_hand_shift",
         "fret_hand_cost", "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
         "keep_gp_played_overlaps", "humanize_timing_over_gp_offsets",
+        "lock_to_drums", "double_track",
     },
     "BASS": {
         "humanize", "fret_noise_on_hand_shift", "expand_gp_hidden_32nds",
         "preserve_gp_played_offsets", "keep_gp_played_overlaps",
-        "humanize_timing_over_gp_offsets",
+        "humanize_timing_over_gp_offsets", "lock_to_drums",
     },
     "OTHER": {"expand_gp_hidden_32nds"},
 }

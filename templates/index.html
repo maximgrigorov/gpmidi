@@ -140,6 +140,12 @@
                 {% if current_job.humanize_timing_over_gp_offsets %}
                   <span class="badge on">тайминг оживления поверх GP8-сдвигов</span>
                 {% endif %}
+                {% if current_job.lock_to_drums %}
+                  <span class="badge on">ритм-секция вместе с барабанами</span>
+                {% endif %}
+                {% if current_job.double_track %}
+                  <span class="badge on">второй дубль ритм-гитары</span>
+                {% endif %}
                 {% if current_job.expand_gp_hidden_32nds %}
                   <span class="badge on">скрытые GP 32-е развёрнуты</span>
                 {% endif %}
@@ -268,6 +274,12 @@
                         {% endif %}
                         {% if 'humanize_timing_over_gp_offsets' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_humanize_timing_over_gp_offsets" data-needs-humanize> humanize timing over GP offsets (needs humanize)</label>
+                        {% endif %}
+                        {% if 'lock_to_drums' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_lock_to_drums" data-needs-humanize> lock to drums (needs humanize)</label>
+                        {% endif %}
+                        {% if 'double_track' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_double_track" data-needs-humanize> double track L/R (needs humanize)</label>
                         {% endif %}
                         {% if not track.available_effects %}<span class="muted">Нет дополнительных эффектов.</span>{% endif %}
                       </div>
@@ -433,6 +445,10 @@
                       <td class="actions-col">
                         <a class="btn btn-sm" href="{{ track.download_url }}">Baseline MIDI</a>
                         <div class="mono file-col">{{ track.download_name }}</div>
+                        {% if track.double_download_url %}
+                          <a class="btn btn-sm" href="{{ track.double_download_url }}">Double MIDI</a>
+                          <div class="mono file-col">{{ track.double_download_name }}</div>
+                        {% endif %}
                         {% if track.playable %}
                           {% for artifact in track.playable.files %}
                             <div class="artifact-action">
