@@ -571,13 +571,24 @@ spec:
         gpmidi.ailab/image-digest="$(params.digest)"
       kubectl -n "$NS" rollout status "deployment/$DEP" --timeout=300s
 
-      # The pod must report exactly the digest we published.
-      for i in $(seq 1 30); do
-        IMAGE_ID=$(kubectl -n "$NS" get pod -l "app=$DEP" \
-          -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')
-        [ -n "$IMAGE_ID" ] && break
-        sleep 2
-      done
+      # Select one Ready, non-terminating pod whose named container uses the
+      # exact deployed image. A broad .items[0] can select the previous ReplicaSet.
+      POD_JSON=$(kubectl -n "$NS" get pod -l "app=$DEP" -o json)
+      POD=$(printf '%s' "$POD_JSON" | jq -r \
+        --arg IMAGE "$BY_DIGEST" --arg CONTAINER '$(params.container)' '
+          [.items[]
+            | select(.metadata.deletionTimestamp == null)
+            | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))
+            | select(any(.spec.containers[]?; .name == $CONTAINER and .image == $IMAGE))]
+          | sort_by(.metadata.creationTimestamp) | last | .metadata.name // empty')
+      [ -n "$POD" ] || {
+        echo "ERROR: no Ready pod uses exact image $BY_DIGEST" >&2
+        exit 1
+      }
+      IMAGE_ID=$(printf '%s' "$POD_JSON" | jq -r \
+        --arg POD "$POD" --arg CONTAINER '$(params.container)' '
+          .items[] | select(.metadata.name == $POD)
+          | .status.containerStatuses[] | select(.name == $CONTAINER) | .imageID')
       echo "pod imageID: $IMAGE_ID"
       printf '%s' "$IMAGE_ID" > '$(results.pod-image-id.path)'
       case "$IMAGE_ID" in
@@ -600,8 +611,8 @@ spec:
       GEN=$(kubectl -n "$NS" get deploy "$DEP" -o jsonpath='{.metadata.generation}')
       REV=$(kubectl -n "$NS" get deploy "$DEP" \
         -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}')
-      POD=$(kubectl -n "$NS" get pod -l "app=$DEP" -o jsonpath='{.items[0].metadata.name}')
-      UID_=$(kubectl -n "$NS" get pod -l "app=$DEP" -o jsonpath='{.items[0].metadata.uid}')
+      UID_=$(printf '%s' "$POD_JSON" | jq -r --arg POD "$POD" \
+        '.items[] | select(.metadata.name == $POD) | .metadata.uid')
       {
         echo "deployment: $DEP"
         echo "source_commit: $(params.commit-sha)"
