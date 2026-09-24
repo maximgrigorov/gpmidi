@@ -23,3 +23,15 @@ def test_image_builds_have_enough_ephemeral_storage_for_large_ml_wheels():
     assert "memory: 12Gi" in build_task
     assert "ephemeral-storage: 24Gi" in build_task
     assert "ephemeral-storage-limit" not in build_task
+
+
+def test_model_sync_uses_a_writable_huggingface_cache():
+    task_text = TASKS.read_text(encoding="utf-8")
+    sync_task = task_text.split("name: sheetsage2-model-sync", 1)[1].split(
+        "\n---\n", 1
+    )[0]
+
+    assert "name: HOME\n                value: /tmp/home" in sync_task
+    assert "name: HF_HOME\n                value: /tmp/huggingface" in sync_task
+    assert "name: HF_HUB_DISABLE_XET\n                value: \"1\"" in sync_task
+    assert "sizeLimit: 2Gi" in sync_task

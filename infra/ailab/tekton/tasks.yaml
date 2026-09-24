@@ -688,6 +688,14 @@ spec:
               imagePullPolicy: IfNotPresent
               command: ["python", "-m", "sheetsage2_service.model_sync"]
               env:
+              - name: HOME
+                value: /tmp/home
+              - name: HF_HOME
+                value: /tmp/huggingface
+              - name: XDG_CACHE_HOME
+                value: /tmp/.cache
+              - name: HF_HUB_DISABLE_XET
+                value: "1"
               - name: HF_HUB_OFFLINE
                 value: "0"
               - name: TRANSFORMERS_OFFLINE
@@ -696,7 +704,7 @@ spec:
                 value: /models
               resources:
                 requests: {cpu: 500m, memory: 512Mi}
-                limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 1Gi}
+                limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 4Gi}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -713,7 +721,7 @@ spec:
                 claimName: sheetsage2-models
             - name: tmp
               emptyDir:
-                sizeLimit: 512Mi
+                sizeLimit: 2Gi
       EOF
       if ! kubectl -n "$NS" wait --for=condition=complete job/sheetsage2-model-sync --timeout=2400s; then
         kubectl -n "$NS" describe job sheetsage2-model-sync || true
