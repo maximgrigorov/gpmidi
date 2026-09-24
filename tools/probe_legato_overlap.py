@@ -7,8 +7,10 @@ otherwise the converter treats the pair as separated by a rest and leaves a
 gap, and Hydra re-picks the target instead of playing legato.
 
 Only pairs the score makes bridgeable are counted (the source still sounds at
-the target's grid attack). Each score note is matched to the MIDI note with the
-same pitch and the nearest attack, so strum/humanize shifts do not misalign it.
+the target's grid attack). A hammer onto the SAME pitch cannot overlap in MIDI
+at all (one key, one voice) and is reported separately as same_pitch_pairs.
+Each score note is matched to the MIDI note with the same pitch and the nearest
+attack, so strum/humanize shifts do not misalign it.
 
 Usage:
     python tools/probe_legato_overlap.py FILE "TRACK NAME" [--seeds 7 11 23]
@@ -73,11 +75,15 @@ def probe(song, track, humanize, seed, **kwargs):
     notes = midi_notes(midi)
     bpm = float(song.tempo) if song.tempo else 120.0
     gaps = []
+    same_pitch = [pair for pair in pairs if pair[0] == pair[2]]
     for s_pitch, s_tick, t_pitch, t_tick in pairs:
+        if s_pitch == t_pitch:
+            continue
         src, tgt = nearest(notes, s_pitch, s_tick), nearest(notes, t_pitch, t_tick)
         if src[1] <= tgt[0]:
             gaps.append(g.ticks_to_ms(tgt[0] - src[1], bpm))
-    return {"humanize": humanize, "seed": seed, "pairs": len(pairs), "broken": len(gaps),
+    return {"humanize": humanize, "seed": seed, "pairs": len(pairs) - len(same_pitch),
+            "same_pitch_pairs": len(same_pitch), "broken": len(gaps),
             "gap_ms_median": round(statistics.median(gaps), 1) if gaps else None,
             "gap_ms_max": round(max(gaps), 1) if gaps else None}
 

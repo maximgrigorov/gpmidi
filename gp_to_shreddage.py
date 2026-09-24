@@ -798,6 +798,35 @@ def beat_hand_position(beat):
             else (frets[middle - 1] + frets[middle]) / 2.0)
 
 
+def clip_humanized_overlaps(spans, legato_bridged):
+    """Под --humanize: одна клавиша и одна струна звучат одной нотой. -> сколько обрезано.
+
+    Конец ноты считается от СДВИНУТОГО начала бита, а соседний бит сдвинут
+    независимо, поэтому хвост предыдущей ноты залезает за атаку следующей
+    (LESSONS.md п.15). Для той же ВЫСОТЫ это потеря ноты: note_off старой ноты
+    приходит после атаки новой и гасит уже её — в Through the Night так
+    пропадала двухсекундная B3. Для той же СТРУНЫ это нефизично (струна звучит
+    одной нотой), а Hydra играет по перекрытию легато. Хвост обрезается по атаке
+    следующей ноты; намеренное легато-перекрытие hammer/pull (legato_bridged)
+    остаётся, кроме случая той же высоты — перекрытие одной клавиши в MIDI
+    невозможно в принципе.
+    """
+    clipped = 0
+    last_by_pitch, last_by_string = {}, {}
+    for span in sorted(spans, key=lambda item: item["start"]):
+        for prev, same_pitch in ((last_by_pitch.get(span["pitch"]), True),
+                                 (last_by_string.get(span["string"]), False)):
+            if (prev is None or prev["start"] >= span["start"]
+                    or prev["off"]["tick"] <= span["start"]):
+                continue
+            if same_pitch or id(prev["off"]) not in legato_bridged:
+                prev["off"]["tick"] = span["start"]
+                clipped += 1
+        last_by_pitch[span["pitch"]] = span
+        last_by_string[span["string"]] = span
+    return clipped
+
+
 def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           humanize_seed=7, auto_sustain_vibrato=False,
                           fret_noise_on_hand_shift=False, performance_seed=7,
@@ -889,6 +918,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     last_off_by_voice = {}
     last_span_by_voice = {}
     pending_legato = {}             # (voice_idx, string) -> off_rec источника hammer/pull
+    legato_grid_end = {}            # (voice_idx, string) -> конец источника по НОТНОЙ сетке
+    legato_bridged = set()          # id(off_rec) источников, продлённых внахлёст в цель
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
     for item_index, (measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur) in enumerate(items):
@@ -1035,6 +1066,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 rec = last_off.get(note.string)
                 if rec is not None:
                     rec["tick"] = start_tick + dur
+                if (vi, note.string) in legato_grid_end:
+                    legato_grid_end[(vi, note.string)] = grid_tick + dur
                 span = last_span.get(note.string)
                 if span is not None:
                     span["off"]["tick"] = start_tick + dur
@@ -1078,12 +1111,19 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             # --- легато (B15): эта нота — ЦЕЛЬ ожидающего hammer/pull? ---
             # Источник (нота с флагом hammer) продлевается внахлёст в цель,
             # если он дозвучал до её атаки (иначе легато прервано паузой).
+            # Под --humanize «дозвучал» решает НОТНАЯ сетка: соседние биты
+            # сдвинуты независимо, и по сдвинутым тикам рвалась половина
+            # связанных нотами пар (LESSONS.md п.15).
             origin = pending_legato.get((vi, note.string))
             if origin is not None:
-                if origin["tick"] >= on_tick:
+                if origin["tick"] >= on_tick or (
+                        hprof is not None
+                        and legato_grid_end.get((vi, note.string), -1) >= grid_tick):
                     overlap = ms_to_ticks(LEGATO_OVERLAP_MS, cur_bpm)
                     origin["tick"] = max(origin["tick"], on_tick + overlap)
+                    legato_bridged.add(id(origin))
                 del pending_legato[(vi, note.string)]
+                legato_grid_end.pop((vi, note.string), None)
 
             # --- принудительный сброс PB перед атакой ---
             if pb_dirty:
@@ -1115,6 +1155,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 "bpm": cur_bpm,
                 "bend_segments": [],
                 "bend_pending": False,
+                "pitch": pitch,
+                "string": (vi, note.string),
             }
             all_note_spans.append(note_span)
             last_off[note.string] = off_rec
@@ -1125,6 +1167,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             # на той же струне (см. блок легато выше)
             if eff.hammer:
                 pending_legato[(vi, note.string)] = off_rec
+                legato_grid_end[(vi, note.string)] = grid_tick + dur
 
             # --- PB / вибрато / слайды ---
             # Бенды и слайды НЕ рисуем сразу — по той же причине, что и
@@ -1174,6 +1217,13 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 hand_release_tick = grid_tick + dur
             elif held and hand_release_tick is not None:
                 hand_release_tick = max(hand_release_tick, grid_tick + dur)
+
+    # Под --humanize хвосты нот обрезаются по следующей атаке той же клавиши и
+    # той же струны — ДО бендов и вибрато: их кривые и сброс PB берут конец
+    # ноты из off_rec. Без --humanize экспорт не меняется.
+    if hprof is not None:
+        stats["humanize_clipped_notes"] = clip_humanized_overlaps(all_note_spans,
+                                                                  legato_bridged)
 
     # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
     # off_rec["tick"] у каждой ноты содержит её настоящий конец.

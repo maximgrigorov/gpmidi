@@ -10,7 +10,7 @@ Reported per render: the differential check (hand_cost_check.differential),
 onset_std_ms (deviation from the notated attack), jitter_ms (LESSONS.md p.3,
 kept for continuity; it counts quantized 32nds as jitter) and verify_midi
 findings. Between humanize and hand: invariants that must hold by
-construction (same notes, same note-offs, attacks only later, no new
+construction (same notes, note-offs never earlier, attacks only later, no new
 overlaps, identical fret-noise events). Across seeds: how often the check
 passes with and without the feature.
 
@@ -108,7 +108,9 @@ def track_report(song, track, cfg, seeds):
                                                  fret_hand_cost=True)
     report["invariants_humanize_vs_hand"] = {
         "same_pitches_in_order": [p for *_x, p in before] == [p for *_x, p in after],
-        "same_note_offs": [off for _on, off, _p in before] == [off for _on, off, _p in after],
+        # humanize clips a tail at the next attack on its string/pitch; a delayed
+        # next attack can only move that clip later, never earlier
+        "note_offs_never_earlier": all(b[1] >= a[1] for a, b in zip(before, after)),
         "min_attack_shift_ticks": min(shifts) if shifts else 0,
         "attacks_delayed": sum(1 for s in shifts if s > 0),
         "overlaps_humanize": overlaps(before),

@@ -178,8 +178,16 @@ def test_only_attacks_of_jump_beats_move_and_only_later():
     base = _notes(_build(song, track, humanize=True)[0])
     moved = _notes(_build(song, track, humanize=True, fret_hand_cost=True)[0])
     assert [p for *_x, p in base] == [p for *_x, p in moved]
-    assert [off for _on, off, _p in base] == [off for _on, off, _p in moved], \
-        "конец ноты не двигается: иначе хвост налезет на следующую атаку"
+    # Конец ноты фича не двигает. Отличаться он может только одним способом:
+    # --humanize обрезает хвост по атаке следующей ноты на той же струне
+    # (LESSONS.md п.15), а эту атаку фича задержала — обрезка встала позже.
+    for i, (b, m) in enumerate(zip(base, moved)):
+        own_end = b[0] + SIXTEENTH.time      # сдвинутое начало + длительность, без обрезки
+        next_attack = moved[i + 1][0] if i + 1 < len(moved) else own_end
+        assert m[1] >= b[1], i
+        assert m[1] == min(own_end, next_attack), i
+    assert all(a[1] <= b[0] for a, b in zip(moved, moved[1:])), \
+        "задержанная нота не налезает на следующую атаку"
     shifts = [m[0] - b[0] for b, m in zip(base, moved)]
     assert min(shifts) >= 0, "перенос руки не может сдвинуть атаку вперёд"
     # ноты на 12-м ладу в началах групп — прыжки; внутри групп рука стоит
