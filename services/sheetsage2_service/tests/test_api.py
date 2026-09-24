@@ -20,6 +20,11 @@ class FakeLauncher:
     def __init__(self):
         self.launched: list[str] = []
         self.observation = WorkerObservation(phase="queued")
+        self.ready_error: Exception | None = None
+
+    def ready(self) -> None:
+        if self.ready_error is not None:
+            raise self.ready_error
 
     def launch(self, job_id: str) -> None:
         self.launched.append(job_id)
@@ -47,6 +52,17 @@ def _create(client: TestClient, filename: str = "demo.wav"):
         headers=OWNER_HEADERS,
         files={"file": (filename, _wav_bytes(), "audio/wav")},
     )
+
+
+def test_readiness_requires_kubernetes_api_access(tmp_path: Path):
+    launcher = FakeLauncher()
+    client = TestClient(create_app(data_root=tmp_path, launcher=launcher))
+
+    assert client.get("/readyz").status_code == 200
+    launcher.ready_error = ConnectionError("Kubernetes API unavailable")
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "worker control plane unavailable"}
 
 
 def test_upload_creates_persisted_queued_job_and_launches_worker(tmp_path: Path):

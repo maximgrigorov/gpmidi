@@ -27,6 +27,14 @@ spec:
     - protocol: TCP
       port: 443
   - to:
+    - ipBlock:
+        # k3s/CNI may enforce the post-DNAT control-plane endpoint rather than
+        # the kubernetes Service ClusterIP. Permit only this node's API port.
+        cidr: 192.168.30.2/32
+    ports:
+    - protocol: TCP
+      port: 6443
+  - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kube-system

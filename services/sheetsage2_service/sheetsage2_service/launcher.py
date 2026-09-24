@@ -33,6 +33,9 @@ class KubernetesLauncher:
         self.model_pvc_name = model_pvc_name
         self.namespace = namespace
 
+    def ready(self) -> None:
+        self.batch.list_namespaced_job(namespace=self.namespace, limit=1)
+
     def launch(self, job_id: str) -> None:
         body = build_worker_job(
             job_id=job_id, image=self.image, pvc_name=self.pvc_name,

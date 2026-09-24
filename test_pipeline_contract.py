@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 TASKS = Path("infra/ailab/tekton/tasks.yaml")
+SHEETSAGE2_NETWORK_POLICY = Path(
+    "infra/ailab/apps/sheetsage2-service/networkpolicy.yaml"
+)
 
 
 def test_deploy_task_selects_the_ready_pod_for_the_exact_image():
@@ -35,3 +38,11 @@ def test_model_sync_uses_a_writable_huggingface_cache():
     assert "name: HF_HOME\n                value: /tmp/huggingface" in sync_task
     assert "name: HF_HUB_DISABLE_XET\n                value: \"1\"" in sync_task
     assert "sizeLimit: 2Gi" in sync_task
+
+
+def test_sheetsage2_controller_can_reach_the_k3s_api_endpoint():
+    policy = SHEETSAGE2_NETWORK_POLICY.read_text(encoding="utf-8")
+
+    assert "cidr: 10.43.0.1/32" in policy
+    assert "cidr: 192.168.30.2/32" in policy
+    assert "port: 6443" in policy

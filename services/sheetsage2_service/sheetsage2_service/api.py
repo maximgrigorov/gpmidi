@@ -24,6 +24,7 @@ _OWNER_TOKEN = re.compile(r"^[a-f0-9]{64}$")
 
 
 class Launcher(Protocol):
+    def ready(self) -> None: ...
     def launch(self, job_id: str) -> None: ...
     def observe(self, job_id: str) -> WorkerObservation: ...
     def delete(self, job_id: str) -> None: ...
@@ -109,6 +110,16 @@ def create_app(*, data_root: Path | None = None, launcher: Launcher | None = Non
     @app.get("/healthz")
     def healthz():
         return {"status": "ok", "data_root_writable": os.access(root, os.W_OK)}
+
+    @app.get("/readyz")
+    def readyz():
+        if not os.access(root, os.W_OK):
+            raise HTTPException(503, "data root unavailable")
+        try:
+            worker_launcher.ready()
+        except Exception:  # noqa: BLE001 - readiness must fail closed at this boundary
+            raise HTTPException(503, "worker control plane unavailable") from None
+        return {"status": "ready", "worker_control_plane": True}
 
     async def persist_and_launch(filename: str, chunks, owner_sha256: str) -> dict:
         filename = _safe_filename(filename)
