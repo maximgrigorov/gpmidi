@@ -44,10 +44,13 @@ from gp_import import parse_song  # noqa: E402
 from verify_midi import smoke_check  # noqa: E402
 
 SEED = 7
+# Humanize timing over authored GP offsets is opt-in (default off on solo
+# tracks with offsets); the hand delay is a timing feature, so it is evaluated
+# with that option ON -- otherwise there is nothing to measure there.
 VARIANTS = {
     "plain": {},
-    "humanize": {"humanize": True},
-    "hand": {"humanize": True, "fret_hand_cost": True},
+    "humanize": {"humanize": True, "humanize_timing_over_gp_offsets": True},
+    "hand": {"humanize": True, "fret_hand_cost": True, "humanize_timing_over_gp_offsets": True},
 }
 
 
@@ -108,12 +111,12 @@ def track_report(song, track, cfg, seeds):
     before, after = notes(built["humanize"][0], ks), notes(built["hand"][0], ks)
     shifts = [b[0] - a[0] for a, b in zip(before, after)]
     fret_note = cfg["fx_keyswitches"]["fret_noise"]
-    fn_off, fn_off_stats = g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize=True,
-                                                   humanize_seed=SEED, fret_noise_on_hand_shift=True,
-                                                   **render)
-    fn_on, fn_on_stats = g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize=True,
-                                                 humanize_seed=SEED, fret_noise_on_hand_shift=True,
-                                                 fret_hand_cost=True, **render)
+    fn_off, fn_off_stats = g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize_seed=SEED,
+                                                   fret_noise_on_hand_shift=True,
+                                                   **render, **VARIANTS["humanize"])
+    fn_on, fn_on_stats = g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize_seed=SEED,
+                                                 fret_noise_on_hand_shift=True,
+                                                 **render, **VARIANTS["hand"])
     report["invariants_humanize_vs_hand"] = {
         "same_pitches_in_order": [p for *_x, p in before] == [p for *_x, p in after],
         # humanize clips a tail at the next attack on its string/pitch; a delayed

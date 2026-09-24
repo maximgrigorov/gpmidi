@@ -18,6 +18,7 @@ intact -- see KEY_RETRIGGER).
 
 Usage:
     python tools/render_solo_ab.py SONG.gp "Guitar (Solo)" OUT_DIR [--seed 7] [--program 30]
+        [--timing-over-offsets] [--keep-gp-played-overlaps]
 """
 from __future__ import annotations
 
@@ -47,6 +48,8 @@ VARIANTS = {
     "B_humanize+hand-cost": {"humanize": True, "fret_hand_cost": True},
     "C_humanize-only": {"humanize": True},
 }
+# --timing-over-offsets adds humanize_timing_over_gp_offsets to B and C: on solo
+# tracks with authored GP offsets humanize timing is off by default.
 MAX_SILENCE_S = 3.0        # longer silences are shortened to 2 * KEEP_S
 KEEP_S = 0.75              # kept around every note span
 TAIL_S = 2.5               # rendered after the last event
@@ -107,6 +110,8 @@ def main(argv=None):
     ap.add_argument("out_dir", type=Path)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--program", type=int, default=30)
+    ap.add_argument("--timing-over-offsets", action="store_true")
+    ap.add_argument("--keep-gp-played-overlaps", action="store_true")
     args = ap.parse_args(argv)
     logging.disable(logging.INFO)
     with warnings.catch_warnings():
@@ -125,8 +130,11 @@ def main(argv=None):
         subprocess.run(["swiftc", "-O", str(RENDERER), "-o", str(binary)], check=True)
         spans, audio, findings = [], {}, {}
         for name, kwargs in VARIANTS.items():
+            extra = {"keep_gp_played_overlaps": args.keep_gp_played_overlaps}
+            if kwargs.get("humanize") and args.timing_over_offsets:
+                extra["humanize_timing_over_gp_offsets"] = True
             midi_track, _ = g.build_instrument_midi(song, track, track_type, humanize_seed=args.seed,
-                                                    **render, **kwargs)
+                                                    **render, **kwargs, **extra)
             full = tmp / f"{name}_full.mid"
             midi = mido.MidiFile(type=0, ticks_per_beat=g.TICKS_PER_BEAT)
             midi.tracks.append(midi_track)

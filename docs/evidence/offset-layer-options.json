@@ -1,0 +1,21 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "decisions_2026_09_24": {
+  "1": "notes must not be lost on OTHER tracks either",
+  "2": "authored-offset overlaps: off by default, checkbox to keep",
+  "3": "humanize timing over authored offsets: off by default, checkbox to enable"
+ },
+ "key_retrigger_all_tracks": {
+  "before_this_branch": {"(defaults)": {"OTHER": 58}, "--expand --preserve (all tracks)": {"OTHER": 487}},
+  "this_branch": "0 on every track type in all 6 flag combinations",
+  "root_cause_remaining_16": "unison duplicates (two equal notes on one tick): only the last one was clipped"
+ },
+ "authored_overlaps_not_in_notation": {
+  "SpringMelody/Guitar (Solo)": {"keep_gp_played_overlaps": 52, "default": 0, "note": "the metric shows 2, both are reordered notes of one beat that abut exactly (69 ends at 229796, 78 starts at 229796)"},
+  "TtN/Solo Guitar": {"keep_gp_played_overlaps": 62, "default": 0}
+ },
+ "humanize_on_solo_with_authored_offsets_default": "attacks identical to the no-humanize export (velocity only); pnd.gp5 (GP5, no offsets) keeps humanize timing",
+ "fret_hand_cost_acceptance": "unchanged when humanize_timing_over_gp_offsets is on: 60/60 (TtN Solo 59/60), 1 false pass in 300, corridor means 6.2-8.8 ms",
+ "files_changed_vs_previous_branch_defaults": ["SpringMelody/Guitar (Solo)", "TtN/Solo Guitar", "SpringMelody Keyboard x2, Synth x2", "TtN FX (Staff 1), Piano x2"]
+}

@@ -108,10 +108,12 @@
   It checks invariants on the produced artifact, not musicality. Every check is a
   fossilised real bug — see the module docstring. ERROR fails the summary; WARN
   and INFO are advisory.
-- `KEY_RETRIGGER` (ERROR on GUITAR/BASS, WARN on OTHER, skipped on DRUMS): a
-  note attacking a key that still sounds — its predecessor's note_off will
-  silence it. It fires on `origin/main` humanize artifacts (1236 guitar, 677
-  bass) and is silent on current guitar/bass exports in every mode.
+- `KEY_RETRIGGER` (ERROR on every tonal track, skipped on DRUMS): a note
+  attacking a key that still sounds — its predecessor's note_off will silence
+  it. It fires on `origin/main` artifacts (1236 guitar, 677 bass under
+  humanize; 56 on keys/synth even in the plain export) and is silent on current
+  exports of every track type in every mode. OTHER tracks clip same-pitch
+  overlaps too (user decision 2026-09-24: "notes must not be lost").
 - A check that never fires is worthless: validate changes against the
   pre-fix artifacts, which still contain BEND_CEILING and CC1_PROPELLER.
   Two earlier versions of the CC1 check silently passed the very file they were
@@ -195,6 +197,14 @@
   `--no-preserve-gp-played-offsets` nowhere. `resolve_track_render_options`
   is the single place that maps CLI options to a track.
 - The web UI pre-checks the same boxes (`default_track_effects`).
+- Where authored offsets are kept (and the track really has them — GP3/4/5 has
+  none), two layers are opt-in, default OFF (user decision 2026-09-24, "decide
+  by ear"): `keep_gp_played_overlaps` keeps the overlaps the offsets create
+  between notes (Hydra plays them legato; by default they are clipped against
+  the notated grid), and `humanize_timing_over_gp_offsets` adds humanize beat
+  shift, strum and the fret-hand delay on top of the authored timing (by default
+  humanize only touches velocity there). CLI: `--keep-gp-played-overlaps`,
+  `--humanize-timing-over-gp-offsets` (needs `--humanize`); web: per-track boxes.
 - A same-pitch overlap is clipped in EVERY mode (`clip_same_pitch_overlaps`):
   the old note_off would silence the new note. Hammer onto the same pitch gets
   no legato overlap; a hammer onto another string is legato only when the target
@@ -216,16 +226,9 @@
 ## Still open (do not "fix" silently — ask first)
 - `--humanize` note ends (LESSONS.md p.15): fixed on `fix/humanize-note-ends`
   (1909 lost notes -> 0), user GO 2026-09-24; merge is done by a separate agent.
-- OTHER tracks (keys/synth/vocals, `build_other_midi`) still retrigger keys:
-  58 KEY_RETRIGGER findings on the default export of three songs, 487 with
-  `--preserve-gp-played-offsets`. Same bug class, other instruments — ask first.
-- Authored GP offsets (default on solo) create overlaps absent from the
-  notation: 52 of 236 transitions on Spring Melody Solo (max 303 ms), 62 of 268
-  on TtN Solo. Hydra plays them legato. They are part of the accepted Spring
-  Melody baseline, so they are NOT clipped — the user decides.
-- With `--humanize` on a solo track, humanize timing (and the hand delay) is
-  added ON TOP of the authored offsets. Whether authored timing should replace
-  humanize timing there is the user's call.
+- Whether authored-offset overlaps and humanize timing over authored offsets
+  sound better ON is still to be judged by ear in the DAW; both are opt-in
+  switches now (see Render defaults).
 - ~~Initial keyswitch is assumed, not set.~~ **DONE** in commit `4336ce8`: an
   explicit sustain KS is emitted at tick 0 in `build_instrument_midi`, and
   `verify_midi.py` ships the matching `KS_NO_INIT` check. The reason stays on
