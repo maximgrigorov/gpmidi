@@ -122,3 +122,43 @@ def test_vel_zone_tracks_articulation_changes_through_the_file(tmp_path):
     vel_zone = [message for severity, code, message in found if code == "VEL_ZONE"]
     assert len(vel_zone) == 1
     assert vel_zone[0].startswith("1 нот")
+
+
+def _retrigger_midi(tmp_path, name="retrigger.mid"):
+    """E4 на 0..960 и снова E4 с 480: первый note_off на 960 гасит вторую ноту."""
+    mid = MidiFile(ticks_per_beat=960)
+    track = MidiTrack()
+    mid.tracks.append(track)
+    track.append(Message("note_on", note=12, velocity=100, time=0))   # sustain KS
+    track.append(Message("note_off", note=12, velocity=0, time=10))
+    track.append(Message("note_on", note=64, velocity=90, time=10))
+    track.append(Message("note_on", note=64, velocity=90, time=460))
+    track.append(Message("note_off", note=64, velocity=0, time=480))
+    track.append(Message("note_off", note=64, velocity=0, time=960))
+    path = tmp_path / name
+    mid.save(path)
+    return path
+
+
+def test_key_retrigger_fires_on_the_artifact_that_lost_notes(tmp_path):
+    path = _retrigger_midi(tmp_path)
+    by_type = {tt: {(sev, code) for sev, code, _m in smoke_check(path, tt)}
+               for tt in ("GUITAR", "OTHER", "DRUMS")}
+    assert ("ERROR", "KEY_RETRIGGER") in by_type["GUITAR"]
+    assert ("WARN", "KEY_RETRIGGER") in by_type["OTHER"]
+    assert not any(code == "KEY_RETRIGGER" for _sev, code in by_type["DRUMS"])
+
+
+def test_key_retrigger_ignores_unison_on_the_same_tick(tmp_path):
+    mid = MidiFile(ticks_per_beat=960)
+    track = MidiTrack()
+    mid.tracks.append(track)
+    track.append(Message("note_on", note=12, velocity=100, time=0))
+    track.append(Message("note_off", note=12, velocity=0, time=10))
+    track.append(Message("note_on", note=64, velocity=90, time=10))
+    track.append(Message("note_on", note=64, velocity=90, time=0))
+    track.append(Message("note_off", note=64, velocity=0, time=960))
+    track.append(Message("note_off", note=64, velocity=0, time=0))
+    path = tmp_path / "unison.mid"
+    mid.save(path)
+    assert not any(code == "KEY_RETRIGGER" for _s, code, _m in smoke_check(path, "GUITAR"))
