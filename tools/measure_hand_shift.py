@@ -4,12 +4,14 @@
 Distribution of |hand_position - previous_hand_position| on GUITAR tracks,
 measured the way ``build_instrument_midi`` sees it:
 
-- hand_position is the median fret of a beat's fretted (> 0), non-tie notes;
+- hand_position is ``gp_to_shreddage.beat_hand_position``: the median fret of a
+  beat's fretted (> 0), non-tie notes;
 - beats without fretted notes leave the previous position unchanged;
 - previous_hand_position is ONE variable per track, carried across voices in
   the converter's iteration order (measure -> voice -> beat).
 
-The replica is cross-checked against the converter itself: with the Hydra
+The previous-position chaining is replicated here and cross-checked against
+the converter itself: with the Hydra
 ``fret_noise_on_hand_shift.probability`` forced to 1.0, ``fret_noise_events``
 must equal the number of beats at or above ``min_fret_shift``. A mismatch
 aborts the run -- a measurement of something other than what the converter
@@ -39,16 +41,6 @@ FAST_IOI_MS = 150.0
 IOI_EDGES_MS = (150.0, 300.0, 600.0)
 
 
-def hand_position(beat):
-    frets = sorted(int(n.value) for n in beat.notes
-                   if n.type != g.NoteType.tie and int(n.value) > 0)
-    if not frets:
-        return None
-    middle = len(frets) // 2
-    return (float(frets[middle]) if len(frets) % 2
-            else (frets[middle - 1] + frets[middle]) / 2.0)
-
-
 def track_transitions(song, track):
     """Yield one record per beat that has both a hand position and a predecessor."""
     base_bpm = float(song.tempo) if song.tempo else 120.0
@@ -66,7 +58,7 @@ def track_transitions(song, track):
                 last_bpm = cur_bpm = float(new_bpm)
         if not beat.notes:
             continue
-        pos = hand_position(beat)
+        pos = g.beat_hand_position(beat)
         if pos is None:
             continue
         if prev is not None:

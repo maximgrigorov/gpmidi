@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import bisect
 import logging
+import math
 from functools import lru_cache
 from pathlib import Path
 
@@ -61,6 +62,8 @@ def load_profile(name: str) -> dict:
     for section in ("velocity", "timing"):
         if not isinstance(data.get(section), dict):
             raise ValueError(f"В профиле {path} отсутствует или испорчена секция '{section}'")
+    if "fret_hand_cost" in data:
+        _validate_fret_hand_cost(data["fret_hand_cost"], path)
     ghost = data.get("ghost_notes")
     if isinstance(ghost, dict) and isinstance(ghost.get("velocity"), dict):
         low, high = ghost["velocity"].get("min"), ghost["velocity"].get("max")
@@ -269,6 +272,64 @@ def pitched_beat_shift(start_tick, bpm, tpb, prof, rng):
     limit = float(t.get("max_shift_frac16", 0.12)) * six
     shift = max(-limit, min(limit, shift))
     return max(0, int(round(start_tick + shift)))
+
+
+FRET_HAND_COST_KEYS = (
+    "in_position_ms_per_fret", "shift_ms", "saturation_ms", "saturation_frets",
+    "max_delay_frac16", "max_delay_note_frac",
+)
+
+
+def _validate_fret_hand_cost(section, path):
+    # Без дефолтов в коде: у каждого числа модели одно место жительства —
+    # профиль. Пропущенный ключ падает здесь, с именем файла, а не посреди
+    # рендера безымянным KeyError.
+    if not isinstance(section, dict):
+        raise ValueError(f"В профиле {path}: секция 'fret_hand_cost' не является отображением")
+    missing = [key for key in FRET_HAND_COST_KEYS if key not in section]
+    if missing:
+        raise ValueError(f"В профиле {path}: в 'fret_hand_cost' нет ключей {missing}")
+    values = {key: float(section[key]) for key in FRET_HAND_COST_KEYS}
+    if min(values.values()) < 0 or values["saturation_frets"] <= 0:
+        raise ValueError(f"В профиле {path}: 'fret_hand_cost' содержит недопустимые значения")
+    if not values["shift_ms"] <= values["saturation_ms"]:
+        raise ValueError(f"В профиле {path}: fret_hand_cost.shift_ms > saturation_ms")
+
+
+def fret_hand_cost_ms(delta_frets, shift_frets, prof):
+    """Время переноса левой руки на |delta_frets| ладов, мс.
+
+    В пределах позиции (delta < shift_frets, порог берётся из articulation_maps:
+    тот же min_fret_shift, что у fret_noise) пальцы достают ноту без переноса
+    кисти — стоимость мала и линейна. Смена позиции — другое движение: сразу
+    shift_ms, дальше рост с насыщением к saturation_ms (рука не тормозит
+    бесконечно, прыжок на октаву стоит немногим дороже прыжка на пять ладов).
+    Время физическое, поэтому в мс и без темповой поправки.
+    """
+    h = prof["fret_hand_cost"]
+    if delta_frets <= 0:
+        return 0.0
+    if delta_frets < shift_frets:
+        return float(h["in_position_ms_per_fret"]) * delta_frets
+    base, ceiling = float(h["shift_ms"]), float(h["saturation_ms"])
+    over = delta_frets - shift_frets
+    return ceiling - (ceiling - base) * math.exp(-over / float(h["saturation_frets"]))
+
+
+def fret_hand_delay(delta_frets, shift_frets, gap_ms, dur_ticks, bpm, tpb, prof):
+    """Задержка атаки бита из-за переноса руки, в тиках, всегда >= 0.
+
+    Переносу засчитывается тишина перед атакой (gap_ms): рука, отпустившая
+    струну заранее, успевает переехать и не опаздывает. Потолок — меньшее из
+    max_delay_frac16 шестнадцатой и max_delay_note_frac собственной длительности
+    бита, чтобы задержанная нота не съела саму себя.
+    """
+    h = prof["fret_hand_cost"]
+    cost_ms = max(0.0, fret_hand_cost_ms(delta_frets, shift_frets, prof) - gap_ms)
+    ms_per_tick = 60000.0 / (bpm * tpb)
+    limit = min(float(h["max_delay_frac16"]) * tpb / 4,
+                float(h["max_delay_note_frac"]) * dur_ticks)
+    return max(0, int(round(min(cost_ms / ms_per_tick, limit))))
 
 
 def pitched_strum_offsets(pitches, start_tick, bpm, tpb, prof, rng):
