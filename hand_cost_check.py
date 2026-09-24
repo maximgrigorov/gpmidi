@@ -8,9 +8,13 @@ min_fret_shift ладов и больше, атака обязана опазд�
 
 Классы битов считаются по партитуре независимо от конвертера (своим обходом),
 опоздание — по артефакту: первая атака бита минус его нотный тик, в мс по темпу
-этого места. Цели hammer/слайда из обеих групп исключены: модель их не
-задерживает намеренно (LESSONS.md п.15), и смешивать их с прыжками значит
-мерить правило исключения, а не перенос руки.
+этого места. Если есть ЭТАЛОН — тот же экспорт без --humanize, — опоздание
+считается от атаки эталона. Это обязательно там, где атаки уже сдвинуты
+авторским слоем GP «как сыграно» (по умолчанию на соло): на Spring Melody Solo
+эти сдвиги дают разброс 28.8 мс от сетки, и без эталона фича тонет в них
+(p = 0.17 при включённой фиче). Цели hammer/слайда из обеих групп исключены:
+модель их не задерживает намеренно (LESSONS.md п.15), и смешивать их с
+прыжками значит мерить правило исключения, а не перенос руки.
 
 Проверка обязана ПАДАТЬ на выходе без фичи — и на квантованном экспорте, и на
 обычном --humanize (LESSONS.md п.11: проверка, которая ни разу не срабатывала,
@@ -20,7 +24,8 @@ min_fret_shift ладов и больше, атака обязана опазд�
 триоль в мс. pct_off_grid16 не используется — считает триоль живостью.
 
 Использование:
-    python hand_cost_check.py song.gp "Guitar (Solo)" out/Guitar_Solo.mid
+    python hand_cost_check.py song.gp "Guitar (Solo)" out/Guitar_Solo.mid \
+        [--reference plain/Guitar_Solo.mid]
 """
 from __future__ import annotations
 
@@ -41,12 +46,25 @@ from articulation_config import config_for_track_type
 ALPHA = 0.01
 # Значимой, но ничтожной разницы мало: медиана опоздания на прыжках обязана
 # превышать медиану на битах без переноса хотя бы на столько. Шум --humanize —
-# std 7 мс, модель даёт 10-18 мс; 3 мс отсекают «значимо, но не слышно».
+# std 7 мс, модель даёт 9-16 мс; 3 мс отсекают «значимо, но не слышно».
 MIN_MEDIAN_GAIN_MS = 3.0
 # Меньше битов в группе — критерию нечего сказать, проверка не пройдена.
 MIN_GROUP = 20
 # Общий делитель 16-й и триоли на четверть: та же сетка, что у RIGID.
 GRID_DIVISIONS_PER_BEAT = 12
+# Коридор разброса атак гитары (LESSONS.md п.6: гитара ~7 мс, выход за 5-9 —
+# объясниться). Меряется как СРЕДНЕЕ по сидам: один сид — одна реализация
+# случайности, на Spring Melody Solo seed 7 даёт 9.77 при среднем 8.93.
+TIMING_STD_CORRIDOR_MS = (5.0, 9.0)
+
+
+def corridor(stds):
+    """Разброс атак по сидам против TIMING_STD_CORRIDOR_MS."""
+    low, high = TIMING_STD_CORRIDOR_MS
+    mean = statistics.mean(stds)
+    return {"mean_ms": round(mean, 2), "max_ms": round(max(stds), 2),
+            "seeds_above": sum(1 for x in stds if x > high), "seeds": len(stds),
+            "inside": low <= mean <= high}
 
 
 @dataclass
@@ -127,16 +145,31 @@ def _nearest(sorted_ticks, target):
     return min(candidates, key=lambda t: abs(t - target)) if candidates else None
 
 
-def beat_offsets_ms(song, track, midi_track, cfg, tpb=g.TICKS_PER_BEAT):
-    """[(ScoreBeat, опоздание первой атаки бита в мс)] по артефакту."""
-    attacks = midi_attacks(midi_track, _keyswitch_notes(cfg))
+def beat_offsets_ms(song, track, midi_track, cfg, reference_track=None):
+    """[(ScoreBeat, опоздание первой атаки бита в мс)] по артефакту.
+
+    Без эталона — от нотного тика; с эталоном — от атаки той же ноты в эталоне
+    (нота эталона ищется у нотного тика, нота артефакта — у атаки эталона).
+    """
+    ks = _keyswitch_notes(cfg)
+    attacks = midi_attacks(midi_track, ks)
+    reference = midi_attacks(reference_track, ks) if reference_track is not None else None
     rows = []
     for beat in score_beats(song, track, cfg):
-        found = [_nearest(attacks.get(p, []), beat.grid_tick) for p in beat.pitches]
-        found = [t for t in found if t is not None]
-        if not found:
+        pairs = []
+        for pitch in beat.pitches:
+            anchor = beat.grid_tick
+            if reference is not None:
+                anchor = _nearest(reference.get(pitch, []), beat.grid_tick)
+                if anchor is None:
+                    continue
+            found = _nearest(attacks.get(pitch, []), anchor)
+            if found is not None:
+                pairs.append((found, anchor))
+        if not pairs:
             continue
-        rows.append((beat, g.ticks_to_ms(min(found) - beat.grid_tick, beat.bpm)))
+        attack, anchor = min(pairs)
+        rows.append((beat, g.ticks_to_ms(attack - anchor, beat.bpm)))
     return rows
 
 
@@ -166,11 +199,14 @@ def mann_whitney_greater(xs, ys):
     return 0.5 * math.erfc(z / math.sqrt(2))
 
 
-def differential(song, track, midi_track, cfg=None):
-    """Опаздывают ли прыжки сильнее битов без переноса. -> dict с 'passed'."""
+def differential(song, track, midi_track, cfg=None, reference_track=None):
+    """Опаздывают ли прыжки сильнее битов без переноса. -> dict с 'passed'.
+
+    reference_track — тот же экспорт без --humanize (см. beat_offsets_ms).
+    """
     cfg = cfg or config_for_track_type(g.TRACK_GUITAR)
     shift_frets = float(cfg["performance_life"]["fret_noise_on_hand_shift"]["min_fret_shift"])
-    rows = beat_offsets_ms(song, track, midi_track, cfg)
+    rows = beat_offsets_ms(song, track, midi_track, cfg, reference_track)
     shift = [ms for b, ms in rows
              if b.delta is not None and b.delta >= shift_frets and not b.legato_target]
     zero = [ms for b, ms in rows if b.delta == 0 and not b.legato_target]
@@ -210,6 +246,8 @@ def main(argv=None):
     ap.add_argument("score")
     ap.add_argument("track")
     ap.add_argument("midi")
+    ap.add_argument("--reference", help="тот же экспорт без --humanize (обязателен при "
+                                         "сохранённых авторских сдвигах GP)")
     args = ap.parse_args(argv)
     from gp_import import parse_song
     with warnings.catch_warnings():
@@ -218,7 +256,8 @@ def main(argv=None):
     track = next(t for t in song.tracks if t.name == args.track)
     midi_track = mido.MidiFile(args.midi).tracks[0]
     cfg = config_for_track_type(g.TRACK_GUITAR)
-    result = differential(song, track, midi_track, cfg)
+    reference = mido.MidiFile(args.reference).tracks[0] if args.reference else None
+    result = differential(song, track, midi_track, cfg, reference)
     result["jitter_ms"] = jitter_ms(midi_track, cfg)
     for key, value in result.items():
         print(f"{key:24} {value}")

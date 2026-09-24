@@ -308,3 +308,32 @@ def test_jitter_ms_counts_quantized_32nds_as_jitter():
     midi_track, _ = _build(song, track)
     assert hc.jitter_ms(midi_track, CFG) > 10.0
     assert hc.differential(song, track, midi_track, CFG)["onset_std_ms"] == 0.0
+
+
+def test_check_needs_the_reference_when_authored_offsets_are_kept():
+    """Авторские сдвиги GP (дефолт на соло) топят задержку в разбросе от сетки.
+
+    На Spring Melody Solo сдвиги дают 28.8 мс, и проверка против сетки не видела
+    включённую фичу (p = 0.17). Против эталона — того же экспорта без
+    --humanize — видит и по-прежнему падает без фичи.
+    """
+    import random
+    rng = random.Random(3)
+    bars = []
+    for _ in range(12):
+        beats = []
+        for fret in JUMP_BAR:
+            note = _note(fret)
+            note.playedOffset = rng.randint(-40, 40)      # 480 PPQ: до ±1/12 доли
+            beats.append(_beat([note]))
+        bars.append(beats)
+    song, track = _song(bars)
+    kept = {"preserve_gp_played_offsets": True}
+    reference, _ = _build(song, track, **kept)
+    with_feature, _ = _build(song, track, humanize=True, fret_hand_cost=True, **kept)
+    without, _ = _build(song, track, humanize=True, **kept)
+
+    assert not hc.differential(song, track, with_feature, CFG)["passed"], \
+        "без эталона проверка обязана не видеть фичу — иначе этот тест ничего не доказывает"
+    assert hc.differential(song, track, with_feature, CFG, reference)["passed"]
+    assert not hc.differential(song, track, without, CFG, reference)["passed"]

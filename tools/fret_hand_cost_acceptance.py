@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Acceptance numbers for --fret-hand-cost on real Guitar Pro files.
 
-For every GUITAR track, three renders with the same seed:
-  plain     -- no flags (quantized notation)
+For every GUITAR track, three renders with the same seed and the CLI's
+default render options (hidden 32nds expanded, GP played offsets kept on solo
+tracks):
+  plain     -- no humanize: the REFERENCE the delays are measured against
   humanize  -- --humanize (the feature OFF)
   hand      -- --humanize --fret-hand-cost
 
-Reported per render: the differential check (hand_cost_check.differential),
-onset_std_ms (deviation from the notated attack), jitter_ms (LESSONS.md p.3,
+Reported per render: the differential check (hand_cost_check.differential,
+against the plain reference), onset_std_ms (deviation from the reference
+attack, i.e. what humanize adds), jitter_ms (LESSONS.md p.3,
 kept for continuity; it counts quantized 32nds as jitter) and verify_midi
 findings. Between humanize and hand: invariants that must hold by
 construction (same notes, note-offs never earlier, attacks only later, no new
 overlaps, identical fret-noise events). Across seeds: how often the check
-passes with and without the feature.
+passes with and without the feature, and the timing-std corridor.
 
 Usage:
     python tools/fret_hand_cost_acceptance.py SONG.gp [...] --json OUT [--seeds N]
@@ -86,11 +89,15 @@ def smoke_codes(midi_track):
 
 def track_report(song, track, cfg, seeds):
     ks = hc._keyswitch_notes(cfg)
-    built = {name: g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize_seed=SEED, **kw)
+    render = g.resolve_track_render_options(track, g.TRACK_GUITAR,
+                                            g.parse_cli_options(["prog", "song.gp"]))
+    built = {name: g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize_seed=SEED,
+                                           **render, **kw)
              for name, kw in VARIANTS.items()}
-    report = {"track": track.name, "variants": {}}
+    reference = built["plain"][0]
+    report = {"track": track.name, "render_options": render, "variants": {}}
     for name, (midi_track, stats) in built.items():
-        diff = hc.differential(song, track, midi_track, cfg)
+        diff = hc.differential(song, track, midi_track, cfg, reference)
         report["variants"][name] = {
             "differential": {k: (round(v, 6) if isinstance(v, float) else v) for k, v in diff.items()},
             "jitter_ms": hc.jitter_ms(midi_track, cfg),
@@ -102,10 +109,11 @@ def track_report(song, track, cfg, seeds):
     shifts = [b[0] - a[0] for a, b in zip(before, after)]
     fret_note = cfg["fx_keyswitches"]["fret_noise"]
     fn_off, fn_off_stats = g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize=True,
-                                                   humanize_seed=SEED, fret_noise_on_hand_shift=True)
+                                                   humanize_seed=SEED, fret_noise_on_hand_shift=True,
+                                                   **render)
     fn_on, fn_on_stats = g.build_instrument_midi(song, track, g.TRACK_GUITAR, humanize=True,
                                                  humanize_seed=SEED, fret_noise_on_hand_shift=True,
-                                                 fret_hand_cost=True)
+                                                 fret_hand_cost=True, **render)
     report["invariants_humanize_vs_hand"] = {
         "same_pitches_in_order": [p for *_x, p in before] == [p for *_x, p in after],
         # humanize clips a tail at the next attack on its string/pitch; a delayed
@@ -123,8 +131,8 @@ def track_report(song, track, cfg, seeds):
     for seed in seeds:
         for name in passes:
             midi_track, _ = g.build_instrument_midi(song, track, g.TRACK_GUITAR,
-                                                    humanize_seed=seed, **VARIANTS[name])
-            result = hc.differential(song, track, midi_track, cfg)
+                                                    humanize_seed=seed, **render, **VARIANTS[name])
+            result = hc.differential(song, track, midi_track, cfg, reference)
             passes[name] += result["passed"]
             stds[name].append(result["onset_std_ms"])
     report["seeds"] = {
@@ -133,6 +141,7 @@ def track_report(song, track, cfg, seeds):
         "check_passes_feature_on": passes["hand"],
         "onset_std_ms_mean_feature_off": round(statistics.mean(stds["humanize"]), 2),
         "onset_std_ms_mean_feature_on": round(statistics.mean(stds["hand"]), 2),
+        "corridor_feature_on": hc.corridor(stds["hand"]),
     }
     return report
 
