@@ -25,6 +25,13 @@
   PB_LEAK        pitch bend не сброшен в 0 к атаке следующей ноты -> она звучит
                  расстроенной.
   DRUM_UNMAPPED  барабанная нота вне kit_layout -> в Kontakt тишина.
+  KEY_RETRIGGER  нота атакует клавишу, которая ещё звучит: note_off прежней
+                 ноты придёт позже и погасит НОВУЮ (сэмплер отпускает клавишу, а
+                 не «свою» ноту). В списке нот всё на месте, в звуке — дыра.
+                 --humanize так терял 1909 нот гитар и баса (двухсекундная B3 в
+                 соло Through the Night), авторские сдвиги GP — ещё 216.
+                 Барабаны не проверяются: их звук однократный. ERROR на всех
+                 тональных дорожках, включая OTHER (клавиши, синты, вокал).
 
 Использование:
     python verify_midi.py song_midi/                     # все .mid в папке
@@ -93,11 +100,14 @@ def smoke_check(path, track_type=None, cfg=None):
     ks_hits = []        # keyswitch-импульсы
     active = defaultdict(list)
     stuck = 0
+    retriggers = 0      # атака клавиши, которая ещё звучит с более раннего тика
     for event_index, (tick, msg) in enumerate(events):
         if msg.type == "note_on" and msg.velocity > 0:
             if msg.note in ks_notes:
                 ks_hits.append((tick, msg.note, event_index))
             else:
+                if any(t0 < tick for t0, _v, _i in active[msg.note]):
+                    retriggers += 1
                 active[msg.note].append((tick, msg.velocity, event_index))
         elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
             if active[msg.note]:
@@ -114,6 +124,12 @@ def smoke_check(path, track_type=None, cfg=None):
 
     if stuck:
         out.append(("ERROR", "STUCK", f"{stuck} нот без note_off — будут гудеть бесконечно"))
+
+    if retriggers and track_type != "DRUMS":
+        # Исправлено в экспортёре для всех тональных дорожек — обязано быть нулём.
+        out.append(("ERROR", "KEY_RETRIGGER",
+                    f"{retriggers} нот атакуют клавишу, которая ещё звучит: note_off "
+                    f"прежней ноты погасит новую — в звуке будет дыра"))
 
     # --- pitch bend: потолок и утечка ---
     pw = [(t, m.pitch) for t, m in events if m.type == "pitchwheel"]

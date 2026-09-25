@@ -108,6 +108,12 @@
   It checks invariants on the produced artifact, not musicality. Every check is a
   fossilised real bug — see the module docstring. ERROR fails the summary; WARN
   and INFO are advisory.
+- `KEY_RETRIGGER` (ERROR on every tonal track, skipped on DRUMS): a note
+  attacking a key that still sounds — its predecessor's note_off will silence
+  it. It fires on `origin/main` artifacts (1236 guitar, 677 bass under
+  humanize; 56 on keys/synth even in the plain export) and is silent on current
+  exports of every track type in every mode. OTHER tracks clip same-pitch
+  overlaps too (user decision 2026-09-24: "notes must not be lost").
 - A check that never fires is worthless: validate changes against the
   pre-fix artifacts, which still contain BEND_CEILING and CC1_PROPELLER.
   Two earlier versions of the CC1 check silently passed the very file they were
@@ -166,14 +172,117 @@
 - Generated per-song MIDI, audio, GP files and helper scripts are listening
   artifacts and must not be committed.
 
+## Fret-hand cost (guitar) — opt-in, approved 2026-09-24
+- `--fret-hand-cost` (CLI, only together with `--humanize`; the parser rejects it
+  alone) delays the attack of a guitar beat when the fretting hand moves:
+  `beat_hand_position` (median fretted fret, the same value `fret_noise` uses).
+  Without the flag every export is byte-for-byte identical: 330 MIDI files,
+  4 inputs x 6 flag combinations, compared against `origin/main`.
+- Numbers live in `config/humanize_profiles/guitar_metal.yaml` (`fret_hand_cost`,
+  config_version 3: 9 ms at the threshold, saturating to 16); the position-change
+  threshold is reused from
+  `shreddage_hydra_3.5.yaml` (`fret_noise_on_hand_shift.min_fret_shift`), never
+  duplicated. Travel time is in ms (physical, tempo-independent); only the cap is
+  `*_frac16`. The user approved ms over frac16 on 2026-09-24.
+- Load-bearing rules, each measured (`docs/evidence/fret-hand-shift-input.json`):
+  - only the ATTACK moves, later only; note ends stay, so a delayed note can never
+    overlap the next attack (Hydra would play it legato);
+  - hammer/pull and slide-to TARGETS are never delayed: they are not re-picked,
+    and a delayed target would always break the legato overlap (LESSONS.md p.16);
+  - silence before the attack is credited to the move (22% of shifts follow a rest);
+  - the delay is computed before keyswitch emission; `fret_noise` stays on the
+    undelayed tick (same events, same ticks — tested).
+- It is a solo-line feature by measurement: hand shifts >= 4 frets on 25% of solo
+  beats but 3.1% of rhythm beats (pnd Rhytm: 2 of 873).
+- Acceptance is `hand_cost_check.differential` (one-sided Mann-Whitney, shift
+  beats vs no-shift beats, legato targets excluded) measured against the
+  REFERENCE — the same export without `--humanize`. Against the notated grid the
+  authored GP offsets (default on solo tracks) drown the delay (LESSONS.md p.17).
+  It must FAIL without the feature — quantized and humanize-only — and does
+  (`test_fret_hand_cost.py`). Timing std is checked as a 60-seed mean inside
+  5-9 ms (`hand_cost_check.corridor`); `tools/fret_hand_cost_acceptance.py`
+  prints both.
+- Use `onset_std_ms` (deviation from the notated attack) for guitar timing, not
+  `jitter_ms`: the latter counts quantized 32nds as jitter (LESSONS.md p.3).
+
+## Rhythm section together (opt-in, requested 2026-09-24)
+- `--lock-to-drums` (needs `--humanize`; web: per-track "lock to drums") makes
+  bass and guitars share the drummer's timing: at a kick on the same grid tick a
+  beat takes the kick's humanized shift plus a small residual (guitar 2 ms, bass
+  1.5 ms), else the snare's, between kick/snare hits it follows the linear
+  drummer curve, and more than a bar away from drums it plays free. Numbers live
+  in the `lock_to_drums` sections of `guitar_metal.yaml` / `bass_metal.yaml`.
+- Drums are built FIRST (CLI pre-pass, web `build_track_summary`, arrangement
+  `_render_baseline`) and fill `timeline` in `build_drum_midi`; the drum MIDI
+  itself does not change.
+- The fret-hand delay does not apply on kick/snare-locked beats (metal
+  production edits those to the drum); between hits it does.
+- Parts are NOT edited: near-misses within 1/32 of a kick are 0-18 per track, so
+  the differences are arrangement, not transcription errors.
+- `--double-rhythm-guitars` (web: "double track L/R") writes
+  "<name> (double).mid" next to every non-solo guitar, seed + 10007
+  (`DOUBLE_TRACK_SEED_OFFSET`), also in `_ALL.mid`. Same notes, own feel.
+- Acceptance: `rhythm_lock_check.kick_unison_spread` (std <= 4 ms on >= 20
+  unisons): 9.3-12.2 ms without the lock (fails 0/20 seeds), 1.5-2.1 ms with it
+  (20/20). Evidence: `docs/evidence/rhythm-section-lock.json`.
+
+## Picking hand (opt-in, requested 2026-09-24)
+- `--pick-direction` (web: "pick direction (Hydra up/down)") sends Hydra
+  Picking Mode keyswitches (C7 = 108 up, C#7 = 109 down; manual, "Other
+  Performance Keyswitches" — verify in the preset). Hydra's own Alternate flips
+  per press and knows neither rhythm nor legato. Rhythm: downstroke while the
+  gap to the previous pick is >= `strum.rhythm_downpick_min_ioi_ms` (140 ms),
+  else 16th parity; solo: strict alternate over picked notes (legato targets
+  are not picked), a rest longer than a beat restarts with a downstroke.
+- `--palm-mute-motion` (needs `--humanize`) adds a slow AR(1) velocity drift to
+  palm-muted hits (`palm_mute_motion` in `guitar_metal.yaml`), own RNG stream so
+  nothing else changes. Hydra turns velocity into mute depth only with
+  "Vel -> Tightness" ON in the preset.
+- `picking_hand_check.pm_velocity_coherence` must be measured against the
+  no-humanize reference: notated PP/MP/F sections alone gave lag-1 0.89.
+
+## Render defaults (changed 2026-09-24 with explicit user approval)
+- `--expand-gp-hidden-32nds` is ON by default on every tonal track (opt out:
+  `--no-expand-gp-hidden-32nds`); GP8 beats that hold several notes played one
+  after another are split into 32nds.
+- GP8 played attack offsets are kept by default on SOLO tracks only
+  (`is_solo_track`: GUITAR/BASS with solo/lead in the name).
+  `--preserve-gp-played-offsets` keeps them on every Guitar/Bass track,
+  `--no-preserve-gp-played-offsets` nowhere. `resolve_track_render_options`
+  is the single place that maps CLI options to a track.
+- The web UI pre-checks the same boxes (`default_track_effects`).
+- Where authored offsets are kept (and the track really has them — GP3/4/5 has
+  none), two layers are opt-in, default OFF (user decision 2026-09-24, "decide
+  by ear"): `keep_gp_played_overlaps` keeps the overlaps the offsets create
+  between notes (Hydra plays them legato; by default they are clipped against
+  the notated grid), and `humanize_timing_over_gp_offsets` adds humanize beat
+  shift, strum and the fret-hand delay on top of the authored timing (by default
+  humanize only touches velocity there). CLI: `--keep-gp-played-overlaps`,
+  `--humanize-timing-over-gp-offsets` (needs `--humanize`); web: per-track boxes.
+- A same-pitch overlap is clipped in EVERY mode (`clip_same_pitch_overlaps`):
+  the old note_off would silence the new note. Hammer onto the same pitch gets
+  no legato overlap; a hammer onto another string is legato only when the target
+  is reachable on the source string within a position (`min_fret_shift`).
+  Against `origin/main` with the same options only 27 guitar note ENDS changed;
+  attacks, pitches, velocities and all drum/OTHER files are identical.
+
 ## Web UI options
 - `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
-  optional, all off by default. The ghost checkbox is gated on humanize in JS —
+  optional, all off by default (hidden 32nds and solo played offsets are the
+  exception, see Render defaults). The ghost checkbox is gated on humanize in JS —
   ghosts only exist inside humanization.
+- `fret_hand_cost` is a per-track GUITAR effect (`track_N_fret_hand_cost`); its
+  checkbox is disabled until that track's humanize is checked.
 - The job page shows a badge for the mode used, and the manifest stores
-  `humanize` / `ghost_notes` per job, so an old session states what produced it.
+  `humanize` / `ghost_notes` / `fret_hand_cost` per job, so an old session states
+  what produced it.
 
 ## Still open (do not "fix" silently — ask first)
+- `--humanize` note ends (LESSONS.md p.16): fixed and approved on
+  `fix/humanize-note-ends` (1909 lost notes -> 0); merged 2026-09-25.
+- Whether authored-offset overlaps and humanize timing over authored offsets
+  sound better ON is still to be judged by ear in the DAW; both are opt-in
+  switches now (see Render defaults).
 - ~~Initial keyswitch is assumed, not set.~~ **DONE** in commit `4336ce8`: an
   explicit sustain KS is emitted at tick 0 in `build_instrument_midi`, and
   `verify_midi.py` ships the matching `KS_NO_INIT` check. The reason stays on

@@ -45,13 +45,17 @@ from arrangement_workflow import apply as apply_arrangement_plan
 from articulation_config import config_for_track_type
 from gp_import import parse_song
 from gp_to_shreddage import (
+    DOUBLE_TRACK_SEED_OFFSET,
+    DOUBLE_TRACK_SUFFIX,
     PITCH_BEND_RANGE_ST,
     TICKS_PER_BEAT,
     build_combined_midi,
     build_drum_midi,
     build_instrument_midi,
     build_other_midi,
+    is_solo_track,
     iter_voice_beats_with_canonical_ticks,
+    rename_midi_track,
     resolve_track_type,
     safe_filename,
 )
@@ -112,14 +116,24 @@ TRACK_EFFECTS = {
         "humanize",
         "auto_sustain_vibrato",
         "fret_noise_on_hand_shift",
+        "fret_hand_cost",
         "expand_gp_hidden_32nds",
         "preserve_gp_played_offsets",
+        "keep_gp_played_overlaps",
+        "humanize_timing_over_gp_offsets",
+        "lock_to_drums",
+        "double_track",
+        "pick_direction",
+        "palm_mute_motion",
     ],
     "BASS": [
         "humanize",
         "fret_noise_on_hand_shift",
         "expand_gp_hidden_32nds",
         "preserve_gp_played_offsets",
+        "keep_gp_played_overlaps",
+        "humanize_timing_over_gp_offsets",
+        "lock_to_drums",
     ],
     "OTHER": ["expand_gp_hidden_32nds"],
 }
@@ -230,9 +244,25 @@ def discover_tracks(song: Any) -> list[dict[str, Any]]:
             "track_type_label": TRACK_LABELS.get(track_type, track_type),
             "instrument_preset": infer_instrument_preset(track_name, track_type),
             "available_effects": list(TRACK_EFFECTS.get(track_type, [])),
+            "default_effects": default_track_effects(track, track_type),
             "selected": True,
         })
     return discovered
+
+
+def default_track_effects(track, track_type: str) -> dict[str, bool]:
+    """Чекбоксы, включённые по умолчанию (решение пользователя 2026-09-24).
+
+    Скрытые 32-е GP8 разносятся везде, где эффект доступен; авторские сдвиги
+    атак сохраняются только на соло-дорожках — тот же дефолт, что у CLI.
+    """
+    available = TRACK_EFFECTS.get(track_type, [])
+    defaults = {}
+    if "expand_gp_hidden_32nds" in available:
+        defaults["expand_gp_hidden_32nds"] = True
+    if "preserve_gp_played_offsets" in available:
+        defaults["preserve_gp_played_offsets"] = is_solo_track(track, track_type)
+    return defaults
 
 
 def parse_track_options(
@@ -619,6 +649,13 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         fret_noise_on_hand_shift: bool = False,
                         expand_gp_hidden_32nds: bool = False,
                         preserve_gp_played_offsets: bool = False,
+                        fret_hand_cost: bool = False,
+                        keep_gp_played_overlaps: bool = False,
+                        humanize_timing_over_gp_offsets: bool = False,
+                        lock_to_drums: bool = False,
+                        double_track: bool = False,
+                        pick_direction: bool = False,
+                        palm_mute_motion: bool = False,
                         selected_track_indices: set[int] | None = None,
                         track_options: dict[int, dict[str, bool]] | None = None,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
@@ -628,14 +665,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
     out_dir.mkdir(parents=True, exist_ok=True)
     preview_dir = build_preview_dir(job_dir)
 
-    for idx, track in enumerate(song.tracks, start=1):
-        track_type = resolve_track_type(track)
-        name = safe_filename(track.name) or f"Track_{idx}"
-        used[name] = used.get(name, 0) + 1
-        file_name = name if used[name] == 1 else f"{name}_{used[name]}"
-        if selected_track_indices is not None and idx not in selected_track_indices:
-            continue
-
+    def track_effects(idx: int) -> dict[str, bool]:
         effects = (track_options or {}).get(idx)
         if effects is None:
             effects = {
@@ -645,8 +675,39 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
                 "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
                 "preserve_gp_played_offsets": preserve_gp_played_offsets,
+                "fret_hand_cost": fret_hand_cost,
+                "keep_gp_played_overlaps": keep_gp_played_overlaps,
+                "humanize_timing_over_gp_offsets": humanize_timing_over_gp_offsets,
+                "lock_to_drums": lock_to_drums,
+                "double_track": double_track,
+                "pick_direction": pick_direction,
+                "palm_mute_motion": palm_mute_motion,
             }
-        effective_effects: dict[str, bool] = dict(effects or {})
+        return dict(effects or {})
+
+    # Ритм-секция вместе: тайминг барабанщика нужен до баса и гитар, а
+    # барабанная дорожка может стоять в песне после них (или быть не выбрана —
+    # тогда её тайминг берётся с её собственными эффектами).
+    drum_timeline = None
+    if any(track_effects(i).get("lock_to_drums") for i in range(1, len(song.tracks) + 1)):
+        drum_timeline = {}
+        for idx, track in enumerate(song.tracks, start=1):
+            if resolve_track_type(track) == "DRUMS":
+                drum_effects = track_effects(idx)
+                build_drum_midi(
+                    song, track, humanize=bool(drum_effects.get("humanize")), humanize_seed=seed,
+                    ghost_notes=True if drum_effects.get("ghost_notes") else None,
+                    timeline=drum_timeline)
+
+    for idx, track in enumerate(song.tracks, start=1):
+        track_type = resolve_track_type(track)
+        name = safe_filename(track.name) or f"Track_{idx}"
+        used[name] = used.get(name, 0) + 1
+        file_name = name if used[name] == 1 else f"{name}_{used[name]}"
+        if selected_track_indices is not None and idx not in selected_track_indices:
+            continue
+
+        effective_effects: dict[str, bool] = track_effects(idx)
 
         def effect_enabled(key: str) -> bool:
             return bool(effective_effects.get(key, False))
@@ -669,6 +730,13 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 performance_seed=seed,
                 expand_gp_hidden_32nds=effect_enabled("expand_gp_hidden_32nds"),
                 preserve_gp_played_offsets=effect_enabled("preserve_gp_played_offsets"),
+                fret_hand_cost=effect_enabled("fret_hand_cost"),
+                keep_gp_played_overlaps=effect_enabled("keep_gp_played_overlaps"),
+                humanize_timing_over_gp_offsets=effect_enabled("humanize_timing_over_gp_offsets"),
+                lock_to_drums=effect_enabled("lock_to_drums"),
+                drum_timeline=drum_timeline,
+                pick_direction=effect_enabled("pick_direction"),
+                palm_mute_motion=effect_enabled("palm_mute_motion"),
             )
 
         preview_data = analyze_midi_preview(midi_track, track_type, track.name or f"Track {idx}")
@@ -680,6 +748,34 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
         out_path = out_dir / f"{file_name}.mid"
         midi.save(out_path)
         midi_tracks.append(midi_track)
+
+        # Второй дубль ритм-гитары: тот же экспорт со своим seed (под L/R).
+        double_path = None
+        if (track_type == "GUITAR" and effect_enabled("double_track")
+                and effect_enabled("humanize")):
+            double_seed = seed + DOUBLE_TRACK_SEED_OFFSET
+            double_midi, _double_stats = build_instrument_midi(
+                song, track, track_type,
+                humanize=True, humanize_seed=double_seed,
+                auto_sustain_vibrato=effect_enabled("auto_sustain_vibrato"),
+                fret_noise_on_hand_shift=effect_enabled("fret_noise_on_hand_shift"),
+                performance_seed=double_seed,
+                expand_gp_hidden_32nds=effect_enabled("expand_gp_hidden_32nds"),
+                preserve_gp_played_offsets=effect_enabled("preserve_gp_played_offsets"),
+                fret_hand_cost=effect_enabled("fret_hand_cost"),
+                keep_gp_played_overlaps=effect_enabled("keep_gp_played_overlaps"),
+                humanize_timing_over_gp_offsets=effect_enabled("humanize_timing_over_gp_offsets"),
+                lock_to_drums=effect_enabled("lock_to_drums"),
+                drum_timeline=drum_timeline,
+                pick_direction=effect_enabled("pick_direction"),
+                palm_mute_motion=effect_enabled("palm_mute_motion"),
+            )
+            rename_midi_track(double_midi, (track.name or f"Track {idx}") + DOUBLE_TRACK_SUFFIX)
+            double_file = MidiFile(type=0, ticks_per_beat=TICKS_PER_BEAT)
+            double_file.tracks.append(double_midi)
+            double_path = out_dir / f"{file_name}{DOUBLE_TRACK_SUFFIX}.mid"
+            double_file.save(double_path)
+            midi_tracks.append(double_midi)
 
         preview_name = save_preview(preview_dir, file_name, preview_data)
 
@@ -698,6 +794,12 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 f"{stats['hidden_32nd_notes']} нот")
         if stats.get("played_offset_notes"):
             fixes.append(f"GP8-сдвиги атак: {stats['played_offset_notes']} нот")
+        if stats.get("drum_lock"):
+            lock = stats["drum_lock"]
+            fixes.append(f"с барабанами: на бочке {lock['kick']}, на малом {lock['snare']}, "
+                         f"между {lock['between']}, свободно {lock['free']} битов")
+        if double_path is not None:
+            fixes.append(f"второй дубль: {double_path.name}")
         if stats.get("config"):
             fixes.append(f"конфиг артикуляций: {stats['config']}")
         if track_type != "OTHER":
@@ -739,6 +841,9 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "notes": stats["notes"],
                 "download_name": out_path.name,
                 "download_url": url_for("download_track", job_id=job_id, filename=out_path.name),
+                "double_download_name": double_path.name if double_path else None,
+                "double_download_url": (url_for("download_track", job_id=job_id,
+                                                filename=double_path.name) if double_path else None),
                 "preview_url": url_for("preview_track", job_id=job_id, filename=preview_name),
                 "preview_note_count": preview_data["note_count"],
                 "preview_duration_ms": preview_data["duration_ms"],
@@ -891,6 +996,13 @@ def create_job(uploaded_file=None, humanize: bool = False,
                fret_noise_on_hand_shift: bool = False,
                expand_gp_hidden_32nds: bool = False,
                preserve_gp_played_offsets: bool = False,
+               fret_hand_cost: bool = False,
+               keep_gp_played_overlaps: bool = False,
+               humanize_timing_over_gp_offsets: bool = False,
+               lock_to_drums: bool = False,
+               double_track: bool = False,
+               pick_direction: bool = False,
+               palm_mute_motion: bool = False,
                prepare_arrangement_context: bool = False,
                openai_arrangement_draft: bool = False,
                arrangement_prompt: str | None = None,
@@ -935,6 +1047,13 @@ def create_job(uploaded_file=None, humanize: bool = False,
         fret_noise_on_hand_shift=fret_noise_on_hand_shift,
         expand_gp_hidden_32nds=expand_gp_hidden_32nds,
         preserve_gp_played_offsets=preserve_gp_played_offsets,
+        fret_hand_cost=fret_hand_cost,
+        keep_gp_played_overlaps=keep_gp_played_overlaps,
+        humanize_timing_over_gp_offsets=humanize_timing_over_gp_offsets,
+        lock_to_drums=lock_to_drums,
+        double_track=double_track,
+        pick_direction=pick_direction,
+        palm_mute_motion=palm_mute_motion,
         selected_track_indices=selected_track_indices,
         track_options=track_options,
     )
@@ -950,6 +1069,26 @@ def create_job(uploaded_file=None, humanize: bool = False,
             options.get("expand_gp_hidden_32nds") for options in track_options.values())
         preserve_gp_played_offsets = any(
             options.get("preserve_gp_played_offsets") for options in track_options.values())
+        # Перенос руки работает только внутри оживления той же дорожки.
+        fret_hand_cost = any(
+            options.get("fret_hand_cost") and options.get("humanize")
+            for options in track_options.values())
+        keep_gp_played_overlaps = any(
+            options.get("keep_gp_played_overlaps") for options in track_options.values())
+        humanize_timing_over_gp_offsets = any(
+            options.get("humanize_timing_over_gp_offsets") and options.get("humanize")
+            for options in track_options.values())
+        lock_to_drums = any(
+            options.get("lock_to_drums") and options.get("humanize")
+            for options in track_options.values())
+        double_track = any(
+            options.get("double_track") and options.get("humanize")
+            for options in track_options.values())
+        pick_direction = any(
+            options.get("pick_direction") for options in track_options.values())
+        palm_mute_motion = any(
+            options.get("palm_mute_motion") and options.get("humanize")
+            for options in track_options.values())
 
     prepare_arrangement_context = bool(prepare_arrangement_context or openai_arrangement_draft)
     arrangement = None
@@ -1143,6 +1282,13 @@ def create_job(uploaded_file=None, humanize: bool = False,
         "fret_noise_on_hand_shift": fret_noise_on_hand_shift,
         "expand_gp_hidden_32nds": expand_gp_hidden_32nds,
         "preserve_gp_played_offsets": preserve_gp_played_offsets,
+        "fret_hand_cost": fret_hand_cost,
+        "keep_gp_played_overlaps": keep_gp_played_overlaps,
+        "humanize_timing_over_gp_offsets": humanize_timing_over_gp_offsets,
+        "lock_to_drums": lock_to_drums,
+        "double_track": double_track,
+        "pick_direction": pick_direction,
+        "palm_mute_motion": palm_mute_motion,
         "prepare_arrangement_context": prepare_arrangement_context,
         "openai_arrangement_draft": openai_arrangement_draft,
         "arrangement_apply_token": secrets.token_urlsafe(24) if openai_arrangement_draft else None,
@@ -1502,6 +1648,12 @@ def apply_arrangement(job_id: str):
                 "fret_noise_on_hand_shift": bool(job.get("fret_noise_on_hand_shift")),
                 "expand_gp_hidden_32nds": bool(job.get("expand_gp_hidden_32nds")),
                 "preserve_gp_played_offsets": bool(job.get("preserve_gp_played_offsets")),
+                "fret_hand_cost": bool(job.get("fret_hand_cost")),
+                "keep_gp_played_overlaps": bool(job.get("keep_gp_played_overlaps")),
+                "humanize_timing_over_gp_offsets": bool(job.get("humanize_timing_over_gp_offsets")),
+                "lock_to_drums": bool(job.get("lock_to_drums")),
+                "pick_direction": bool(job.get("pick_direction")),
+                "palm_mute_motion": bool(job.get("palm_mute_motion")),
             },
             included_track_indices={
                 int(track["index"]) for track in job.get("tracks", [])

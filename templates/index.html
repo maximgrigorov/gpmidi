@@ -135,6 +135,27 @@
                 {% if current_job.fret_noise_on_hand_shift %}
                   <span class="badge on">fret-noise переносов вкл</span>
                 {% endif %}
+                {% if current_job.fret_hand_cost %}
+                  <span class="badge on">задержка при переносе руки вкл</span>
+                {% endif %}
+                {% if current_job.keep_gp_played_overlaps %}
+                  <span class="badge warn">перекрытия от GP8-сдвигов оставлены</span>
+                {% endif %}
+                {% if current_job.humanize_timing_over_gp_offsets %}
+                  <span class="badge on">тайминг оживления поверх GP8-сдвигов</span>
+                {% endif %}
+                {% if current_job.lock_to_drums %}
+                  <span class="badge on">ритм-секция вместе с барабанами</span>
+                {% endif %}
+                {% if current_job.double_track %}
+                  <span class="badge on">второй дубль ритм-гитары</span>
+                {% endif %}
+                {% if current_job.pick_direction %}
+                  <span class="badge on">направление медиатора (Hydra)</span>
+                {% endif %}
+                {% if current_job.palm_mute_motion %}
+                  <span class="badge on">глушение как движение руки</span>
+                {% endif %}
                 {% if current_job.expand_gp_hidden_32nds %}
                   <span class="badge on">скрытые GP 32-е развёрнуты</span>
                 {% endif %}
@@ -238,7 +259,7 @@
                       </label>
                       <div class="track-effect-grid" data-track-effects>
                         {% if 'humanize' in track.available_effects %}
-                          <label><input type="checkbox" name="track_{{ track.index }}_humanize"> humanize velocity/timing</label>
+                          <label><input type="checkbox" name="track_{{ track.index }}_humanize" data-humanize-effect> humanize velocity/timing</label>
                         {% endif %}
                         {% if 'ghost_notes' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_ghost_notes"> ghost notes (drums only)</label>
@@ -249,11 +270,32 @@
                         {% if 'fret_noise_on_hand_shift' in track.available_effects %}
                           <label><input type="checkbox" name="track_{{ track.index }}_fret_noise_on_hand_shift"> fret-noise hand shifts</label>
                         {% endif %}
+                        {% if 'fret_hand_cost' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_fret_hand_cost" data-needs-humanize> hand-shift delay (needs humanize)</label>
+                        {% endif %}
                         {% if 'expand_gp_hidden_32nds' in track.available_effects %}
-                          <label><input type="checkbox" name="track_{{ track.index }}_expand_gp_hidden_32nds"> hidden GP 32nds</label>
+                          <label><input type="checkbox" name="track_{{ track.index }}_expand_gp_hidden_32nds"{% if (track.default_effects or {}).get('expand_gp_hidden_32nds') %} checked{% endif %}> hidden GP 32nds</label>
                         {% endif %}
                         {% if 'preserve_gp_played_offsets' in track.available_effects %}
-                          <label><input type="checkbox" name="track_{{ track.index }}_preserve_gp_played_offsets"> preserve GP played offsets</label>
+                          <label><input type="checkbox" name="track_{{ track.index }}_preserve_gp_played_offsets"{% if (track.default_effects or {}).get('preserve_gp_played_offsets') %} checked{% endif %}> preserve GP played offsets</label>
+                        {% endif %}
+                        {% if 'keep_gp_played_overlaps' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_keep_gp_played_overlaps"> keep GP played overlaps (Hydra legato)</label>
+                        {% endif %}
+                        {% if 'humanize_timing_over_gp_offsets' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_humanize_timing_over_gp_offsets" data-needs-humanize> humanize timing over GP offsets (needs humanize)</label>
+                        {% endif %}
+                        {% if 'lock_to_drums' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_lock_to_drums" data-needs-humanize> lock to drums (needs humanize)</label>
+                        {% endif %}
+                        {% if 'double_track' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_double_track" data-needs-humanize> double track L/R (needs humanize)</label>
+                        {% endif %}
+                        {% if 'pick_direction' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_pick_direction"> pick direction (Hydra up/down)</label>
+                        {% endif %}
+                        {% if 'palm_mute_motion' in track.available_effects %}
+                          <label><input type="checkbox" name="track_{{ track.index }}_palm_mute_motion" data-needs-humanize> palm-mute motion (needs humanize)</label>
                         {% endif %}
                         {% if not track.available_effects %}<span class="muted">Нет дополнительных эффектов.</span>{% endif %}
                       </div>
@@ -419,6 +461,10 @@
                       <td class="actions-col">
                         <a class="btn btn-sm" href="{{ track.download_url }}">Baseline MIDI</a>
                         <div class="mono file-col">{{ track.download_name }}</div>
+                        {% if track.double_download_url %}
+                          <a class="btn btn-sm" href="{{ track.double_download_url }}">Double MIDI</a>
+                          <div class="mono file-col">{{ track.double_download_name }}</div>
+                        {% endif %}
                         {% if track.playable %}
                           {% for artifact in track.playable.files %}
                             <div class="artifact-action">
@@ -486,10 +532,23 @@
       const card = select.closest('[data-track-option-card]');
       if (!card) return;
       card.classList.toggle('is-disabled', !select.checked);
+      const humanizeOn = card.querySelector('[data-humanize-effect]');
       card.querySelectorAll('[data-track-effects] input').forEach(effect => {
-        effect.disabled = !select.checked;
+        // Задержка переноса руки живёт в профиле оживления: без humanize
+        // той же дорожки она ничего не делает, поэтому и выбрать её нельзя.
+        const needsHumanize = effect.hasAttribute('data-needs-humanize');
+        effect.disabled = !select.checked
+          || (needsHumanize && !(humanizeOn && humanizeOn.checked));
+        if (effect.disabled && needsHumanize) effect.checked = false;
       });
     }
+    document.querySelectorAll('[data-humanize-effect]').forEach(humanize => {
+      humanize.addEventListener('change', () => {
+        const card = humanize.closest('[data-track-option-card]');
+        const select = card && card.querySelector('[data-track-select]');
+        if (select) syncTrackCard(select);
+      });
+    });
     trackSelects.forEach(select => {
       syncTrackCard(select);
       select.addEventListener('change', () => {

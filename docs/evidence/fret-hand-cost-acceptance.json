@@ -1,0 +1,1217 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "code_of_record": "40db23d988e2d4a3986a7886956b39b01401d9e5",
+ "task": "docs/cursor-fret-hand-cost-task.md (acceptance)",
+ "decisions_approved_2026_09_24": [
+  "legato/slide targets are not delayed",
+  "silence before the attack is credited to the move",
+  "travel time in ms, cap in *_frac16"
+ ],
+ "gate_thresholds": {
+  "alpha": 0.01,
+  "min_median_gain_ms": 3.0,
+  "min_group": 20
+ },
+ "byte_identical_without_flag": {
+  "against": "da035414c108edcfb44b579595eeae98b7ce7fc9",
+  "files_compared": 330,
+  "identical": true,
+  "inputs": [
+   "pnd.gp5",
+   "PnD_desktop.gp5",
+   "SpringMelody.gp",
+   "TtN.gp"
+  ],
+  "flag_combinations": [
+   "(none)",
+   "--humanize",
+   "--humanize --fret-noise-on-hand-shift --auto-sustain-vibrato",
+   "--humanize --ghost-notes --seed=11",
+   "--expand-gp-hidden-32nds --preserve-gp-played-offsets",
+   "--humanize --preserve-gp-played-offsets --fret-noise-on-hand-shift"
+  ],
+  "sha_manifest_sha256": "c30cd0fa749dc62edf783535cccfbcb208620acc534273aec08affb5e40647aa"
+ },
+ "summary": [
+  {
+   "file": "pnd.gp5",
+   "track": "Solo Guitar",
+   "check_applicable": true,
+   "check_feature_off": false,
+   "check_feature_on": true,
+   "p_feature_off": 0.817414,
+   "p_feature_on": 0.0,
+   "median_gain_ms_off": -1.39,
+   "median_gain_ms_on": 11.11,
+   "onset_std_ms_seed7": [
+    0.0,
+    7.4,
+    8.67
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    7.02,
+    8.57
+   ],
+   "jitter_ms": [
+    10.57,
+    11.45,
+    11.8
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    60
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    58,
+    58
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "pnd.gp5",
+   "track": "Rhytm Guitar",
+   "check_applicable": false,
+   "check_feature_off": false,
+   "check_feature_on": false,
+   "p_feature_off": 0.791853,
+   "p_feature_on": 0.026804,
+   "median_gain_ms_off": -2.78,
+   "median_gain_ms_on": 9.38,
+   "onset_std_ms_seed7": [
+    0.0,
+    7.23,
+    7.23
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    6.99,
+    7.03
+   ],
+   "jitter_ms": [
+    0.0,
+    7.74,
+    7.77
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    0
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    1,
+    1
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "pnd.gp5",
+   "track": "Steel Guitar",
+   "check_applicable": false,
+   "check_feature_off": false,
+   "check_feature_on": false,
+   "p_feature_off": 1.0,
+   "p_feature_on": 1.0,
+   "median_gain_ms_off": 0.0,
+   "median_gain_ms_on": 0.0,
+   "onset_std_ms_seed7": [
+    0.0,
+    6.2,
+    6.18
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    7.02,
+    7.02
+   ],
+   "jitter_ms": [
+    0.0,
+    10.39,
+    10.41
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    0
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    0,
+    0
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "SpringMelody.gp",
+   "track": "Guitar (Solo)",
+   "check_applicable": true,
+   "check_feature_off": false,
+   "check_feature_on": true,
+   "p_feature_off": 0.099576,
+   "p_feature_on": 0.0,
+   "median_gain_ms_off": 3.75,
+   "median_gain_ms_on": 15.42,
+   "onset_std_ms_seed7": [
+    0.0,
+    8.03,
+    9.77
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    7.67,
+    8.93
+   ],
+   "jitter_ms": [
+    11.68,
+    13.1,
+    14.37
+   ],
+   "seeds_check_passes_off_on": [
+    1,
+    60
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    31,
+    31
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "SpringMelody.gp",
+   "track": "Guitar (Rhytm)",
+   "check_applicable": true,
+   "check_feature_off": false,
+   "check_feature_on": true,
+   "p_feature_off": 0.460544,
+   "p_feature_on": 0.0,
+   "median_gain_ms_off": 0.0,
+   "median_gain_ms_on": 10.0,
+   "onset_std_ms_seed7": [
+    0.0,
+    7.83,
+    8.21
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    7.71,
+    8.35
+   ],
+   "jitter_ms": [
+    3.01,
+    8.79,
+    9.7
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    60
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    22,
+    22
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "TtN.gp",
+   "track": "Clean Guitar",
+   "check_applicable": true,
+   "check_feature_off": false,
+   "check_feature_on": true,
+   "p_feature_off": 0.738267,
+   "p_feature_on": 0.0,
+   "median_gain_ms_off": -0.26,
+   "median_gain_ms_on": 10.68,
+   "onset_std_ms_seed7": [
+    0.0,
+    5.57,
+    6.5
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    5.99,
+    7.06
+   ],
+   "jitter_ms": [
+    2.25,
+    7.91,
+    8.94
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    60
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    22,
+    22
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "TtN.gp",
+   "track": "Solo Guitar",
+   "check_applicable": true,
+   "check_feature_off": false,
+   "check_feature_on": true,
+   "p_feature_off": 0.324805,
+   "p_feature_on": 3e-06,
+   "median_gain_ms_off": 0.52,
+   "median_gain_ms_on": 8.33,
+   "onset_std_ms_seed7": [
+    0.0,
+    5.98,
+    6.91
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    6.02,
+    6.9
+   ],
+   "jitter_ms": [
+    3.32,
+    6.52,
+    7.3
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    60
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    16,
+    16
+   ],
+   "fret_noise_ticks_identical": true
+  },
+  {
+   "file": "TtN.gp",
+   "track": "Rhytm Guitar",
+   "check_applicable": false,
+   "check_feature_off": false,
+   "check_feature_on": false,
+   "p_feature_off": 0.333276,
+   "p_feature_on": 0.000113,
+   "median_gain_ms_off": 0.26,
+   "median_gain_ms_on": 8.59,
+   "onset_std_ms_seed7": [
+    0.0,
+    6.02,
+    6.25
+   ],
+   "onset_std_ms_mean_60_seeds": [
+    6.01,
+    6.19
+   ],
+   "jitter_ms": [
+    3.59,
+    8.96,
+    9.04
+   ],
+   "seeds_check_passes_off_on": [
+    0,
+    0
+   ],
+   "smoke_humanize": {},
+   "smoke_hand": {},
+   "fret_noise_events_off_on": [
+    5,
+    5
+   ],
+   "fret_noise_ticks_identical": true
+  }
+ ],
+ "notes": [
+  "Variant order in triples: plain (quantized) / humanize (feature OFF) / humanize + fret-hand-cost (ON), seed 7.",
+  "pnd Rhytm, TtN Rhytm and pnd Steel have 2, 12 and 0 shift beats: the check is not applicable (< min_group), consistent with step 0 -- the model barely touches rhythm guitar.",
+  "Spring Melody Solo seed 7 onset std 9.77 ms exceeds the 5-9 ms corridor; the 60-seed mean is 8.93. It is the slowest song (75 BPM): humanize alone scales std by (90/75)^0.5 to 7.67 ms mean, and 86 of 211 beats carry a delay. Not tuned down: lowering the curve to fit one slow song would weaken the effect on the others (TtN Solo mean 6.90, pnd Solo 8.57).",
+  "jitter_ms of the QUANTIZED export is already 10.57 (pnd Solo) / 11.68 (Spring Melody Solo): odd 32nds sit 40 ticks off the 16th+triplet grid. onset_std_ms is the meaningful guitar timing figure (LESSONS.md p.3)."
+ ],
+ "render_check": {
+  "renderer": "AVAudioEngine offline + AVAudioUnitSampler, macOS gs_instruments.dls, GM program 30 (Distortion Guitar); keyswitch notes and program change stripped; pitch-bend RPN range 7 verified (A4 + 8191 -> 661 Hz, expected 659)",
+  "vs_notation": {
+   "PnD": {
+    "plain": {
+     "notes": 472,
+     "notes_in_score_export": 472,
+     "overlaps_not_in_notation": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "legato_overlaps_lost": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "zero_or_negative_durations": 0
+    },
+    "humanize": {
+     "notes": 472,
+     "notes_in_score_export": 472,
+     "overlaps_not_in_notation": {
+      "count": 226,
+      "max_ms": 31.2,
+      "median_ms": 7.6
+     },
+     "legato_overlaps_lost": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 220,
+      "max_ms": 25.7,
+      "median_ms": 8.3
+     },
+     "zero_or_negative_durations": 0
+    },
+    "hand": {
+     "notes": 472,
+     "notes_in_score_export": 472,
+     "overlaps_not_in_notation": {
+      "count": 165,
+      "max_ms": 28.5,
+      "median_ms": 6.9
+     },
+     "legato_overlaps_lost": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 284,
+      "max_ms": 41.7,
+      "median_ms": 9.7
+     },
+     "zero_or_negative_durations": 0
+    }
+   },
+   "SpringMelody": {
+    "plain": {
+     "notes": 237,
+     "notes_in_score_export": 237,
+     "overlaps_not_in_notation": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "legato_overlaps_lost": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "zero_or_negative_durations": 0
+    },
+    "humanize": {
+     "notes": 237,
+     "notes_in_score_export": 237,
+     "overlaps_not_in_notation": {
+      "count": 56,
+      "max_ms": 28.3,
+      "median_ms": 8.3
+     },
+     "legato_overlaps_lost": {
+      "count": 44,
+      "max_ms": 25.8,
+      "median_ms": 9.2
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 65,
+      "max_ms": 31.7,
+      "median_ms": 7.5
+     },
+     "zero_or_negative_durations": 0
+    },
+    "hand": {
+     "notes": 237,
+     "notes_in_score_export": 237,
+     "overlaps_not_in_notation": {
+      "count": 46,
+      "max_ms": 26.7,
+      "median_ms": 8.3
+     },
+     "legato_overlaps_lost": {
+      "count": 44,
+      "max_ms": 25.8,
+      "median_ms": 9.2
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 78,
+      "max_ms": 47.5,
+      "median_ms": 10.8
+     },
+     "zero_or_negative_durations": 0
+    }
+   },
+   "ThroughTheNight": {
+    "plain": {
+     "notes": 269,
+     "notes_in_score_export": 269,
+     "overlaps_not_in_notation": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "legato_overlaps_lost": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 0,
+      "max_ms": 0.0,
+      "median_ms": 0.0
+     },
+     "zero_or_negative_durations": 0
+    },
+    "humanize": {
+     "notes": 269,
+     "notes_in_score_export": 269,
+     "overlaps_not_in_notation": {
+      "count": 111,
+      "max_ms": 22.9,
+      "median_ms": 5.7
+     },
+     "legato_overlaps_lost": {
+      "count": 9,
+      "max_ms": 24.5,
+      "median_ms": 4.2
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 121,
+      "max_ms": 25.0,
+      "median_ms": 6.2
+     },
+     "zero_or_negative_durations": 0
+    },
+    "hand": {
+     "notes": 269,
+     "notes_in_score_export": 269,
+     "overlaps_not_in_notation": {
+      "count": 98,
+      "max_ms": 22.9,
+      "median_ms": 6.2
+     },
+     "legato_overlaps_lost": {
+      "count": 9,
+      "max_ms": 24.5,
+      "median_ms": 4.2
+     },
+     "micro_gaps_not_in_notation": {
+      "count": 137,
+      "max_ms": 27.6,
+      "median_ms": 7.3
+     },
+     "zero_or_negative_durations": 0
+    }
+   }
+  },
+  "same_pitch_retriggers": {
+   "pnd Solo": [
+    0,
+    14,
+    11
+   ],
+   "Spring Melody Solo": [
+    3,
+    6,
+    6
+   ],
+   "TtN Solo": [
+    1,
+    19,
+    19
+   ],
+   "pnd Rhytm": [
+    0,
+    616,
+    616
+   ],
+   "TtN Rhytm": [
+    1,
+    411,
+    407
+   ],
+   "Spring Melody Rhytm": [
+    1,
+    45,
+    44
+   ]
+  },
+  "dropout_50ms_windows_where_notation_sounds": {
+   "PnD": [
+    114,
+    114
+   ],
+   "SpringMelody": [
+    11,
+    11
+   ],
+   "ThroughTheNight": [
+    103,
+    103
+   ]
+  },
+  "conclusion": "All dropouts come from --humanize (identical window-for-window in humanize-only and humanize+hand-cost). The feature adds no overlap, no retrigger and no dropout; it removes some overlaps (226->165 on pnd Solo) and adds intended micro-gaps before delayed attacks (median 9.7 ms on pnd Solo)."
+ },
+ "tracks": [
+  {
+   "file": "pnd.gp5",
+   "sha256": "3668f239cf7372c533aadf86766e334d49e78c0fb963a618ca7f7d3aa94d607e",
+   "tracks": [
+    {
+     "track": "Solo Guitar",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 107,
+        "zero_beats": 49,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 1,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 10.57,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 472
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.817414,
+        "median_gain_ms": -1.39,
+        "shift_beats": 107,
+        "zero_beats": 49,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 1.39,
+        "legato_targets_excluded": 1,
+        "onset_std_ms": 7.4
+       },
+       "jitter_ms": 11.45,
+       "smoke": {},
+       "notes": 472
+      },
+      "hand": {
+       "differential": {
+        "passed": true,
+        "p_value": 0.0,
+        "median_gain_ms": 11.11,
+        "shift_beats": 107,
+        "zero_beats": 49,
+        "shift_median_ms": 12.5,
+        "zero_median_ms": 1.39,
+        "legato_targets_excluded": 1,
+        "onset_std_ms": 8.67
+       },
+       "jitter_ms": 11.8,
+       "smoke": {},
+       "notes": 472,
+       "fret_hand_cost_beats": 293,
+       "fret_hand_cost_legato_skipped": 1,
+       "fret_hand_cost_max_ms": 18.06
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 297,
+      "overlaps_humanize": 235,
+      "overlaps_hand": 174,
+      "fret_noise_events": [
+       58,
+       58
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 60,
+      "onset_std_ms_mean_feature_off": 7.02,
+      "onset_std_ms_mean_feature_on": 8.57
+     }
+    },
+    {
+     "track": "Rhytm Guitar",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 2,
+        "zero_beats": 808,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 0.0,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 1881
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.791853,
+        "median_gain_ms": -2.78,
+        "shift_beats": 2,
+        "zero_beats": 808,
+        "shift_median_ms": -2.78,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 7.23
+       },
+       "jitter_ms": 7.74,
+       "smoke": {},
+       "notes": 1881
+      },
+      "hand": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.026804,
+        "median_gain_ms": 9.38,
+        "shift_beats": 2,
+        "zero_beats": 808,
+        "shift_median_ms": 9.38,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 7.23
+       },
+       "jitter_ms": 7.77,
+       "smoke": {},
+       "notes": 1881,
+       "fret_hand_cost_beats": 53,
+       "fret_hand_cost_legato_skipped": 0,
+       "fret_hand_cost_max_ms": 12.5
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 125,
+      "overlaps_humanize": 1397,
+      "overlaps_hand": 1395,
+      "fret_noise_events": [
+       1,
+       1
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 0,
+      "onset_std_ms_mean_feature_off": 6.99,
+      "onset_std_ms_mean_feature_on": 7.03
+     }
+    },
+    {
+     "track": "Steel Guitar",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 0,
+        "zero_beats": 65,
+        "shift_median_ms": null,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 0.0,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 379
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 0,
+        "zero_beats": 65,
+        "shift_median_ms": null,
+        "zero_median_ms": 2.08,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 6.2
+       },
+       "jitter_ms": 10.39,
+       "smoke": {},
+       "notes": 379
+      },
+      "hand": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 0,
+        "zero_beats": 65,
+        "shift_median_ms": null,
+        "zero_median_ms": 2.08,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 6.18
+       },
+       "jitter_ms": 10.41,
+       "smoke": {},
+       "notes": 379,
+       "fret_hand_cost_beats": 8,
+       "fret_hand_cost_legato_skipped": 0,
+       "fret_hand_cost_max_ms": 2.08
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 46,
+      "overlaps_humanize": 342,
+      "overlaps_hand": 341,
+      "fret_noise_events": [
+       0,
+       0
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 0,
+      "onset_std_ms_mean_feature_off": 7.02,
+      "onset_std_ms_mean_feature_on": 7.02
+     }
+    }
+   ],
+   "source": "~/cursor-eval/gpmidi/pnd.gp5"
+  },
+  {
+   "file": "SpringMelody.gp",
+   "sha256": "19b2c85c14e9fb29a33d2acbf7e59335de549bfc69a80d0332a23f0f232e9ff4",
+   "tracks": [
+    {
+     "track": "Guitar (Solo)",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 33,
+        "zero_beats": 28,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 94,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 11.68,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 237
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.099576,
+        "median_gain_ms": 3.75,
+        "shift_beats": 33,
+        "zero_beats": 28,
+        "shift_median_ms": 3.33,
+        "zero_median_ms": -0.42,
+        "legato_targets_excluded": 94,
+        "onset_std_ms": 8.03
+       },
+       "jitter_ms": 13.1,
+       "smoke": {},
+       "notes": 237
+      },
+      "hand": {
+       "differential": {
+        "passed": true,
+        "p_value": 0.0,
+        "median_gain_ms": 15.42,
+        "shift_beats": 33,
+        "zero_beats": 28,
+        "shift_median_ms": 15.0,
+        "zero_median_ms": -0.42,
+        "legato_targets_excluded": 94,
+        "onset_std_ms": 9.77
+       },
+       "jitter_ms": 14.37,
+       "smoke": {},
+       "notes": 237,
+       "fret_hand_cost_beats": 86,
+       "fret_hand_cost_legato_skipped": 86,
+       "fret_hand_cost_max_ms": 17.5
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 93,
+      "overlaps_humanize": 115,
+      "overlaps_hand": 105,
+      "fret_noise_events": [
+       31,
+       31
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 1,
+      "check_passes_feature_on": 60,
+      "onset_std_ms_mean_feature_off": 7.67,
+      "onset_std_ms_mean_feature_on": 8.93
+     }
+    },
+    {
+     "track": "Guitar (Rhytm)",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 33,
+        "zero_beats": 97,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 37,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 3.01,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 485
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.460544,
+        "median_gain_ms": 0.0,
+        "shift_beats": 33,
+        "zero_beats": 97,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 37,
+        "onset_std_ms": 7.83
+       },
+       "jitter_ms": 8.79,
+       "smoke": {},
+       "notes": 485
+      },
+      "hand": {
+       "differential": {
+        "passed": true,
+        "p_value": 0.0,
+        "median_gain_ms": 10.0,
+        "shift_beats": 33,
+        "zero_beats": 97,
+        "shift_median_ms": 10.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 37,
+        "onset_std_ms": 8.21
+       },
+       "jitter_ms": 9.7,
+       "smoke": {},
+       "notes": 485,
+       "fret_hand_cost_beats": 112,
+       "fret_hand_cost_legato_skipped": 32,
+       "fret_hand_cost_max_ms": 15.0
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 173,
+      "overlaps_humanize": 298,
+      "overlaps_hand": 288,
+      "fret_noise_events": [
+       22,
+       22
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 60,
+      "onset_std_ms_mean_feature_off": 7.71,
+      "onset_std_ms_mean_feature_on": 8.35
+     }
+    }
+   ],
+   "source": "~/Documents/Music/1_Spring_Melody/Spring_Melody_v3_final.gp"
+  },
+  {
+   "file": "TtN.gp",
+   "sha256": "062ec5d801cd0edac11b6da2a063ced263dacad11913f535d77301a30794532a",
+   "tracks": [
+    {
+     "track": "Clean Guitar",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 38,
+        "zero_beats": 95,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 2.25,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 593
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.738267,
+        "median_gain_ms": -0.26,
+        "shift_beats": 38,
+        "zero_beats": 95,
+        "shift_median_ms": -0.78,
+        "zero_median_ms": -0.52,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 5.57
+       },
+       "jitter_ms": 7.91,
+       "smoke": {},
+       "notes": 593
+      },
+      "hand": {
+       "differential": {
+        "passed": true,
+        "p_value": 0.0,
+        "median_gain_ms": 10.68,
+        "shift_beats": 38,
+        "zero_beats": 95,
+        "shift_median_ms": 10.16,
+        "zero_median_ms": -0.52,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 6.5
+       },
+       "jitter_ms": 8.94,
+       "smoke": {},
+       "notes": 593,
+       "fret_hand_cost_beats": 122,
+       "fret_hand_cost_legato_skipped": 0,
+       "fret_hand_cost_max_ms": 17.71
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 240,
+      "overlaps_humanize": 485,
+      "overlaps_hand": 468,
+      "fret_noise_events": [
+       22,
+       22
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 60,
+      "onset_std_ms_mean_feature_off": 5.99,
+      "onset_std_ms_mean_feature_on": 7.06
+     }
+    },
+    {
+     "track": "Solo Guitar",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 30,
+        "zero_beats": 41,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 20,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 3.32,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 269
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.324805,
+        "median_gain_ms": 0.52,
+        "shift_beats": 30,
+        "zero_beats": 41,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": -0.52,
+        "legato_targets_excluded": 20,
+        "onset_std_ms": 5.98
+       },
+       "jitter_ms": 6.52,
+       "smoke": {},
+       "notes": 269
+      },
+      "hand": {
+       "differential": {
+        "passed": true,
+        "p_value": 3e-06,
+        "median_gain_ms": 8.33,
+        "shift_beats": 30,
+        "zero_beats": 41,
+        "shift_median_ms": 7.81,
+        "zero_median_ms": -0.52,
+        "legato_targets_excluded": 20,
+        "onset_std_ms": 6.91
+       },
+       "jitter_ms": 7.3,
+       "smoke": {},
+       "notes": 269,
+       "fret_hand_cost_beats": 94,
+       "fret_hand_cost_legato_skipped": 8,
+       "fret_hand_cost_max_ms": 17.19
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 98,
+      "overlaps_humanize": 125,
+      "overlaps_hand": 112,
+      "fret_noise_events": [
+       16,
+       16
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 60,
+      "onset_std_ms_mean_feature_off": 6.02,
+      "onset_std_ms_mean_feature_on": 6.9
+     }
+    },
+    {
+     "track": "Rhytm Guitar",
+     "variants": {
+      "plain": {
+       "differential": {
+        "passed": false,
+        "p_value": 1.0,
+        "median_gain_ms": 0.0,
+        "shift_beats": 12,
+        "zero_beats": 473,
+        "shift_median_ms": 0.0,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 0.0
+       },
+       "jitter_ms": 3.59,
+       "smoke": {
+        "RIGID": 1
+       },
+       "notes": 1996
+      },
+      "humanize": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.333276,
+        "median_gain_ms": 0.26,
+        "shift_beats": 12,
+        "zero_beats": 473,
+        "shift_median_ms": 0.26,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 6.02
+       },
+       "jitter_ms": 8.96,
+       "smoke": {},
+       "notes": 1996
+      },
+      "hand": {
+       "differential": {
+        "passed": false,
+        "p_value": 0.000113,
+        "median_gain_ms": 8.59,
+        "shift_beats": 12,
+        "zero_beats": 473,
+        "shift_median_ms": 8.59,
+        "zero_median_ms": 0.0,
+        "legato_targets_excluded": 0,
+        "onset_std_ms": 6.25
+       },
+       "jitter_ms": 9.04,
+       "smoke": {},
+       "notes": 1996,
+       "fret_hand_cost_beats": 70,
+       "fret_hand_cost_legato_skipped": 0,
+       "fret_hand_cost_max_ms": 16.15
+      }
+     },
+     "invariants_humanize_vs_hand": {
+      "same_pitches_in_order": true,
+      "same_note_offs": true,
+      "min_attack_shift_ticks": 0,
+      "attacks_delayed": 214,
+      "overlaps_humanize": 1692,
+      "overlaps_hand": 1690,
+      "fret_noise_events": [
+       5,
+       5
+      ],
+      "fret_noise_ticks_identical": true
+     },
+     "seeds": {
+      "n": 60,
+      "check_passes_feature_off": 0,
+      "check_passes_feature_on": 0,
+      "onset_std_ms_mean_feature_off": 6.01,
+      "onset_std_ms_mean_feature_on": 6.19
+     }
+    }
+   ],
+   "source": "~/Documents/Music/5_Through_the_Night/Through_THE_NIGHT.gp"
+  }
+ ]
+}

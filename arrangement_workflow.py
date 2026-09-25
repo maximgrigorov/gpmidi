@@ -113,6 +113,7 @@ def _copy_track(track: Iterable[Any]) -> MidiTrack:
 def _render_track(
     song: Any, source_track: Any, track_type: str, *, solo_humanize: bool,
     seed: int, render_options: dict[str, Any] | None = None,
+    drum_timeline: dict[int, dict[str, int]] | None = None,
 ):
     options = dict(render_options or {})
     humanize = bool(options.get("humanize") or solo_humanize)
@@ -135,6 +136,13 @@ def _render_track(
         performance_seed=seed,
         expand_gp_hidden_32nds=bool(options.get("expand_gp_hidden_32nds")),
         preserve_gp_played_offsets=bool(options.get("preserve_gp_played_offsets")),
+        fret_hand_cost=bool(options.get("fret_hand_cost")),
+        keep_gp_played_overlaps=bool(options.get("keep_gp_played_overlaps")),
+        humanize_timing_over_gp_offsets=bool(options.get("humanize_timing_over_gp_offsets")),
+        lock_to_drums=bool(options.get("lock_to_drums")),
+        drum_timeline=drum_timeline,
+        pick_direction=bool(options.get("pick_direction")),
+        palm_mute_motion=bool(options.get("palm_mute_motion")),
     )
 
 
@@ -145,6 +153,24 @@ def _render_baseline(
 ) -> list[dict[str, Any]]:
     rendered = []
     used: dict[str, int] = {}
+
+    def options_for(index: int) -> dict[str, Any]:
+        return dict((track_options or {}).get(index, render_options) or {})
+
+    # Ритм-секция вместе: тайминг барабанщика нужен до баса и гитар.
+    drum_timeline = None
+    if any(options_for(i).get("lock_to_drums") for i in range(1, len(song.tracks) + 1)):
+        drum_timeline = {}
+        for index, source_track in enumerate(song.tracks, start=1):
+            if resolve_track_type(source_track) == "DRUMS":
+                drum_options = options_for(index)
+                build_drum_midi(
+                    song, source_track, humanize=bool(drum_options.get("humanize")),
+                    humanize_seed=seed,
+                    ghost_notes=True if drum_options.get("ghost_notes") else None,
+                    timeline=drum_timeline,
+                )
+
     for index, source_track in enumerate(song.tracks, start=1):
         track_type = resolve_track_type(source_track)
         base = safe_filename(source_track.name) or f"Track_{index}"
@@ -155,7 +181,7 @@ def _render_baseline(
         effective_options = (track_options or {}).get(index, render_options)
         midi_track, stats = _render_track(
             song, source_track, track_type, solo_humanize=False, seed=seed,
-            render_options=effective_options,
+            render_options=effective_options, drum_timeline=drum_timeline,
         )
         rendered.append({
             "index": index,

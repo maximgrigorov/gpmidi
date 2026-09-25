@@ -1,0 +1,604 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-09-24",
+ "task": "docs/cursor-fret-hand-cost-task.md, step 0",
+ "code_of_record": "c6212c98d78ffa04c38d751ee97963c05f1571a8",
+ "question": "Distribution of |hand_position - previous_hand_position| per guitar beat, exactly as build_instrument_midi computes it. Gate: shift >= min_fret_shift on >= 5% of beats.",
+ "method": {
+  "tool": "python tools/measure_hand_shift.py <files> --json <out>",
+  "replica_cross_check": "fret_noise_events with probability forced to 1.0 equals the replica's shift count on every track; the run aborts otherwise",
+  "fast": "IOI from the previous fretted beat < 150 ms",
+  "corpus_note": "One revision per song. The Desktop 'The Princess and The Dragon.gp5' gives identical numbers to pnd.gp5 and Music/2 '.gp' differs by 3 beats; counting them would triple-weight one song. Eternity.gp has no GUITAR tracks (Drums, Percussion only)."
+ },
+ "result": {
+  "all": {
+   "beats": 2783,
+   "zero": 1664,
+   "small": 834,
+   "shift": 285,
+   "shift_pct": 10.24,
+   "zero_pct": 59.79
+  },
+  "fast": {
+   "beats": 219,
+   "zero": 27,
+   "small": 115,
+   "shift": 77,
+   "shift_pct": 35.16,
+   "zero_pct": 12.33
+  },
+  "gp5_only_pnd": {
+   "beats": 1338,
+   "shift": 109,
+   "shift_pct": 8.15,
+   "note": "107 of the 109 are on Solo Guitar"
+  },
+  "by_role": {
+   "solo": {
+    "beats": 773,
+    "zero": 125,
+    "small": 453,
+    "shift": 195,
+    "shift_pct": 25.23
+   },
+   "rhythm": {
+    "beats": 1702,
+    "zero": 1379,
+    "small": 271,
+    "shift": 52,
+    "shift_pct": 3.06
+   },
+   "other": {
+    "beats": 308,
+    "zero": 160,
+    "small": 110,
+    "shift": 38,
+    "shift_pct": 12.34
+   }
+  },
+  "cross_voice_pairs": 0,
+  "shift_beats_breakdown": {
+   "shift": 285,
+   "after_silence": 64,
+   "legato_or_slide_target": 41,
+   "ioi <300": 104,
+   "ioi <600": 26,
+   "ioi >=600": 78,
+   "ioi <150": 77
+  }
+ },
+ "gate": {
+  "threshold_pct": 5.0,
+  "aggregate_shift_pct": 10.24,
+  "passes_in_aggregate": true,
+  "rhythm_tracks_shift_pct": 3.06,
+  "passes_on_rhythm_tracks": false
+ },
+ "conclusion": "The model makes sense for lead/solo lines (25% of solo beats shift >= 4 frets, 35% of fast beats) and for the clean part (16%). It does NOT make sense for rhythm guitar: 3.06% overall and 0.23% (2 of 873 beats) on pnd Rhytm Guitar -- the 'machine-gun' rhythm part the guitar profile targets barely moves the fretting hand.",
+ "findings_against_task_hypotheses": [
+  "Per-beat shift does not keep legato overlap intact. Hammer/pull overlap spans TWO beats (source in beat N, target in N+1); the converter bridges only when origin_tick >= target on_tick, so any target shifted later than its source is left as a gap and re-picked. Existing --humanize already breaks 40-65% of bridgeable pairs (legato_probe). A hand-shift delay is always positive and lands on post-jump beats; on Spring Melody Solo 27 of its 57 shift beats are slide/hammer targets.",
+  "Delay as a function of |delta| alone ignores available time: 22% of shift beats follow a rest and 27% have >= 600 ms since the previous fretted attack; on rhythm tracks 30 of 52 shifts have IOI >= 600 ms (section boundaries)."
+ ],
+ "legato_probe": {
+  "tool": "python tools/probe_legato_overlap.py <file> <track>",
+  "tracks": [
+   {
+    "file": "Spring_Melody_v3_final.gp",
+    "track": "Guitar (Solo)",
+    "runs": [
+     {
+      "humanize": false,
+      "seed": 7,
+      "pairs": 94,
+      "broken": 0,
+      "gap_ms_median": null,
+      "gap_ms_max": null
+     },
+     {
+      "humanize": true,
+      "seed": 7,
+      "pairs": 94,
+      "broken": 44,
+      "gap_ms_median": 9.2,
+      "gap_ms_max": 25.8
+     },
+     {
+      "humanize": true,
+      "seed": 11,
+      "pairs": 94,
+      "broken": 46,
+      "gap_ms_median": 6.7,
+      "gap_ms_max": 35.8
+     },
+     {
+      "humanize": true,
+      "seed": 23,
+      "pairs": 94,
+      "broken": 48,
+      "gap_ms_median": 6.7,
+      "gap_ms_max": 24.2
+     }
+    ]
+   },
+   {
+    "file": "Spring_Melody_v3_final.gp",
+    "track": "Guitar (Rhytm)",
+    "runs": [
+     {
+      "humanize": false,
+      "seed": 7,
+      "pairs": 37,
+      "broken": 0,
+      "gap_ms_median": null,
+      "gap_ms_max": null
+     },
+     {
+      "humanize": true,
+      "seed": 7,
+      "pairs": 37,
+      "broken": 16,
+      "gap_ms_median": 11.2,
+      "gap_ms_max": 23.3
+     },
+     {
+      "humanize": true,
+      "seed": 11,
+      "pairs": 37,
+      "broken": 19,
+      "gap_ms_median": 6.7,
+      "gap_ms_max": 22.5
+     },
+     {
+      "humanize": true,
+      "seed": 23,
+      "pairs": 37,
+      "broken": 14,
+      "gap_ms_median": 9.2,
+      "gap_ms_max": 24.2
+     }
+    ]
+   },
+   {
+    "file": "Through_THE_NIGHT.gp",
+    "track": "Solo Guitar",
+    "runs": [
+     {
+      "humanize": false,
+      "seed": 7,
+      "pairs": 17,
+      "broken": 0,
+      "gap_ms_median": null,
+      "gap_ms_max": null
+     },
+     {
+      "humanize": true,
+      "seed": 7,
+      "pairs": 17,
+      "broken": 9,
+      "gap_ms_median": 4.2,
+      "gap_ms_max": 24.5
+     },
+     {
+      "humanize": true,
+      "seed": 11,
+      "pairs": 17,
+      "broken": 8,
+      "gap_ms_median": 3.9,
+      "gap_ms_max": 14.6
+     },
+     {
+      "humanize": true,
+      "seed": 23,
+      "pairs": 17,
+      "broken": 11,
+      "gap_ms_median": 4.2,
+      "gap_ms_max": 10.9
+     }
+    ]
+   }
+  ]
+ },
+ "files": [
+  {
+   "file": "pnd.gp5",
+   "sha256": "3668f239cf7372c533aadf86766e334d49e78c0fb963a618ca7f7d3aa94d607e",
+   "tracks": [
+    {
+     "name": "Solo Guitar",
+     "all": {
+      "beats": 391,
+      "zero": 49,
+      "small": 235,
+      "shift": 107,
+      "zero_pct": 12.53,
+      "small_pct": 60.1,
+      "shift_pct": 27.37
+     },
+     "fast": {
+      "beats": 151,
+      "zero": 9,
+      "small": 80,
+      "shift": 62,
+      "zero_pct": 5.96,
+      "small_pct": 52.98,
+      "shift_pct": 41.06
+     },
+     "same_voice_forward": {
+      "beats": 391,
+      "zero": 49,
+      "small": 235,
+      "shift": 107,
+      "zero_pct": 12.53,
+      "small_pct": 60.1,
+      "shift_pct": 27.37
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "4": 22,
+      "5": 36,
+      "6": 3,
+      "7": 22,
+      "8": 9,
+      "9": 1,
+      "10": 4,
+      "11": 1,
+      "12": 9
+     },
+     "shift_ioi_ms": {
+      "<300": 27,
+      "<600": 7,
+      ">=600": 11,
+      "<150": 62
+     },
+     "shift_after_silence": 13,
+     "shift_legato_or_slide_target": 0,
+     "converter_fret_noise_events_at_p1": 107
+    },
+    {
+     "name": "Rhytm Guitar",
+     "all": {
+      "beats": 873,
+      "zero": 808,
+      "small": 63,
+      "shift": 2,
+      "zero_pct": 92.55,
+      "small_pct": 7.22,
+      "shift_pct": 0.23
+     },
+     "fast": {
+      "beats": 0,
+      "zero": 0,
+      "small": 0,
+      "shift": 0,
+      "zero_pct": null,
+      "small_pct": null,
+      "shift_pct": null
+     },
+     "same_voice_forward": {
+      "beats": 873,
+      "zero": 808,
+      "small": 63,
+      "shift": 2,
+      "zero_pct": 92.55,
+      "small_pct": 7.22,
+      "shift_pct": 0.23
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "5": 2
+     },
+     "shift_ioi_ms": {
+      ">=600": 1,
+      "<600": 1
+     },
+     "shift_after_silence": 1,
+     "shift_legato_or_slide_target": 0,
+     "converter_fret_noise_events_at_p1": 2
+    },
+    {
+     "name": "Steel Guitar",
+     "all": {
+      "beats": 74,
+      "zero": 65,
+      "small": 9,
+      "shift": 0,
+      "zero_pct": 87.84,
+      "small_pct": 12.16,
+      "shift_pct": 0.0
+     },
+     "fast": {
+      "beats": 0,
+      "zero": 0,
+      "small": 0,
+      "shift": 0,
+      "zero_pct": null,
+      "small_pct": null,
+      "shift_pct": null
+     },
+     "same_voice_forward": {
+      "beats": 74,
+      "zero": 65,
+      "small": 9,
+      "shift": 0,
+      "zero_pct": 87.84,
+      "small_pct": 12.16,
+      "shift_pct": 0.0
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {},
+     "shift_ioi_ms": {},
+     "shift_after_silence": 0,
+     "shift_legato_or_slide_target": 0,
+     "converter_fret_noise_events_at_p1": 0
+    }
+   ],
+   "path": "~/cursor-eval/gpmidi/pnd.gp5"
+  },
+  {
+   "file": "Spring_Melody_v3_final.gp",
+   "sha256": "19b2c85c14e9fb29a33d2acbf7e59335de549bfc69a80d0332a23f0f232e9ff4",
+   "tracks": [
+    {
+     "name": "Guitar (Solo)",
+     "all": {
+      "beats": 211,
+      "zero": 33,
+      "small": 121,
+      "shift": 57,
+      "zero_pct": 15.64,
+      "small_pct": 57.35,
+      "shift_pct": 27.01
+     },
+     "fast": {
+      "beats": 26,
+      "zero": 3,
+      "small": 20,
+      "shift": 3,
+      "zero_pct": 11.54,
+      "small_pct": 76.92,
+      "shift_pct": 11.54
+     },
+     "same_voice_forward": {
+      "beats": 211,
+      "zero": 33,
+      "small": 121,
+      "shift": 57,
+      "zero_pct": 15.64,
+      "small_pct": 57.35,
+      "shift_pct": 27.01
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "4": 11,
+      "5": 7,
+      "6": 4,
+      "7": 9,
+      "8": 10,
+      "9": 3,
+      "10": 6,
+      "11": 1,
+      "12": 6
+     },
+     "shift_ioi_ms": {
+      ">=600": 11,
+      "<300": 39,
+      "<150": 3,
+      "<600": 4
+     },
+     "shift_after_silence": 7,
+     "shift_legato_or_slide_target": 27,
+     "converter_fret_noise_events_at_p1": 57
+    },
+    {
+     "name": "Guitar (Rhytm)",
+     "all": {
+      "beats": 270,
+      "zero": 98,
+      "small": 134,
+      "shift": 38,
+      "zero_pct": 36.3,
+      "small_pct": 49.63,
+      "shift_pct": 14.07
+     },
+     "fast": {
+      "beats": 2,
+      "zero": 0,
+      "small": 2,
+      "shift": 0,
+      "zero_pct": 0.0,
+      "small_pct": 100.0,
+      "shift_pct": 0.0
+     },
+     "same_voice_forward": {
+      "beats": 270,
+      "zero": 98,
+      "small": 134,
+      "shift": 38,
+      "zero_pct": 36.3,
+      "small_pct": 49.63,
+      "shift_pct": 14.07
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "4": 5,
+      "5": 23,
+      "6": 4,
+      "7": 1,
+      "8": 2,
+      "10": 1,
+      "12": 2
+     },
+     "shift_ioi_ms": {
+      "<300": 11,
+      ">=600": 22,
+      "<600": 5
+     },
+     "shift_after_silence": 13,
+     "shift_legato_or_slide_target": 10,
+     "converter_fret_noise_events_at_p1": 38
+    }
+   ],
+   "path": "~/Documents/Music/1_Spring_Melody/Spring_Melody_v3_final.gp"
+  },
+  {
+   "file": "Through_THE_NIGHT.gp",
+   "sha256": "062ec5d801cd0edac11b6da2a063ced263dacad11913f535d77301a30794532a",
+   "tracks": [
+    {
+     "name": "Clean Guitar",
+     "all": {
+      "beats": 234,
+      "zero": 95,
+      "small": 101,
+      "shift": 38,
+      "zero_pct": 40.6,
+      "small_pct": 43.16,
+      "shift_pct": 16.24
+     },
+     "fast": {
+      "beats": 1,
+      "zero": 0,
+      "small": 1,
+      "shift": 0,
+      "zero_pct": 0.0,
+      "small_pct": 100.0,
+      "shift_pct": 0.0
+     },
+     "same_voice_forward": {
+      "beats": 234,
+      "zero": 95,
+      "small": 101,
+      "shift": 38,
+      "zero_pct": 40.6,
+      "small_pct": 43.16,
+      "shift_pct": 16.24
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "4": 6,
+      "5": 15,
+      "6": 4,
+      "7": 3,
+      "8": 1,
+      "9": 6,
+      "10": 2,
+      "12": 1
+     },
+     "shift_ioi_ms": {
+      "<600": 7,
+      ">=600": 17,
+      "<300": 14
+     },
+     "shift_after_silence": 13,
+     "shift_legato_or_slide_target": 0,
+     "converter_fret_noise_events_at_p1": 38
+    },
+    {
+     "name": "Solo Guitar",
+     "all": {
+      "beats": 171,
+      "zero": 43,
+      "small": 97,
+      "shift": 31,
+      "zero_pct": 25.15,
+      "small_pct": 56.73,
+      "shift_pct": 18.13
+     },
+     "fast": {
+      "beats": 25,
+      "zero": 4,
+      "small": 11,
+      "shift": 10,
+      "zero_pct": 16.0,
+      "small_pct": 44.0,
+      "shift_pct": 40.0
+     },
+     "same_voice_forward": {
+      "beats": 171,
+      "zero": 43,
+      "small": 97,
+      "shift": 31,
+      "zero_pct": 25.15,
+      "small_pct": 56.73,
+      "shift_pct": 18.13
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "4": 9,
+      "5": 10,
+      "6": 3,
+      "7": 4,
+      "8": 1,
+      "10": 1,
+      "12": 3
+     },
+     "shift_ioi_ms": {
+      ">=600": 9,
+      "<300": 11,
+      "<150": 10,
+      "<600": 1
+     },
+     "shift_after_silence": 11,
+     "shift_legato_or_slide_target": 4,
+     "converter_fret_noise_events_at_p1": 31
+    },
+    {
+     "name": "Rhytm Guitar",
+     "all": {
+      "beats": 559,
+      "zero": 473,
+      "small": 74,
+      "shift": 12,
+      "zero_pct": 84.62,
+      "small_pct": 13.24,
+      "shift_pct": 2.15
+     },
+     "fast": {
+      "beats": 14,
+      "zero": 11,
+      "small": 1,
+      "shift": 2,
+      "zero_pct": 78.57,
+      "small_pct": 7.14,
+      "shift_pct": 14.29
+     },
+     "same_voice_forward": {
+      "beats": 559,
+      "zero": 473,
+      "small": 74,
+      "shift": 12,
+      "zero_pct": 84.62,
+      "small_pct": 13.24,
+      "shift_pct": 2.15
+     },
+     "cross_voice_pairs": 0,
+     "backwards_in_time_pairs": 0,
+     "shift_magnitude": {
+      "4": 4,
+      "5": 3,
+      "7": 1,
+      "9": 1,
+      "10": 3
+     },
+     "shift_ioi_ms": {
+      ">=600": 7,
+      "<600": 1,
+      "<300": 2,
+      "<150": 2
+     },
+     "shift_after_silence": 6,
+     "shift_legato_or_slide_target": 0,
+     "converter_fret_noise_events_at_p1": 12
+    }
+   ],
+   "path": "~/Documents/Music/5_Through_the_Night/Through_THE_NIGHT.gp"
+  }
+ ]
+}

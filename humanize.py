@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import bisect
 import logging
+import math
 from functools import lru_cache
 from pathlib import Path
 
@@ -61,6 +62,14 @@ def load_profile(name: str) -> dict:
     for section in ("velocity", "timing"):
         if not isinstance(data.get(section), dict):
             raise ValueError(f"В профиле {path} отсутствует или испорчена секция '{section}'")
+    if "fret_hand_cost" in data:
+        _validate_fret_hand_cost(data["fret_hand_cost"], path)
+    if "lock_to_drums" in data:
+        _validate_section(data["lock_to_drums"], LOCK_TO_DRUMS_KEYS, "lock_to_drums", path)
+    if "palm_mute_motion" in data:
+        _validate_section(data["palm_mute_motion"], PALM_MUTE_MOTION_KEYS, "palm_mute_motion", path)
+        if not float(data["palm_mute_motion"]["drift_coherence"]) < 1:
+            raise ValueError(f"В профиле {path}: palm_mute_motion.drift_coherence обязан быть < 1")
     ghost = data.get("ghost_notes")
     if isinstance(ghost, dict) and isinstance(ghost.get("velocity"), dict):
         low, high = ghost["velocity"].get("min"), ghost["velocity"].get("max")
@@ -269,6 +278,146 @@ def pitched_beat_shift(start_tick, bpm, tpb, prof, rng):
     limit = float(t.get("max_shift_frac16", 0.12)) * six
     shift = max(-limit, min(limit, shift))
     return max(0, int(round(start_tick + shift)))
+
+
+FRET_HAND_COST_KEYS = (
+    "in_position_ms_per_fret", "shift_ms", "saturation_ms", "saturation_frets",
+    "max_delay_frac16", "max_delay_note_frac",
+)
+
+
+def _validate_fret_hand_cost(section, path):
+    # Без дефолтов в коде: у каждого числа модели одно место жительства —
+    # профиль. Пропущенный ключ падает здесь, с именем файла, а не посреди
+    # рендера безымянным KeyError.
+    if not isinstance(section, dict):
+        raise ValueError(f"В профиле {path}: секция 'fret_hand_cost' не является отображением")
+    missing = [key for key in FRET_HAND_COST_KEYS if key not in section]
+    if missing:
+        raise ValueError(f"В профиле {path}: в 'fret_hand_cost' нет ключей {missing}")
+    values = {key: float(section[key]) for key in FRET_HAND_COST_KEYS}
+    if min(values.values()) < 0 or values["saturation_frets"] <= 0:
+        raise ValueError(f"В профиле {path}: 'fret_hand_cost' содержит недопустимые значения")
+    if not values["shift_ms"] <= values["saturation_ms"]:
+        raise ValueError(f"В профиле {path}: fret_hand_cost.shift_ms > saturation_ms")
+
+
+LOCK_TO_DRUMS_KEYS = (
+    "kick_residual_ms", "snare_residual_ms", "between_residual_ms",
+    "max_anchor_gap_frac16", "max_shift_frac16",
+)
+
+
+def _validate_section(section, keys, name, path):
+    if not isinstance(section, dict):
+        raise ValueError(f"В профиле {path}: секция '{name}' не является отображением")
+    missing = [key for key in keys if key not in section]
+    if missing:
+        raise ValueError(f"В профиле {path}: в '{name}' нет ключей {missing}")
+    if min(float(section[key]) for key in keys) < 0:
+        raise ValueError(f"В профиле {path}: '{name}' содержит отрицательные значения")
+
+
+PALM_MUTE_MOTION_KEYS = ("drift_std", "drift_coherence", "reset_gap_frac16")
+
+
+def palm_mute_drift(previous, gap_ticks, tpb, prof, rng):
+    """Следующее значение дрейфа velocity P.M. (AR(1)); None = начать заново."""
+    motion = prof["palm_mute_motion"]
+    std = float(motion["drift_std"])
+    if previous is None or gap_ticks > float(motion["reset_gap_frac16"]) * tpb / 4:
+        return rng.gauss(0.0, std)
+    coherence = float(motion["drift_coherence"])
+    return coherence * previous + math.sqrt(1 - coherence ** 2) * rng.gauss(0.0, std)
+
+
+class DrumPulse:
+    """Тайминг барабанщика по нотной сетке: где и насколько сыграли бочка и малый.
+
+    timeline — {нотный тик: {"kick": сдвиг, "snare": сдвиг}} в тиках, как его
+    заполняет build_drum_midi(timeline=...). На тике с бочкой опора — бочка
+    (бас и ритм в метале сводят именно к ней), иначе малый. Между опорами —
+    линейная интерполяция: общий пульс группы, а не дрожь каждого удара хэта.
+    """
+
+    def __init__(self, timeline):
+        points = []
+        for tick, hits in timeline.items():
+            if "kick" in hits:
+                points.append((tick, hits["kick"], "kick"))
+            elif "snare" in hits:
+                points.append((tick, hits["snare"], "snare"))
+        self.points = sorted(points)
+        self.ticks = [p[0] for p in self.points]
+
+    def anchor(self, tick, max_gap_ticks):
+        """(сдвиг в тиках, "kick"|"snare"|"between") или None — барабанов рядом нет."""
+        i = bisect.bisect_left(self.ticks, tick)
+        if i < len(self.ticks) and self.ticks[i] == tick:
+            return float(self.points[i][1]), self.points[i][2]
+        if 0 < i < len(self.ticks):
+            (t0, s0, _k0), (t1, s1, _k1) = self.points[i - 1], self.points[i]
+            if t1 - t0 <= max_gap_ticks:
+                return s0 + (s1 - s0) * (tick - t0) / float(t1 - t0), "between"
+        return None
+
+
+def locked_beat_shift(grid_tick, bpm, tpb, prof, rng, pulse):
+    """Сдвиг бита, привязанный к барабанщику. (новый start_tick, опора) или None.
+
+    None — барабанов в пределах max_anchor_gap_frac16 нет (интро, брейк): бит
+    играется свободно, вызывающий берёт обычный pitched_beat_shift. Иначе бит
+    берёт сдвиг опоры плюс собственный остаток *_residual_ms: на унисоне с
+    бочкой почти ноль (так звучит собранная метал-группа), между опорами —
+    больше.
+    """
+    lock = prof["lock_to_drums"]
+    six = tpb / 4
+    found = pulse.anchor(grid_tick, float(lock["max_anchor_gap_frac16"]) * six)
+    if found is None:
+        return None
+    shift, kind = found
+    ms_per_tick = 60000.0 / (bpm * tpb)
+    shift += rng.gauss(0.0, float(lock[f"{kind}_residual_ms"])) / ms_per_tick
+    limit = float(lock["max_shift_frac16"]) * six
+    shift = max(-limit, min(limit, shift))
+    return max(0, int(round(grid_tick + shift))), kind
+
+
+def fret_hand_cost_ms(delta_frets, shift_frets, prof):
+    """Время переноса левой руки на |delta_frets| ладов, мс.
+
+    В пределах позиции (delta < shift_frets, порог берётся из articulation_maps:
+    тот же min_fret_shift, что у fret_noise) пальцы достают ноту без переноса
+    кисти — стоимость мала и линейна. Смена позиции — другое движение: сразу
+    shift_ms, дальше рост с насыщением к saturation_ms (рука не тормозит
+    бесконечно, прыжок на октаву стоит немногим дороже прыжка на пять ладов).
+    Время физическое, поэтому в мс и без темповой поправки.
+    """
+    h = prof["fret_hand_cost"]
+    if delta_frets <= 0:
+        return 0.0
+    if delta_frets < shift_frets:
+        return float(h["in_position_ms_per_fret"]) * delta_frets
+    base, ceiling = float(h["shift_ms"]), float(h["saturation_ms"])
+    over = delta_frets - shift_frets
+    return ceiling - (ceiling - base) * math.exp(-over / float(h["saturation_frets"]))
+
+
+def fret_hand_delay(delta_frets, shift_frets, gap_ms, dur_ticks, bpm, tpb, prof):
+    """Задержка атаки бита из-за переноса руки, в тиках, всегда >= 0.
+
+    Переносу засчитывается тишина перед атакой (gap_ms): рука, отпустившая
+    струну заранее, успевает переехать и не опаздывает. Потолок — меньшее из
+    max_delay_frac16 шестнадцатой и max_delay_note_frac собственной длительности
+    бита, чтобы задержанная нота не съела саму себя.
+    """
+    h = prof["fret_hand_cost"]
+    cost_ms = max(0.0, fret_hand_cost_ms(delta_frets, shift_frets, prof) - gap_ms)
+    ms_per_tick = 60000.0 / (bpm * tpb)
+    limit = min(float(h["max_delay_frac16"]) * tpb / 4,
+                float(h["max_delay_note_frac"]) * dur_ticks)
+    return max(0, int(round(min(cost_ms / ms_per_tick, limit))))
 
 
 def pitched_strum_offsets(pitches, start_tick, bpm, tpb, prof, rng):

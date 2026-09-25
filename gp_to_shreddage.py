@@ -13,6 +13,10 @@ gp_to_shreddage.py
     python gp_to_shreddage.py song.gp5 [--humanize] [--ghost-notes] [--seed=N]
                                        [--auto-sustain-vibrato]
                                        [--fret-noise-on-hand-shift] [--no-verify]
+                                       [--fret-hand-cost]
+                                       [--no-expand-gp-hidden-32nds]
+                                       [--preserve-gp-played-offsets |
+                                        --no-preserve-gp-played-offsets]
 
 Результат: рядом с исходным файлом создаётся папка "<имя_файла>_midi/"
 с одним MIDI-файлом (Type 0) на каждый трек (имя файла = название трека)
@@ -24,6 +28,33 @@ gp_to_shreddage.py
                    поэтому синтез. Без флага выхлоп прежний, байт-в-байт.
     --ghost-notes  добавить гост-ноты по рабочему. ЕДИНСТВЕННАЯ опция, которая
                    МЕНЯЕТ ПАРТИЮ, а не только подачу. Только барабаны.
+    --fret-hand-cost  (только с --humanize) перенос левой руки задерживает атаку
+                   бита: 0 ладов — без задержки, смена позиции — 9..16 мс минус
+                   пауза перед атакой. Цели hammer/слайда не задерживаются.
+                   Числа — в config/humanize_profiles/guitar_metal.yaml.
+    --no-expand-gp-hidden-32nds  не разносить скрытые 32-е GP8 (несколько звуков,
+                   записанных одним битом и сыгранных по очереди). По умолчанию
+                   разносятся на всех тональных дорожках.
+    --preserve-gp-played-offsets / --no-preserve-gp-played-offsets  авторские
+                   сдвиги атак GP8 («как сыграно»). По умолчанию сохраняются
+                   только на соло-дорожках (solo/lead в имени); флаги включают их
+                   на всех Guitar/Bass или выключают везде.
+    --keep-gp-played-overlaps  оставить перекрытия, которые авторские сдвиги
+                   дают между нотами (в нотах их нет; Hydra играет их легато).
+                   По умолчанию убираются.
+    --humanize-timing-over-gp-offsets  (только с --humanize) сдвиг бита, strum
+                   и перенос руки поверх авторских сдвигов. По умолчанию на
+                   дорожках с авторскими сдвигами оживляется только velocity.
+    --lock-to-drums  (только с --humanize) бас и гитары берут сдвиг бочки/малого
+                   на общих ударах и линию тайминга барабанщика между ними —
+                   ритм-секция звучит вместе, а не каждый сам по себе.
+    --double-rhythm-guitars  (только с --humanize) рядом с каждой ритм-гитарой
+                   второй дубль "<имя> (double)" с другим seed — под L/R.
+    --pick-direction  ход медиатора keyswitch-ами Hydra (C7 вверх / C#7 вниз):
+                   ритм — по чётности шестнадцатой (восьмые сплошь вниз), соло —
+                   строгое чередование по взятым нотам.
+    --palm-mute-motion  (только с --humanize) velocity P.M.-ударов дрейфует
+                   плавно, как давление ладони; в Hydra нужен Vel -> Tightness.
     --no-verify    не гонять смок-проверку выхлопа (verify_midi.py)
 
 ВАЖНО: оживление обязано применяться ПОСЛЕ Guitar Pro и ДО сэмплера. Нотация не
@@ -39,6 +70,7 @@ gp_to_shreddage.py
 Обе библиотеки используют TACT-систему кейсвитчей в Kontakt-нотации (C-1 = MIDI 12).
 """
 
+import bisect
 import logging
 import math
 import os
@@ -67,12 +99,18 @@ from articulation_config import (
     log_config_used,
 )
 from humanize import (
+    DRUM_CLASS,
+    DrumPulse,
+    fret_hand_delay,
     humanize_drums,
+    locked_beat_shift,
+    palm_mute_drift,
     pitched_beat_shift,
     pitched_strum_offsets,
     pitched_velocity,
     profile_for_track_type,
     profile_label,
+    sixteenth_index,
 )
 from verify_midi import smoke_check
 
@@ -109,6 +147,33 @@ STOP_WORDS = [
     "brass", "horn", "wind", "flute",
     "contrabass", "contra", "upright",
 ]
+
+
+# Соло-дорожка по имени трека. На соло по умолчанию сохраняются авторские
+# сдвиги атак GP8 (--preserve-gp-played-offsets): тайминг «как сыграно» —
+# эталон соло (AGENTS.md, принятый baseline Spring Melody). Решение пользователя
+# 2026-09-24. "lead" — как в GUITAR_KEYWORDS; "Lead Vocals" отсекают STOP_WORDS.
+SOLO_TRACK_KEYWORDS = ["solo", "lead"]
+
+# Режимы сохранения авторских сдвигов атак (CLI и веб).
+PLAYED_OFFSETS_SOLO = "solo"        # по умолчанию: только соло GUITAR/BASS
+PLAYED_OFFSETS_ALL = "all"          # --preserve-gp-played-offsets
+PLAYED_OFFSETS_NONE = "none"        # --no-preserve-gp-played-offsets
+
+
+def is_solo_track(track, track_type):
+    """Соло-дорожка: GUITAR/BASS с solo/lead в имени."""
+    name = (getattr(track, "name", "") or "").lower()
+    return track_type in (TRACK_GUITAR, TRACK_BASS) and any(k in name for k in SOLO_TRACK_KEYWORDS)
+
+
+def resolve_track_render_options(track, track_type, options):
+    """Раскладка CLI-опций по конкретной дорожке -> kwargs для build_*_midi."""
+    mode = options["preserve_gp_played_offsets"]
+    preserve = mode == PLAYED_OFFSETS_ALL or (
+        mode == PLAYED_OFFSETS_SOLO and is_solo_track(track, track_type))
+    return {"expand_gp_hidden_32nds": options["expand_gp_hidden_32nds"],
+            "preserve_gp_played_offsets": preserve}
 
 
 def detect_track_type(name):
@@ -772,11 +837,120 @@ def hidden_32nd_note_timing(beat, enabled=False):
     return timing
 
 
+# Слайды, которые ВЕДУТ в следующую ноту: её не бьют медиатором заново.
+LEGATO_SLIDE_TYPES = (SlideType.shiftSlideTo, SlideType.legatoSlideTo)
+
+
+def beat_hand_position(beat):
+    """Позиция левой руки на бите: медиана прижатых ладов, иначе None.
+
+    Открытые струны и лиги не в счёт: открытая струна руку не держит, лига
+    продолжает уже прижатую ноту. Одна величина на весь бит — на ней висят и
+    fret_noise, и стоимость переноса руки.
+    """
+    frets = sorted(int(n.value) for n in beat.notes
+                   if n.type != NoteType.tie and int(n.value) > 0)
+    if not frets:
+        return None
+    middle = len(frets) // 2
+    return (float(frets[middle]) if len(frets) % 2
+            else (frets[middle - 1] + frets[middle]) / 2.0)
+
+
+def clip_same_pitch_overlaps(spans):
+    """Одна клавиша — одна нота. -> сколько хвостов обрезано.
+
+    Если нота той же высоты начинается раньше, чем пришёл note_off предыдущей,
+    этот note_off гасит уже НОВУЮ ноту (сэмплер отпускает клавишу, а не «свою»
+    ноту), и в звуке дыра, хотя в списке нот MIDI всё на месте. Хвост
+    предыдущей ноты обрезается по атаке следующей. Работает всегда, не только
+    под --humanize: так же теряли ноты hammer на ту же высоту в нотном экспорте
+    и авторские сдвиги GP (--preserve-gp-played-offsets: 108 гитарных и 108
+    басовых повторных атак на трёх песнях). Решение пользователя 2026-09-24.
+    Ноты с одинаковым началом (унисон на двух струнах / в двух голосах) между
+    собой не обрезаются, но следующая атака той же высоты обрезает ВСЕ такие.
+    """
+    clipped = 0
+    sounding = {}                   # pitch -> ноты, ещё звучащие к текущей атаке
+    for span in sorted(spans, key=lambda item: item["start"]):
+        still = []
+        for prev in sounding.get(span["pitch"], []):
+            if prev["start"] < span["start"] < prev["off"]["tick"]:
+                prev["off"]["tick"] = span["start"]
+                clipped += 1
+            if prev["start"] == span["start"]:
+                still.append(prev)
+        still.append(span)
+        sounding[span["pitch"]] = still
+    return clipped
+
+
+def clip_overlaps_absent_from(spans, legato_bridged, start_key, end_key):
+    """Обрезать перекрытия, которых нет в эталонном тайминге. -> сколько обрезано.
+
+    span[start_key]/span[end_key] — атака и конец той же ноты в эталоне. Если
+    в эталоне нота кончалась до атаки следующей, а в экспорте налезает на неё,
+    хвост обрезается по самой ранней такой атаке. Намеренное легато-перекрытие
+    hammer/pull (legato_bridged) не трогается.
+    """
+    clipped = 0
+    by_reference = sorted(spans, key=lambda item: item[start_key])
+    ref_starts = [item[start_key] for item in by_reference]
+    earliest_after = [0] * len(by_reference)      # min start среди нот с эталонной атакой >= i-й
+    running = None
+    for i in range(len(by_reference) - 1, -1, -1):
+        start = by_reference[i]["start"]
+        running = start if running is None else min(running, start)
+        earliest_after[i] = running
+    for span in spans:
+        if id(span["off"]) in legato_bridged:
+            continue
+        i = bisect.bisect_left(ref_starts, span[end_key])
+        if i < len(by_reference) and span["start"] < earliest_after[i] < span["off"]["tick"]:
+            span["off"]["tick"] = earliest_after[i]
+            clipped += 1
+    return clipped
+
+
+def clip_humanized_overlaps(spans, legato_bridged):
+    """Под --humanize: одна клавиша и одна струна звучат одной нотой. -> сколько обрезано.
+
+    Конец ноты считается от СДВИНУТОГО начала бита, а соседний бит сдвинут
+    независимо, поэтому хвост предыдущей ноты залезает за атаку следующей
+    (LESSONS.md п.16). Для той же ВЫСОТЫ это потеря ноты — её закрывает
+    clip_same_pitch_overlaps (в Through the Night так пропадала двухсекундная
+    B3). Для той же СТРУНЫ это нефизично (струна звучит одной нотой), а Hydra
+    играет по перекрытию легато: хвост обрезается по атаке следующей ноты,
+    намеренное легато-перекрытие hammer/pull (legato_bridged) остаётся.
+
+    И общее правило поверх: оживление не создаёт перекрытий, которых нет в том
+    же экспорте без --humanize (ref_start/ref_end — тайминг без сдвига бита,
+    strum и переноса руки). Нота на ДРУГОЙ струне, налезшая на следующую на
+    несколько мс, для Hydra — легато, то есть hammer-on между струнами, чего
+    рука не делает. Нотные перекрытия (выдержанная нота под мелодией, авторские
+    сдвиги GP) остаются.
+    """
+    clipped = clip_overlaps_absent_from(spans, legato_bridged, "ref_start", "ref_end")
+    last_by_string = {}
+    for span in sorted(spans, key=lambda item: item["start"]):
+        prev = last_by_string.get(span["string"])
+        if (prev is not None and prev["start"] < span["start"] < prev["off"]["tick"]
+                and id(prev["off"]) not in legato_bridged):
+            prev["off"]["tick"] = span["start"]
+            clipped += 1
+        last_by_string[span["string"]] = span
+    return clipped + clip_same_pitch_overlaps(spans)
+
+
 def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           humanize_seed=7, auto_sustain_vibrato=False,
                           fret_noise_on_hand_shift=False, performance_seed=7,
                           expand_gp_hidden_32nds=False,
-                          preserve_gp_played_offsets=False):
+                          preserve_gp_played_offsets=False,
+                          fret_hand_cost=False, keep_gp_played_overlaps=False,
+                          humanize_timing_over_gp_offsets=False,
+                          lock_to_drums=False, drum_timeline=None,
+                          pick_direction=False, palm_mute_motion=False):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
@@ -819,6 +993,82 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         stats["humanize"] = profile_label(hprof)
         logger.info("трек %r: оживление %s", track.name, profile_label(hprof))
 
+    # Тайминг оживления (сдвиг бита, strum, перенос руки) поверх авторских
+    # сдвигов GP по умолчанию выключен: «как сыграно» уже живой тайминг, и
+    # второй случайный слой поверх него — вопрос вкуса, решаемый на слух.
+    # Решение пользователя 2026-09-24: опция, по умолчанию выкл. Velocity
+    # оживляется в любом случае.
+    # Только если авторские сдвиги в дорожке ЕСТЬ: у GP3/4/5 их нет вовсе, и
+    # дефолт «сдвиги на соло» не должен там молча выключать тайминг оживления.
+    authored_timing = preserve_gp_played_offsets and any(
+        int(getattr(note, "playedOffset", 0) or 0)
+        for _m, _v, _vi, _bi, beat, _mst, _tick, _dur in iter_voice_beats_with_canonical_ticks(track)
+        if beat is not None for note in beat.notes)
+    humanize_timing = hprof is not None and (
+        not authored_timing or humanize_timing_over_gp_offsets)
+    if hprof is not None and not humanize_timing:
+        stats["humanize_timing"] = "off: GP played offsets are the timing"
+
+    # Ритм-секция вместе: бит берёт сдвиг бочки/малого того же места (см.
+    # humanize.locked_beat_shift). Без барабанов рядом — свободно, как раньше.
+    # Решение пользователя 2026-09-24: «чтобы звучали в коалиции».
+    drum_pulse = (DrumPulse(drum_timeline)
+                  if lock_to_drums and humanize_timing and drum_timeline
+                  and "lock_to_drums" in hprof else None)
+    if drum_pulse is not None:
+        stats["drum_lock"] = {"kick": 0, "snare": 0, "between": 0, "free": 0}
+
+    # Направление медиатора keyswitch-ами Hydra (Picking Mode Up/Down). Штатный
+    # Alternate меняет ход на каждое нажатие, не зная ни ритма, ни легато.
+    # Ритм: вниз, пока рука успевает (rhythm_downpick_min_ioi_ms), чаще — по
+    # чётности шестнадцатой; соло: строгое чередование по взятым нотам. Запрос
+    # пользователя 2026-09-24.
+    pick_ks = None
+    if pick_direction and track_type == TRACK_GUITAR:
+        fx = cfg.get("fx_keyswitches") or {}
+        if "picking_mode_up" not in fx or "picking_mode_down" not in fx:
+            raise ValueError(f"{config_label(cfg)}: для pick_direction нужны "
+                             "fx_keyswitches.picking_mode_up / picking_mode_down")
+        pick_ks = {"up": int(fx["picking_mode_up"]), "down": int(fx["picking_mode_down"])}
+        solo_picking = is_solo_track(track, track_type)
+        pick_strum = profile_for_track_type(track_type)["strum"]
+        pick_reset_ticks = float(pick_strum["solo_pick_reset_gap_frac16"]) * TICKS_PER_BEAT / 4
+        downpick_min_ioi_ms = float(pick_strum["rhythm_downpick_min_ioi_ms"])
+        last_pick_start = None
+        emit_keyswitch(ev, 0, pick_ks["down"], base_bpm)     # состояние задаём явно
+        stats["ks"] += 1
+        stats["pick_direction"] = {"down": 0, "up": 0, "ks": 1}
+        current_pick, next_pick, last_pick_end = "down", "down", None
+
+    # Глушение ладонью как движение руки: медленный дрейф velocity P.M.-битов.
+    pm_motion = (hprof if palm_mute_motion and hprof is not None
+                 and "palm_mute_motion" in hprof else None)
+    if pm_motion is not None:
+        pm_rng = random.Random(humanize_seed ^ PALM_MUTE_MOTION_SALT)
+        pm_ks_notes = {keyswitch_note(cfg, name) for name in ("palm_mute", "power_chord_mute")
+                       if name in (cfg.get("keyswitches") or {})}
+        pm_drift, last_pm_end = None, None
+        stats["palm_mute_motion_beats"] = 0
+
+    # Стоимость переноса левой руки — часть тайминга оживления: без --humanize
+    # профиля нет, и флаг ничего не делает. Профиль без секции (бас) — тоже.
+    hand_cost = (hprof if fret_hand_cost and humanize_timing
+                 and "fret_hand_cost" in hprof else None)
+    if hand_cost is not None:
+        # Порог смены позиции живёт в карте артикуляций рядом с fret_noise,
+        # а не дублируется в профиле: поменяется пресет — поменяется там.
+        if "min_fret_shift" not in fret_cfg:
+            raise ValueError(
+                f"{config_label(cfg)}: для fret_hand_cost нужен "
+                "performance_life.fret_noise_on_hand_shift.min_fret_shift")
+        shift_frets = float(fret_cfg["min_fret_shift"])
+        stats.update({"fret_hand_cost_beats": 0, "fret_hand_cost_legato_skipped": 0,
+                      "fret_hand_cost_max_ms": 0.0})
+        logger.info("трек %r: стоимость переноса руки, порог %g ладов",
+                    track.name, shift_frets)
+    legato_into = {}                # (voice_idx, string) -> конец (сетка) hammer/slide-источника
+    hand_release_tick = None        # конец (сетка) последней ноты под левой рукой
+
     # Стартовую артикуляцию УСТАНАВЛИВАЕМ явно, а не предполагаем.
     #
     # Keyswitch эмитится только когда артикуляция МЕНЯЕТСЯ, а начальное состояние
@@ -843,6 +1093,14 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
     last_off_by_voice = {}
     last_span_by_voice = {}
     pending_legato = {}             # (voice_idx, string) -> off_rec источника hammer/pull
+    legato_grid_end = {}            # (voice_idx, string) -> конец источника по НОТНОЙ сетке
+    legato_bridged = set()          # id(off_rec) источников, продлённых внахлёст в цель
+    legato_src_fret = {}            # (voice_idx, string) -> лад источника hammer/pull
+    # Hammer на ДРУГУЮ струну рукой не сыграть. Если цель достаётся на струне
+    # источника в пределах позиции (тот же порог, что у переноса руки), это
+    # переаппликатура — легато остаётся; иначе hammer снимается (нота бьётся).
+    refinger_reach = (float(fret_cfg["min_fret_shift"])
+                      if "min_fret_shift" in fret_cfg else None)
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
     for item_index, (measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur) in enumerate(items):
@@ -875,14 +1133,57 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         if not beat.notes:
             continue
 
+        grid_tick = start_tick
+
         # --- оживление: сдвиг ВСЕГО бита ---
         # Считается ЗДЕСЬ, до эмиссии keyswitch/PB и до расчёта лиг и легато,
         # чтобы всё нижележащее унаследовало уже сдвинутый тик. Пост-проходом
         # это делать нельзя: KS приходит за KS_LEAD_MS=15 до ноты, и уехавшая
         # назад нота оказалась бы раньше собственного keyswitch-а.
-        if hprof is not None:
-            start_tick = pitched_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT,
-                                           hprof, hrng)
+        anchor_kind = None
+        if humanize_timing:
+            locked = (locked_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT, hprof, hrng,
+                                        drum_pulse) if drum_pulse is not None else None)
+            if locked is not None:
+                start_tick, anchor_kind = locked
+                stats["drum_lock"][anchor_kind] += 1
+            else:
+                if drum_pulse is not None:
+                    stats["drum_lock"]["free"] += 1
+                start_tick = pitched_beat_shift(start_tick, cur_bpm, TICKS_PER_BEAT,
+                                               hprof, hrng)
+
+        # --- перенос левой руки: ЗАДЕРЖКА атаки всего бита (opt-in) ---
+        # Здесь, до эмиссии keyswitch: KS встанет перед уже задержанной атакой.
+        # Только задержка (рука не может прийти раньше), общая на бит, и только
+        # атака — конец ноты остаётся на месте, чтобы хвост не налез на
+        # следующую атаку и Hydra не сыграла там легато. Цель hammer/слайда не
+        # задерживается: её не бьют заново, переезд руки — это сам слайд.
+        hand_position = beat_hand_position(beat)
+        hand_delay = 0
+        if (hand_cost is not None and hand_position is not None
+                and previous_hand_position is not None):
+            delta = abs(hand_position - previous_hand_position)
+            if any(legato_into.get((vi, n.string), -1) >= grid_tick
+                   for n in beat.notes if n.type != NoteType.tie):
+                if delta:
+                    stats["fret_hand_cost_legato_skipped"] += 1
+            elif anchor_kind in ("kick", "snare"):
+                # Унисон с бочкой/малым под --lock-to-drums: в метал-сведении
+                # такие места подтягивают к барабану, опоздание руки там —
+                # «группа развалилась». Между ударами перенос руки работает.
+                if delta:
+                    stats["fret_hand_cost_locked_skipped"] = (
+                        stats.get("fret_hand_cost_locked_skipped", 0) + 1)
+            else:
+                gap_ms = ticks_to_ms(max(0, grid_tick - hand_release_tick), cur_bpm)
+                hand_delay = fret_hand_delay(delta, shift_frets, gap_ms, dur, cur_bpm,
+                                             TICKS_PER_BEAT, hand_cost)
+                if hand_delay:
+                    stats["fret_hand_cost_beats"] += 1
+                    stats["fret_hand_cost_max_ms"] = max(
+                        stats["fret_hand_cost_max_ms"],
+                        round(ticks_to_ms(hand_delay, cur_bpm), 2))
 
         # --- GP8 playback Offset: авторский слой «как сыграно» (opt-in) ---
         # GPIF хранит Offset с разрешением 480 PPQ, MIDI экспортируется в 960 PPQ.
@@ -919,14 +1220,13 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 [clamp_note(string_pitch.get(n.string, 0) + n.value)
                  for n in beat.notes if n.type != NoteType.tie],
                 start_tick, cur_bpm, TICKS_PER_BEAT, hprof, hrng)
+            if not humanize_timing:
+                strum = {}          # направление медиатора остаётся для velocity
 
         # --- fret noise: только при реальном переносе позиции левой руки ---
-        frets = sorted(int(n.value) for n in beat.notes
-                       if n.type != NoteType.tie and int(n.value) > 0)
-        if frets:
-            middle = len(frets) // 2
-            hand_position = (float(frets[middle]) if len(frets) % 2
-                             else (frets[middle - 1] + frets[middle]) / 2.0)
+        # Скрип — это сам переезд руки, поэтому он остаётся на НЕзадержанном
+        # тике бита: звучит во время переноса, до опоздавшей атаки.
+        if hand_position is not None:
             if (fret_noise_on_hand_shift and track_type == TRACK_GUITAR and fret_cfg
                     and previous_hand_position is not None
                     and abs(hand_position - previous_hand_position)
@@ -940,13 +1240,65 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                     stats["fret_noise_events"] += 1
             previous_hand_position = hand_position
 
+        # --- hammer с предыдущего бита на ДРУГУЮ струну: переаппликатура? ---
+        cross_legato_key = None
+        fresh_notes = [n for n in beat.notes if n.type != NoteType.tie]
+        if (refinger_reach is not None and len(fresh_notes) == 1
+                and (vi, fresh_notes[0].string) not in pending_legato):
+            target = fresh_notes[0]
+            sources = [key for key in pending_legato
+                       if key[0] == vi and legato_grid_end.get(key, -1) >= grid_tick]
+            if len(sources) == 1:
+                src_fret = legato_src_fret.get(sources[0], -1)
+                fret_on_source = (clamp_note(string_pitch.get(target.string, 0) + target.value)
+                                  - string_pitch.get(sources[0][1], 0))
+                if (src_fret >= 0 and fret_on_source >= 0 and fret_on_source != src_fret
+                        and abs(fret_on_source - src_fret) < refinger_reach):
+                    cross_legato_key = sources[0]
+
+        # --- направление медиатора (opt-in) ---
+        pick_down = None
+        if pick_ks is not None:
+            fresh = [n for n in beat.notes if n.type != NoteType.tie]
+            picked = bool(fresh) and not all(
+                legato_into.get((vi, n.string), -1) >= grid_tick for n in fresh)
+            if picked:
+                if solo_picking:
+                    if last_pick_end is not None and grid_tick - last_pick_end >= pick_reset_ticks:
+                        next_pick = "down"
+                    direction = next_pick
+                    next_pick = "up" if direction == "down" else "down"
+                elif (last_pick_start is None or ticks_to_ms(grid_tick - last_pick_start, cur_bpm)
+                      >= downpick_min_ioi_ms):
+                    direction = "down"          # рука успевает — чёс вниз
+                else:
+                    direction = ("down" if sixteenth_index(grid_tick, TICKS_PER_BEAT) % 2 == 0
+                                 else "up")
+                last_pick_end = grid_tick + dur
+                last_pick_start = grid_tick
+                stats["pick_direction"][direction] += 1
+                if direction != current_pick:
+                    emit_keyswitch(ev, beat_control_tick + hand_delay, pick_ks[direction], cur_bpm)
+                    stats["ks"] += 1
+                    stats["pick_direction"]["ks"] += 1
+                    current_pick = direction
+                pick_down = direction == "down"
+
         # --- keyswitch для бита: переключаем артикуляцию при изменении ---
         ks_note = beat_keyswitch(beat, track_type, cfg)
         if ks_note != current_ks:
-            emit_keyswitch(ev, beat_control_tick, ks_note, cur_bpm)
+            emit_keyswitch(ev, beat_control_tick + hand_delay, ks_note, cur_bpm)
             stats["ks"] += 1
             current_ks = ks_note
-            last_palm_tick = beat_control_tick
+            last_palm_tick = beat_control_tick + hand_delay
+
+        pm_offset = 0
+        if pm_motion is not None and ks_note in pm_ks_notes:
+            gap = grid_tick - last_pm_end if last_pm_end is not None else 0
+            pm_drift = palm_mute_drift(pm_drift, gap, TICKS_PER_BEAT, pm_motion, pm_rng)
+            last_pm_end = grid_tick + dur
+            pm_offset = int(round(pm_drift))
+            stats["palm_mute_motion_beats"] += 1
 
         for note in beat.notes:
             eff = note.effect
@@ -965,9 +1317,13 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 rec = last_off.get(note.string)
                 if rec is not None:
                     rec["tick"] = start_tick + dur
+                if (vi, note.string) in legato_grid_end:
+                    legato_grid_end[(vi, note.string)] = grid_tick + dur
                 span = last_span.get(note.string)
                 if span is not None:
                     span["off"]["tick"] = start_tick + dur
+                    span["ref_end"] = grid_tick + dur
+                    span["grid_end"] = grid_tick + dur
                     if eff.bend and eff.bend.points:
                         span["bend_segments"].append((start_tick, dur, eff.bend))
                         if not span["bend_pending"]:
@@ -988,31 +1344,50 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                     velocity = pitched_velocity(velocity, start_tick, TICKS_PER_BEAT,
                                                art_name, hprof, hrng,
                                                vel_cap=sustain_vel_max,
-                                               down=strum_down)
+                                               down=strum_down if pick_down is None else pick_down)
                 velocity = min(velocity, sustain_vel_max)
             elif hprof is not None:
                 # прочие артикуляции (palm_mute и т.п.): своей vel-зоны нет,
                 # но выше 127 всё равно нельзя
                 velocity = pitched_velocity(velocity, start_tick, TICKS_PER_BEAT,
                                            art_name, hprof, hrng, vel_cap=127,
-                                           down=strum_down)
+                                           down=strum_down if pick_down is None else pick_down)
+                if pm_offset:
+                    velocity = max(int(hprof["velocity"]["floor"]),
+                                   clamp_vel(velocity + pm_offset))
 
             hidden_entry = hidden_timing.get(id(note))
             hidden_shift = hidden_entry[0] if hidden_entry else 0
             played_shift = played_shifts.get(id(note), 0)
-            on_tick = max(
+            release_anchor = max(
                 0, start_tick + played_shift + hidden_shift + strum.get(pitch, 0),
             )
+            on_tick = release_anchor + hand_delay
+            # тот же тайминг без оживления: эталон для clip_humanized_overlaps
+            ref_anchor = max(0, grid_tick + played_shift + hidden_shift)
 
             # --- легато (B15): эта нота — ЦЕЛЬ ожидающего hammer/pull? ---
             # Источник (нота с флагом hammer) продлевается внахлёст в цель,
             # если он дозвучал до её атаки (иначе легато прервано паузой).
-            origin = pending_legato.get((vi, note.string))
+            # Под --humanize «дозвучал» решает НОТНАЯ сетка: соседние биты
+            # сдвинуты независимо, и по сдвинутым тикам рвалась половина
+            # связанных нотами пар (LESSONS.md п.16).
+            # Hammer на ту же ВЫСОТУ не продлевается: одна клавиша не может
+            # перекрыться сама с собой, и перекрытие отрезало цель до 40 мс
+            # (Spring Melody Solo, такты 5 и 59).
+            legato_key = ((vi, note.string) if (vi, note.string) in pending_legato
+                          else cross_legato_key)
+            origin = pending_legato.get(legato_key) if legato_key else None
             if origin is not None:
-                if origin["tick"] >= on_tick:
+                if origin["msg"].note != pitch and (origin["tick"] >= on_tick or (
+                        (hprof is not None or legato_key != (vi, note.string))
+                        and legato_grid_end.get(legato_key, -1) >= grid_tick)):
                     overlap = ms_to_ticks(LEGATO_OVERLAP_MS, cur_bpm)
                     origin["tick"] = max(origin["tick"], on_tick + overlap)
-                del pending_legato[(vi, note.string)]
+                    legato_bridged.add(id(origin))
+                del pending_legato[legato_key]
+                legato_grid_end.pop(legato_key, None)
+                legato_src_fret.pop(legato_key, None)
 
             # --- принудительный сброс PB перед атакой ---
             if pb_dirty:
@@ -1025,15 +1400,23 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                    Message("note_on", channel=CHANNEL, note=pitch, velocity=velocity))
             if hidden_entry:
                 note_duration = max(1, int(round(dur * hidden_entry[1])))
-                note_end = on_tick + note_duration
+                note_end = release_anchor + note_duration
             elif preserve_gp_played_offsets:
                 # Offset меняет положение атаки, но не нотную длительность.
                 note_duration = dur
-                note_end = on_tick + dur
+                note_end = release_anchor + dur
             else:
                 # Legacy/strum: конец остаётся на сетке Beat, как раньше.
                 note_duration = dur
                 note_end = start_tick + dur
+            if hand_delay and note_end <= on_tick:
+                note_end = on_tick + 1
+            if hidden_entry:
+                ref_end = ref_anchor + note_duration
+            elif preserve_gp_played_offsets:
+                ref_end = ref_anchor + dur
+            else:
+                ref_end = grid_tick + dur
             off_rec = ev.add(note_end, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
             note_span = {
@@ -1042,6 +1425,12 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 "bpm": cur_bpm,
                 "bend_segments": [],
                 "bend_pending": False,
+                "pitch": pitch,
+                "string": (vi, note.string),
+                "ref_start": ref_anchor,
+                "ref_end": ref_end,
+                "grid_start": grid_tick,
+                "grid_end": grid_tick + dur,
             }
             all_note_spans.append(note_span)
             last_off[note.string] = off_rec
@@ -1052,6 +1441,8 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
             # на той же струне (см. блок легато выше)
             if eff.hammer:
                 pending_legato[(vi, note.string)] = off_rec
+                legato_grid_end[(vi, note.string)] = grid_tick + dur
+                legato_src_fret[(vi, note.string)] = int(note.value)
 
             # --- PB / вибрато / слайды ---
             # Бенды и слайды НЕ рисуем сразу — по той же причине, что и
@@ -1082,6 +1473,41 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 pending_slides.append((on_tick, off_rec, eff.slides, pitch,
                                        next_pitch, cur_bpm))
                 pb_dirty = True
+
+        # --- состояние рук для следующего бита (только при fret_hand_cost / pick_direction) ---
+        if hand_cost is not None or pick_ks is not None:
+            held = hand_position is not None
+            for note in beat.notes:
+                key = (vi, note.string)
+                if note.type == NoteType.tie:
+                    held = held or int(note.value) > 0
+                    if key in legato_into:
+                        legato_into[key] = grid_tick + dur
+                elif note.effect.hammer or any(
+                        slide in LEGATO_SLIDE_TYPES for slide in (note.effect.slides or [])):
+                    legato_into[key] = grid_tick + dur
+                else:
+                    legato_into.pop(key, None)
+            if hand_position is not None:
+                hand_release_tick = grid_tick + dur
+            elif held and hand_release_tick is not None:
+                hand_release_tick = max(hand_release_tick, grid_tick + dur)
+
+    # Хвосты нот обрезаются по следующей атаке той же клавиши (всегда), а под
+    # --humanize ещё и той же струны и по эталону без оживления — ДО бендов и
+    # вибрато: их кривые и сброс PB берут конец ноты из off_rec.
+    # Авторские сдвиги GP дают перекрытия, которых нет в нотах (Spring Melody
+    # Solo: 52 из 236 переходов, до 303 мс), и Hydra играет их легато — hammer
+    # между струнами. По умолчанию убираются; keep_gp_played_overlaps их
+    # оставляет. Решение пользователя 2026-09-24: проверять на слух, опция.
+    if preserve_gp_played_offsets and not keep_gp_played_overlaps:
+        stats["gp_overlaps_clipped"] = clip_overlaps_absent_from(
+            all_note_spans, legato_bridged, "grid_start", "grid_end")
+    if hprof is not None:
+        stats["humanize_clipped_notes"] = clip_humanized_overlaps(all_note_spans,
+                                                                  legato_bridged)
+    else:
+        stats["same_pitch_clipped_notes"] = clip_same_pitch_overlaps(all_note_spans)
 
     # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
     # off_rec["tick"] у каждой ноты содержит её настоящий конец.
@@ -1248,6 +1674,7 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False,
     string_pitch = {s.number: s.value for s in track.strings}
     last_off_by_voice = {}
     hidden_off_by_voice = {}
+    note_spans = []                 # для clip_same_pitch_overlaps
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
 
@@ -1347,6 +1774,7 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False,
                    Message("note_on", channel=CHANNEL, note=pitch, velocity=velocity))
             off_rec = ev.add(on_tick + note_dur, ORDER_OFF,
                              Message("note_off", channel=CHANNEL, note=pitch, velocity=0))
+            note_spans.append({"start": on_tick, "off": off_rec, "pitch": pitch})
             if hidden_entry:
                 hidden_off[pitch] = off_rec
             else:
@@ -1354,6 +1782,11 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False,
                 last_off[note.string] = off_rec
             stats["notes"] += 1
 
+    # Клавиши/синты/вокал теряли ноты тем же путём, что и гитара: нота той же
+    # высоты начиналась до note_off предыдущей, и он гасил новую (58 находок
+    # KEY_RETRIGGER на трёх песнях). Решение пользователя 2026-09-24: «ноты не
+    # должны теряться».
+    stats["same_pitch_clipped_notes"] = clip_same_pitch_overlaps(note_spans)
     return ev.to_miditrack(), stats
 
 
@@ -1361,7 +1794,7 @@ def build_other_midi(song, track, expand_gp_hidden_32nds=False,
 #  Сборка MIDI: DRUMS (Shreddage Drums)
 # --------------------------------------------------------------------------- #
 def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
-                    ghost_notes=None):
+                    ghost_notes=None, timeline=None):
     """MIDI для барабанного трека под Shreddage Drums.
 
     GM-нота из GP-percussion-трека переводится в ноту Shreddage Drums по
@@ -1374,6 +1807,11 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
     (на входе ApolloTab отдаёт для перкуссии плоские 95 на все ноты) и
     добавляется микро-тайминг. По умолчанию ВЫКЛЮЧЕНО — без флага выхлоп
     остаётся прежним.
+
+    timeline — словарь, который заполняется таймингом барабанщика для
+    lock_to_drums: {нотный тик: {"kick"|"snare": сдвиг в тиках}} (после
+    оживления; без него сдвиги нулевые — группа играет под квантованные
+    барабаны). MIDI от этого не меняется.
     """
     cfg = cfg or config_for_track_type(TRACK_DRUMS)
     stats = {"notes": 0, "ks": 0, "cc1": 0,
@@ -1425,7 +1863,7 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
                 continue
             velocity = accent_boosted_velocity(note, clamp_vel(note.velocity))
             pending.append({"tick": start_tick, "note": clamp_note(out_note),
-                            "vel": velocity,
+                            "vel": velocity, "grid": start_tick,
                             "dur": max(1, min(dur, TICKS_PER_BEAT // 4))})
             stats["notes"] += 1
 
@@ -1444,6 +1882,12 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
                         base_bpm, hstats.get("tempo_segments", 1),
                         hstats.get("ghosts", 0))
 
+    if timeline is not None:
+        for p in pending:
+            limb = DRUM_CLASS.get(p["note"])
+            if "grid" in p and limb in ("kick", "snare"):   # гост-ноты без "grid" — не опора
+                timeline.setdefault(p["grid"], {}).setdefault(limb, p["tick"] - p["grid"])
+
     for p in pending:
         ev.add(p["tick"], ORDER_ON,
                Message("note_on", channel=CHANNEL, note=p["note"], velocity=p["vel"]))
@@ -1451,6 +1895,26 @@ def build_drum_midi(song, track, cfg=None, humanize=False, humanize_seed=7,
                Message("note_off", channel=CHANNEL, note=p["note"], velocity=0))
 
     return ev.to_miditrack(), stats
+
+
+# Отдельный поток случайности для дрейфа глушения: включение --palm-mute-motion
+# не должно менять ни одного другого случайного решения оживления.
+PALM_MUTE_MOTION_SALT = 0x9A1
+
+# Второй дубль ритм-гитары: тот же экспорт с другим seed оживления. Смещение
+# больше любого seed, который принимает веб (0..9999), поэтому дубль никогда не
+# совпадёт с «первым» дублем другого прогона.
+DOUBLE_TRACK_SEED_OFFSET = 10007
+DOUBLE_TRACK_SUFFIX = " (double)"
+
+
+def rename_midi_track(midi_track, name):
+    """Переименовать дорожку (meta track_name) — для дубля."""
+    for i, msg in enumerate(midi_track):
+        if msg.type == "track_name":
+            midi_track[i] = msg.copy(name=name)
+            break
+    return midi_track
 
 
 def build_combined_midi(midi_tracks, ticks_per_beat=TICKS_PER_BEAT):
@@ -1506,13 +1970,34 @@ def parse_cli_options(argv):
     known = {
         "--humanize", "--ghost-notes", "--no-verify", "--auto-sustain-vibrato",
         "--fret-noise-on-hand-shift", "--expand-gp-hidden-32nds",
-        "--preserve-gp-played-offsets",
+        "--preserve-gp-played-offsets", "--fret-hand-cost",
+        "--no-expand-gp-hidden-32nds", "--no-preserve-gp-played-offsets",
+        "--keep-gp-played-overlaps", "--humanize-timing-over-gp-offsets",
+        "--lock-to-drums", "--double-rhythm-guitars",
+        "--pick-direction", "--palm-mute-motion",
     }
     # A typo like --humanise used to be silently ignored, so the export ran in a
     # different mode than the caller asked for and nothing said so.
     unknown = sorted(f for f in flags if f not in known and not f.startswith("--seed="))
     if unknown:
         raise ValueError("неизвестные флаги: " + ", ".join(unknown))
+    # Стоимость переноса руки живёт в профиле оживления. Без --humanize флаг
+    # молча ничего бы не сделал — экспорт в другом режиме, чем просили.
+    for flag in ("--fret-hand-cost", "--humanize-timing-over-gp-offsets",
+                 "--lock-to-drums", "--double-rhythm-guitars", "--palm-mute-motion"):
+        if flag in flags and "--humanize" not in flags:
+            raise ValueError(f"{flag} работает только вместе с --humanize")
+    for option in ("expand-gp-hidden-32nds", "preserve-gp-played-offsets"):
+        if f"--{option}" in flags and f"--no-{option}" in flags:
+            raise ValueError(f"--{option} и --no-{option} взаимоисключающие")
+    # Скрытые 32-е разносятся везде по умолчанию, авторские сдвиги атак
+    # сохраняются по умолчанию на соло (решение пользователя 2026-09-24).
+    if "--no-preserve-gp-played-offsets" in flags:
+        played_offsets = PLAYED_OFFSETS_NONE
+    elif "--preserve-gp-played-offsets" in flags:
+        played_offsets = PLAYED_OFFSETS_ALL
+    else:
+        played_offsets = PLAYED_OFFSETS_SOLO
     seed = 7
     for flag in flags:
         if flag.startswith("--seed="):
@@ -1529,8 +2014,15 @@ def parse_cli_options(argv):
         "seed": seed,
         "auto_sustain_vibrato": "--auto-sustain-vibrato" in flags,
         "fret_noise_on_hand_shift": "--fret-noise-on-hand-shift" in flags,
-        "expand_gp_hidden_32nds": "--expand-gp-hidden-32nds" in flags,
-        "preserve_gp_played_offsets": "--preserve-gp-played-offsets" in flags,
+        "expand_gp_hidden_32nds": "--no-expand-gp-hidden-32nds" not in flags,
+        "preserve_gp_played_offsets": played_offsets,
+        "fret_hand_cost": "--fret-hand-cost" in flags,
+        "keep_gp_played_overlaps": "--keep-gp-played-overlaps" in flags,
+        "humanize_timing_over_gp_offsets": "--humanize-timing-over-gp-offsets" in flags,
+        "lock_to_drums": "--lock-to-drums" in flags,
+        "double_rhythm_guitars": "--double-rhythm-guitars" in flags,
+        "pick_direction": "--pick-direction" in flags,
+        "palm_mute_motion": "--palm-mute-motion" in flags,
     }
 
 
@@ -1545,20 +2037,31 @@ def main(argv):
     seed = options["seed"]
     auto_sustain_vibrato = options["auto_sustain_vibrato"]
     fret_noise_on_hand_shift = options["fret_noise_on_hand_shift"]
-    expand_gp_hidden_32nds = options["expand_gp_hidden_32nds"]
-    preserve_gp_played_offsets = options["preserve_gp_played_offsets"]
+    fret_hand_cost = options["fret_hand_cost"]
 
     if options["source"] is None:
         sys.exit("Использование: python gp_to_shreddage.py song.gp5 "
                  "[--humanize] [--ghost-notes] [--auto-sustain-vibrato] "
-                 "[--fret-noise-on-hand-shift] [--expand-gp-hidden-32nds] "
-                 "[--preserve-gp-played-offsets] [--seed=N]\n"
+                 "[--fret-noise-on-hand-shift] [--no-expand-gp-hidden-32nds] "
+                 "[--preserve-gp-played-offsets | --no-preserve-gp-played-offsets] "
+                 "[--fret-hand-cost] [--keep-gp-played-overlaps] "
+                 "[--humanize-timing-over-gp-offsets] [--lock-to-drums] "
+                 "[--double-rhythm-guitars] [--pick-direction] [--palm-mute-motion] "
+                 "[--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
                  "  --fret-noise-on-hand-shift C#0 при заметном переносе позиции руки\n"
-                 "  --expand-gp-hidden-32nds разнести GP playback-группы на тональных треках\n"
-                 "  --preserve-gp-played-offsets сохранить GP8-сдвиги атак Guitar/Bass\n"
+                 "  --no-expand-gp-hidden-32nds НЕ разносить GP playback-группы (по умолчанию разносятся)\n"
+                 "  --preserve-gp-played-offsets GP8-сдвиги атак на ВСЕХ Guitar/Bass (по умолчанию — на соло)\n"
+                 "  --no-preserve-gp-played-offsets не сохранять GP8-сдвиги атак нигде\n"
+                 "  --keep-gp-played-overlaps оставить перекрытия от GP8-сдвигов (Hydra: легато)\n"
+                 "  --humanize-timing-over-gp-offsets тайминг оживления поверх GP8-сдвигов\n"
+                 "  --lock-to-drums бас и гитары держатся за бочку/малый (с --humanize)\n"
+                 "  --double-rhythm-guitars второй дубль ритм-гитар со своим seed (с --humanize)\n"
+                 "  --pick-direction направление медиатора keyswitch-ами Hydra (Picking Mode)\n"
+                 "  --palm-mute-motion глушение как движение руки: дрейф velocity P.M. (с --humanize)\n"
+                 "  --fret-hand-cost задержка атаки при переносе руки (только с --humanize)\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = options["source"]
@@ -1581,40 +2084,28 @@ def main(argv):
     smoke_errors = []
     all_tracks = []
 
-    for idx, track in enumerate(song.tracks, start=1):
-        track_type = resolve_track_type(track)
+    # Ритм-секция вместе: барабаны строятся ПЕРВЫМИ, их тайминг получают бас и
+    # гитары (--lock-to-drums). Барабанная дорожка может стоять в песне после
+    # гитар, поэтому отдельный проход; результат переиспользуется ниже.
+    drum_timeline = {} if options["lock_to_drums"] else None
+    prebuilt_drums = {}
+    if drum_timeline is not None:
+        for idx, track in enumerate(song.tracks, start=1):
+            if resolve_track_type(track) == TRACK_DRUMS:
+                prebuilt_drums[idx] = build_drum_midi(
+                    song, track, humanize=humanize, humanize_seed=seed,
+                    ghost_notes=ghost_notes, timeline=drum_timeline)
 
-        if track_type == TRACK_DRUMS:
-            midi_track, stats = build_drum_midi(song, track, humanize=humanize,
-                                                humanize_seed=seed,
-                                                ghost_notes=ghost_notes)
-        elif track_type == TRACK_OTHER:
-            midi_track, stats = build_other_midi(
-                song, track,
-                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
-                preserve_gp_played_offsets=preserve_gp_played_offsets,
-            )
-        else:
-            midi_track, stats = build_instrument_midi(
-                song, track, track_type,
-                humanize=humanize, humanize_seed=seed,
-                auto_sustain_vibrato=auto_sustain_vibrato,
-                fret_noise_on_hand_shift=fret_noise_on_hand_shift,
-                performance_seed=seed,
-                expand_gp_hidden_32nds=expand_gp_hidden_32nds,
-                preserve_gp_played_offsets=preserve_gp_played_offsets,
-            )
-
-        name = safe_filename(track.name) or ("Track_%d" % idx)
+    def write_track(base_name, display_name, track_type, midi_track, stats):
         # Dedup case-insensitively and re-probe: on macOS/Windows "Guitar" and
         # "GUITAR" resolve to the same file, so the second track silently
         # overwrote the first one's MIDI.
-        fname = name
+        fname = base_name
         key = fname.casefold()
         if key in used:
             while True:
                 used[key] += 1
-                fname = "%s_%d" % (name, used[key])
+                fname = "%s_%d" % (base_name, used[key])
                 if fname.casefold() not in used:
                     break
             used[fname.casefold()] = 1
@@ -1627,24 +2118,79 @@ def main(argv):
         mf.save(out_path)
         all_tracks.append(midi_track)
 
-        summary.append((track.name or "(без имени)", track_type, stats, os.path.basename(out_path)))
+        summary.append((display_name, track_type, stats, os.path.basename(out_path)))
         if track_type == TRACK_OTHER:
-            warnings.append(track.name or "(без имени)")
+            warnings.append(display_name)
         for w in stats.get("warnings", []):
-            print('WARNING [%s]: %s' % (track.name or "(без имени)", w))
+            print('WARNING [%s]: %s' % (display_name, w))
 
         # смок-проверка готового артефакта: инварианты, а не музыка
         if not no_verify:
             found = smoke_check(out_path, track_type)
             if found:
-                print('SMOKE [%s]:' % (track.name or "(без имени)"))
+                print('SMOKE [%s]:' % display_name)
                 for sev, code, msg in found:
                     if sev == "INFO" and not humanize:
                         continue      # неоживлённый экспорт квантован by design
                     mark = {"ERROR": "!!", "WARN": " !", "INFO": "  "}[sev]
                     print('  %s [%s] %s' % (mark, code, msg))
                     if sev == "ERROR":
-                        smoke_errors.append((track.name, code))
+                        smoke_errors.append((display_name, code))
+
+    for idx, track in enumerate(song.tracks, start=1):
+        track_type = resolve_track_type(track)
+
+        render = resolve_track_render_options(track, track_type, options)
+        instrument_kwargs = dict(
+            humanize=humanize,
+            auto_sustain_vibrato=auto_sustain_vibrato,
+            fret_noise_on_hand_shift=fret_noise_on_hand_shift,
+            fret_hand_cost=fret_hand_cost,
+            keep_gp_played_overlaps=options["keep_gp_played_overlaps"],
+            humanize_timing_over_gp_offsets=options["humanize_timing_over_gp_offsets"],
+            lock_to_drums=options["lock_to_drums"], drum_timeline=drum_timeline,
+            pick_direction=options["pick_direction"],
+            palm_mute_motion=options["palm_mute_motion"],
+            **render,
+        )
+        if track_type == TRACK_DRUMS:
+            midi_track, stats = prebuilt_drums.get(idx) or build_drum_midi(
+                song, track, humanize=humanize, humanize_seed=seed,
+                ghost_notes=ghost_notes)
+        elif track_type == TRACK_OTHER:
+            midi_track, stats = build_other_midi(song, track, **render)
+        else:
+            midi_track, stats = build_instrument_midi(
+                song, track, track_type, humanize_seed=seed, performance_seed=seed,
+                **instrument_kwargs)
+            if render["preserve_gp_played_offsets"]:
+                print("  [%s]: сохранены авторские сдвиги атак GP (%d нот)"
+                      % (track.name, stats["played_offset_notes"]))
+            if "fret_hand_cost_beats" in stats:
+                print("  перенос руки [%s]: задержано битов %d (макс %.1f мс), "
+                      "цели легато без задержки %d"
+                      % (track.name, stats["fret_hand_cost_beats"],
+                         stats["fret_hand_cost_max_ms"],
+                         stats["fret_hand_cost_legato_skipped"]))
+            if "drum_lock" in stats:
+                print("  с барабанами [%s]: %s" % (track.name, stats["drum_lock"]))
+
+        name = safe_filename(track.name) or ("Track_%d" % idx)
+        display = track.name or "(без имени)"
+        write_track(name, display, track_type, midi_track, stats)
+
+        # Второй дубль ритм-гитары: свой seed — своё микро-время, velocity и
+        # штрих; с --lock-to-drums оба дубля держатся за одну бочку.
+        if (options["double_rhythm_guitars"] and track_type == TRACK_GUITAR
+                and not is_solo_track(track, track_type)):
+            double_seed = seed + DOUBLE_TRACK_SEED_OFFSET
+            double_track, double_stats = build_instrument_midi(
+                song, track, track_type, humanize_seed=double_seed,
+                performance_seed=double_seed, **instrument_kwargs)
+            rename_midi_track(double_track, display + DOUBLE_TRACK_SUFFIX)
+            print("  дубль [%s]: seed %d" % (display, double_seed))
+            write_track(safe_filename(display + DOUBLE_TRACK_SUFFIX) or name + "_double",
+                        display + DOUBLE_TRACK_SUFFIX, track_type, double_track, double_stats)
 
     # --- вывод в консоль ---
     print("\n%-30s %-7s %6s %6s %6s" % ("ТРЕК", "ТИП", "НОТ", "KS", "CC1"))

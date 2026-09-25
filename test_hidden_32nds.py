@@ -4,6 +4,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 from guitarpro.models import NoteType
 
 import gp_to_shreddage as g
@@ -232,12 +233,16 @@ def test_other_track_without_hidden_group_is_event_identical_when_enabled():
     assert stats["hidden_32nd_beats"] == 0
 
 
-def test_cli_parses_hidden_32nds_as_independent_opt_in():
-    options = g.parse_cli_options([
-        "gp_to_shreddage.py", "song.gp", "--expand-gp-hidden-32nds",
-    ])
+def test_cli_expands_hidden_32nds_by_default_with_an_opt_out():
+    """Решение пользователя 2026-09-24: скрытые 32-е разносятся везде по умолчанию."""
+    def parse(*flags):
+        return g.parse_cli_options(["gp_to_shreddage.py", "song.gp", *flags])
 
-    assert options["expand_gp_hidden_32nds"] is True
+    assert parse()["expand_gp_hidden_32nds"] is True
+    assert parse("--expand-gp-hidden-32nds")["expand_gp_hidden_32nds"] is True
+    assert parse("--no-expand-gp-hidden-32nds")["expand_gp_hidden_32nds"] is False
+    with pytest.raises(ValueError, match="взаимоисключающие"):
+        parse("--expand-gp-hidden-32nds", "--no-expand-gp-hidden-32nds")
 
 
 def test_processing_step_forwards_hidden_32nds_per_track(monkeypatch):

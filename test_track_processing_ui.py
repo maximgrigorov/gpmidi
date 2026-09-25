@@ -29,7 +29,9 @@ def test_discovery_is_parse_only_and_defaults_every_track_to_selected(monkeypatc
     assert discovered[1]["track_name"] == "Synth (Staff 1)"
     assert discovered[2]["available_effects"] == [
         "humanize", "auto_sustain_vibrato", "fret_noise_on_hand_shift",
-        "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
+        "fret_hand_cost", "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
+        "keep_gp_played_overlaps", "humanize_timing_over_gp_offsets",
+        "lock_to_drums", "double_track", "pick_direction", "palm_mute_motion",
     ]
 
 
@@ -221,6 +223,13 @@ def test_track_summary_only_renders_selected_tracks_with_their_own_options(monke
         "performance_seed": 23,
         "expand_gp_hidden_32nds": False,
         "preserve_gp_played_offsets": True,
+        "fret_hand_cost": False,
+        "keep_gp_played_overlaps": False,
+        "humanize_timing_over_gp_offsets": False,
+        "lock_to_drums": False,
+        "drum_timeline": None,
+        "pick_direction": False,
+        "palm_mute_motion": False,
     })]
     assert tracks[0]["effects"]["humanize"] is True
     assert "Hydra" in " ".join(tracks[0]["processing_report"])
@@ -265,3 +274,24 @@ def test_unique_name_does_not_collide_on_repeat_uploads(tmp_path: Path):
     second = web.unique_name(tmp_path, "Песня.gp")
     assert second != first
     assert Path(second).suffix == ".gp"
+
+
+def test_discovery_prechecks_hidden_32nds_everywhere_and_played_offsets_on_solo(monkeypatch):
+    """Решение пользователя 2026-09-24 — те же дефолты, что у CLI."""
+    import app as web
+
+    song = SimpleNamespace(tracks=[
+        _source_track("Guitar (Solo)"), _source_track("Guitar (Rhytm)"),
+        _source_track("Synth (Staff 1)"),
+    ])
+    types = iter(["GUITAR", "GUITAR", "OTHER"])
+    monkeypatch.setattr(web, "resolve_track_type", lambda _track: next(types))
+
+    solo, rhythm, synth = web.discover_tracks(song)
+
+    assert solo["default_effects"] == {"expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": True}
+    assert rhythm["default_effects"] == {"expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": False}
+    assert synth["default_effects"] == {"expand_gp_hidden_32nds": True}
+    source = Path("templates/index.html").read_text(encoding="utf-8")
+    assert "get('expand_gp_hidden_32nds') %} checked" in source
+    assert "get('preserve_gp_played_offsets') %} checked" in source
