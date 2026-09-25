@@ -279,7 +279,8 @@
 
 ## Still open (do not "fix" silently — ask first)
 - `--humanize` note ends (LESSONS.md p.16): fixed and approved on
-  `fix/humanize-note-ends` (1909 lost notes -> 0); merged 2026-09-25.
+  `fix/humanize-note-ends` (1909 lost notes -> 0); merged 2026-09-25 in
+  `213075fc4878dde6a57557c83ca792eb943a14bb`.
 - Whether authored-offset overlaps and humanize timing over authored offsets
   sound better ON is still to be judged by ear in the DAW; both are opt-in
   switches now (see Render defaults).
