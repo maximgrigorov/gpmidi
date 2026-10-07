@@ -26,10 +26,9 @@ def transcribe(input_path: Path, output_path: Path) -> dict:
     )
     output_path.mkdir(parents=True, exist_ok=True)
     try:
-        midi_bytes, _ = model.transcribe_and_postprocess(
+        midi_bytes = model.transcribe_to_midi(
             input_path,
             detect_tempo="best-effort",
-            quantize=False,
         )
         (output_path / "transcription.mid").write_bytes(midi_bytes)
     finally:
