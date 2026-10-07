@@ -42,6 +42,8 @@ spec:
           value: sheetsage2-data
         - name: SHEETSAGE2_MODEL_PVC
           value: sheetsage2-models
+        - name: MUSCRIPTOR_MODEL_PVC
+          value: muscriptor-models
         - name: KUBERNETES_NAMESPACE
           value: gpmidi-ml
         - name: SHEETSAGE2_WORKER_IMAGE

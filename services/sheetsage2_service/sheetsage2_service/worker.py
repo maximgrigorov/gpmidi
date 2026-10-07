@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 from typing import Callable
 
-from . import MODEL_REVISION
+from . import MODEL_REVISION, MUSCRIPTOR_LARGE_REVISION
 from .artifacts import package_transcription
 from .failures import classify_exception
 
@@ -48,9 +48,19 @@ def _default_transcriber(input_path: Path, output_path: Path) -> dict:
     return transcribe(input_path, output_path)
 
 
+def _muscriptor_transcriber(input_path: Path, output_path: Path) -> dict:
+    from .muscriptor_runtime import transcribe
+
+    return transcribe(input_path, output_path)
+
+
 def run_worker(
-    *, job_dir: Path, transcriber: Transcriber = _default_transcriber,
+    *,
+    job_dir: Path,
+    transcriber: Transcriber = _default_transcriber,
     model_revision: str = MODEL_REVISION,
+    transcribers: dict[str, Transcriber] | None = None,
+    model_revisions: dict[str, str] | None = None,
 ) -> int:
     job_dir = Path(job_dir)
     state_path = job_dir / "state.json"
@@ -62,19 +72,46 @@ def run_worker(
         )
         return 2
     input_path = inputs[0]
+    try:
+        initial_state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        initial_state = {}
+    selected = str(
+        initial_state.get("transcriber")
+        or os.environ.get("AUDIO_TRANSCRIBER", "sheetsage2")
+    )
+    available = transcribers or {
+        "sheetsage2": transcriber,
+        "muscriptor-large": _muscriptor_transcriber,
+    }
+    revisions = model_revisions or {
+        "sheetsage2": model_revision,
+        "muscriptor-large": MUSCRIPTOR_LARGE_REVISION,
+    }
+    if selected not in available or selected not in revisions:
+        _merge_state(
+            state_path,
+            {
+                "status": "failed",
+                "error_code": "invalid_model",
+                "message": "Неизвестная модель транскрипции.",
+            },
+        )
+        return 2
     model_output = job_dir / "model-output"
     _merge_state(state_path, {"status": "running", "stage": "loading_model"})
     started = time.monotonic()
     try:
-        details = transcriber(input_path, model_output) or {}
+        details = available[selected](input_path, model_output) or {}
         elapsed = float(details.get("elapsed_seconds", time.monotonic() - started))
         packaged = package_transcription(
             model_output=model_output,
             destination=job_dir / "result",
             original_filename=input_path.name,
-            model_revision=model_revision,
+            model_revision=revisions[selected],
             input_sha256=_sha256(input_path),
             elapsed_seconds=elapsed,
+            transcriber=selected,
         )
     # This is the worker's terminal boundary: every model/runtime failure must
     # produce durable, normalized state instead of leaving the job "running".

@@ -1357,6 +1357,10 @@ def sheetsage2_upload():
     if extension not in {".wav", ".flac", ".mp3"}:
         flash("Поддерживаются WAV, FLAC и MP3.", "error")
         return redirect(url_for("sheetsage2_page"))
+    transcriber = request.form.get("transcriber", "sheetsage2")
+    if transcriber not in {"sheetsage2", "muscriptor-large"}:
+        flash("Выберите поддерживаемую модель транскрипции.", "error")
+        return redirect(url_for("sheetsage2_page"))
     try:
         response = requests.put(
             f"{SHEETSAGE2_API_BASE}/v1/jobs",
@@ -1364,6 +1368,7 @@ def sheetsage2_upload():
             headers={
                 **_sheetsage2_owner_headers(),
                 "X-Filename": secure_filename(uploaded.filename),
+                "X-Transcriber": transcriber,
                 "Content-Type": uploaded.mimetype or "application/octet-stream",
             },
             timeout=SHEETSAGE2_API_TIMEOUT,

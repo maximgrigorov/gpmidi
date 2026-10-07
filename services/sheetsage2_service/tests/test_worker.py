@@ -84,3 +84,31 @@ def test_worker_logs_the_failure_cause_it_normalizes(tmp_path: Path, capsys):
     logged = capsys.readouterr().err
     assert "OSError" in logged
     assert "Read-only file system" in logged
+
+
+def test_worker_dispatches_muscriptor_large_from_persisted_job_state(tmp_path: Path, midi_factory):
+    job_dir = tmp_path / "jobs" / "job4"
+    input_dir = job_dir / "input"
+    input_dir.mkdir(parents=True)
+    _wav(input_dir / "song.wav")
+    (job_dir / "state.json").write_text(
+        json.dumps({"status": "queued", "transcriber": "muscriptor-large"}),
+        encoding="utf-8",
+    )
+    called = []
+
+    def muscriptor(input_path: Path, output: Path) -> dict:
+        called.append(input_path.name)
+        output.mkdir(parents=True)
+        (output / "transcription.mid").write_bytes(midi_factory())
+        return {"elapsed_seconds": 1.25}
+
+    assert run_worker(
+        job_dir=job_dir,
+        transcribers={"muscriptor-large": muscriptor},
+        model_revisions={"muscriptor-large": "large-rev"},
+    ) == 0
+    assert called == ["song.wav"]
+    report = json.loads((job_dir / "result" / "report.json").read_text(encoding="utf-8"))
+    assert report["transcriber"] == "muscriptor-large"
+    assert report["model_revision"] == "large-rev"

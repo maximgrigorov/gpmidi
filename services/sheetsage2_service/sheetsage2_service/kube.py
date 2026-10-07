@@ -9,11 +9,15 @@ _JOB_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 def build_worker_job(
     *, job_id: str, image: str, pvc_name: str,
     model_pvc_name: str = "sheetsage2-models",
+    transcriber: str = "sheetsage2",
+    muscriptor_model_pvc_name: str = "muscriptor-models",
 ) -> dict[str, Any]:
     if not _JOB_ID.fullmatch(job_id):
         raise ValueError("invalid job_id")
     if "@sha256:" not in image:
         raise ValueError("worker image must be pinned by digest")
+    if transcriber not in {"sheetsage2", "muscriptor-large"}:
+        raise ValueError("unsupported transcriber")
     name = f"sheetsage2-{job_id}"
     return {
         "apiVersion": "batch/v1",
@@ -53,6 +57,11 @@ def build_worker_job(
                             # copies model code into the HF modules cache.
                             "env": [
                                 {"name": "SHEETSAGE2_JOB_ID", "value": job_id},
+                                {"name": "AUDIO_TRANSCRIBER", "value": transcriber},
+                                {
+                                    "name": "MUSCRIPTOR_MODEL_PATH",
+                                    "value": "/muscriptor-models/large/model.safetensors",
+                                },
                                 {"name": "HOME", "value": "/tmp/home"},
                                 {"name": "HF_HOME", "value": "/tmp/huggingface"},
                                 {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
@@ -78,6 +87,11 @@ def build_worker_job(
                             "volumeMounts": [
                                 {"name": "data", "mountPath": "/data"},
                                 {"name": "models", "mountPath": "/models", "readOnly": True},
+                                {
+                                    "name": "muscriptor-models",
+                                    "mountPath": "/muscriptor-models",
+                                    "readOnly": True,
+                                },
                                 {"name": "tmp", "mountPath": "/tmp"},
                             ],
                         }
@@ -85,6 +99,10 @@ def build_worker_job(
                     "volumes": [
                         {"name": "data", "persistentVolumeClaim": {"claimName": pvc_name}},
                         {"name": "models", "persistentVolumeClaim": {"claimName": model_pvc_name}},
+                        {
+                            "name": "muscriptor-models",
+                            "persistentVolumeClaim": {"claimName": muscriptor_model_pvc_name},
+                        },
                         {"name": "tmp", "emptyDir": {"sizeLimit": "4Gi"}},
                     ],
                 },

@@ -51,17 +51,24 @@ def test_audio_tool_page_and_streaming_upload(monkeypatch):
     client = web.app.test_client()
     page = client.get("/audio-to-midi")
     assert page.status_code == 200
-    assert "Audio → MIDI · SheetSage2" in page.get_data(as_text=True)
+    html = page.get_data(as_text=True)
+    assert "Audio → MIDI · AI Transcription" in html
+    assert 'value="muscriptor-large"' in html
+    assert "CC BY-NC 4.0" in html
 
     response = client.post(
         "/audio-to-midi/upload",
-        data={"file": (BytesIO(b"RIFFxxxxWAVEdata"), "song.wav")},
+        data={
+            "file": (BytesIO(b"RIFFxxxxWAVEdata"), "song.wav"),
+            "transcriber": "muscriptor-large",
+        },
         content_type="multipart/form-data",
     )
     assert response.status_code == 302
     assert "job=abc123def456" in response.headers["Location"]
     assert captured["body"] == b"RIFFxxxxWAVEdata"
     assert captured["headers"]["X-Filename"] == "song.wav"
+    assert captured["headers"]["X-Transcriber"] == "muscriptor-large"
 
 
 def test_audio_dropzone_prevents_browser_navigation_and_selects_dropped_file(monkeypatch):

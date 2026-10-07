@@ -21,6 +21,7 @@ class KubernetesLauncher:
     def __init__(
         self, *, image: str, pvc_name: str,
         model_pvc_name: str = "sheetsage2-models",
+        muscriptor_model_pvc_name: str = "muscriptor-models",
         namespace: str = "gpmidi-ml",
     ):
         from kubernetes import client, config
@@ -31,15 +32,18 @@ class KubernetesLauncher:
         self.image = image
         self.pvc_name = pvc_name
         self.model_pvc_name = model_pvc_name
+        self.muscriptor_model_pvc_name = muscriptor_model_pvc_name
         self.namespace = namespace
 
     def ready(self) -> None:
         self.batch.list_namespaced_job(namespace=self.namespace, limit=1)
 
-    def launch(self, job_id: str) -> None:
+    def launch(self, job_id: str, transcriber: str) -> None:
         body = build_worker_job(
             job_id=job_id, image=self.image, pvc_name=self.pvc_name,
             model_pvc_name=self.model_pvc_name,
+            transcriber=transcriber,
+            muscriptor_model_pvc_name=self.muscriptor_model_pvc_name,
         )
         self.batch.create_namespaced_job(namespace=self.namespace, body=body)
 
@@ -101,5 +105,8 @@ def launcher_from_env() -> KubernetesLauncher:
         image=image,
         pvc_name=os.environ.get("SHEETSAGE2_PVC", "sheetsage2-data"),
         model_pvc_name=os.environ.get("SHEETSAGE2_MODEL_PVC", "sheetsage2-models"),
+        muscriptor_model_pvc_name=os.environ.get(
+            "MUSCRIPTOR_MODEL_PVC", "muscriptor-models"
+        ),
         namespace=os.environ.get("KUBERNETES_NAMESPACE", "gpmidi-ml"),
     )

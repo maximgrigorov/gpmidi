@@ -18,7 +18,7 @@ OWNER_HEADERS = {"X-Owner-Token": OWNER}
 
 class FakeLauncher:
     def __init__(self):
-        self.launched: list[str] = []
+        self.launched: list[tuple[str, str]] = []
         self.observation = WorkerObservation(phase="queued")
         self.ready_error: Exception | None = None
 
@@ -26,8 +26,8 @@ class FakeLauncher:
         if self.ready_error is not None:
             raise self.ready_error
 
-    def launch(self, job_id: str) -> None:
-        self.launched.append(job_id)
+    def launch(self, job_id: str, transcriber: str) -> None:
+        self.launched.append((job_id, transcriber))
 
     def observe(self, job_id: str) -> WorkerObservation:
         return self.observation
@@ -46,10 +46,11 @@ def _wav_bytes() -> bytes:
     return output.getvalue()
 
 
-def _create(client: TestClient, filename: str = "demo.wav"):
+def _create(client: TestClient, filename: str = "demo.wav", transcriber: str = "sheetsage2"):
     return client.post(
         "/v1/jobs",
         headers=OWNER_HEADERS,
+        data={"transcriber": transcriber},
         files={"file": (filename, _wav_bytes(), "audio/wav")},
     )
 
@@ -73,12 +74,27 @@ def test_upload_creates_persisted_queued_job_and_launches_worker(tmp_path: Path)
     assert response.status_code == 202
     body = response.json()
     assert body["status"] == "queued"
-    assert launcher.launched == [body["id"]]
+    assert launcher.launched == [(body["id"], "sheetsage2")]
     state = json.loads((tmp_path / "jobs" / body["id"] / "state.json").read_text())
     assert state["original_filename"] == "demo.wav"
+    assert state["transcriber"] == "sheetsage2"
     assert state["owner_token_sha256"] == hashlib.sha256(OWNER.encode()).hexdigest()
     assert "owner_token_sha256" not in body
     assert (tmp_path / "jobs" / body["id"] / "input" / "demo.wav").is_file()
+
+
+def test_upload_selects_muscriptor_large_and_rejects_unknown_model(tmp_path: Path):
+    launcher = FakeLauncher()
+    client = TestClient(create_app(data_root=tmp_path, launcher=launcher))
+
+    created = _create(client, transcriber="muscriptor-large")
+    assert created.status_code == 202
+    assert created.json()["transcriber"] == "muscriptor-large"
+    assert launcher.launched == [(created.json()["id"], "muscriptor-large")]
+
+    rejected = _create(client, transcriber="not-a-model")
+    assert rejected.status_code == 422
+    assert len(launcher.launched) == 1
 
 
 def test_status_maps_unschedulable_gpu_to_actionable_failure(tmp_path: Path):

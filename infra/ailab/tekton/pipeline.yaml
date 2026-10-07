@@ -376,10 +376,25 @@ spec:
     - name: evidence
       workspace: evidence
 
+  - name: sync-muscriptor-model
+    taskRef:
+      name: muscriptor-model-sync
+    runAfter: [audit-sheetsage2-service]
+    params:
+    - name: ci-image
+      value: $(params.ci-image)
+    - name: image
+      value: $(params.registry)/$(params.registry-owner)/sheetsage2-service:$(tasks.clone.results.commit-sha)
+    - name: digest
+      value: $(tasks.build-sheetsage2-service.results.digest)
+    workspaces:
+    - name: evidence
+      workspace: evidence
+
   - name: deploy-sheetsage2-service
     taskRef:
       name: deploy-by-digest
-    runAfter: [sync-sheetsage2-models, deploy-reference-time]
+    runAfter: [sync-sheetsage2-models, sync-muscriptor-model, deploy-reference-time]
     params:
     - name: ci-image
       value: $(params.ci-image)

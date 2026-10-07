@@ -755,6 +755,117 @@ spec:
         | tee /workspace/evidence/sheetsage2-model-sync.txt
       kubectl -n "$NS" delete job sheetsage2-model-sync --wait=true
 ---
+# Populate the gated MuScriptor Large checkpoint on its own persistent cache.
+# Only this short-lived Job receives the Hugging Face token; inference stays offline.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: muscriptor-model-sync
+  namespace: gpmidi-ml
+spec:
+  params:
+  - name: ci-image
+    type: string
+  - name: image
+    type: string
+  - name: digest
+    type: string
+  workspaces:
+  - name: evidence
+  steps:
+  - name: sync-and-verify
+    image: $(params.ci-image)
+    timeout: 90m
+    computeResources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      NS=gpmidi-ml
+      REF='$(params.image)'
+      BY_DIGEST="${REF%:*}@$(params.digest)"
+      kubectl -n "$NS" delete job muscriptor-model-sync --ignore-not-found --wait=true
+      cat <<EOF | kubectl -n "$NS" apply -f -
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: muscriptor-model-sync
+        labels:
+          app: muscriptor-model-sync
+      spec:
+        backoffLimit: 1
+        activeDeadlineSeconds: 5100
+        ttlSecondsAfterFinished: 300
+        template:
+          metadata:
+            labels:
+              app: muscriptor-model-sync
+          spec:
+            restartPolicy: Never
+            automountServiceAccountToken: false
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 10001
+              runAsGroup: 10001
+              fsGroup: 10001
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+            - name: sync
+              image: $BY_DIGEST
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "sheetsage2_service.muscriptor_model_sync"]
+              env:
+              - name: HF_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: huggingface-token
+                    key: token
+              - name: HOME
+                value: /tmp/home
+              - name: HF_HOME
+                value: /tmp/huggingface
+              - name: XDG_CACHE_HOME
+                value: /tmp/.cache
+              - name: HF_HUB_DISABLE_XET
+                value: "1"
+              - name: HF_HUB_OFFLINE
+                value: "0"
+              - name: TRANSFORMERS_OFFLINE
+                value: "0"
+              - name: MUSCRIPTOR_MODEL_ROOT
+                value: /muscriptor-models
+              resources:
+                requests: {cpu: 500m, memory: 512Mi}
+                limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 4Gi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+              - name: models
+                mountPath: /muscriptor-models
+              - name: tmp
+                mountPath: /tmp
+            volumes:
+            - name: models
+              persistentVolumeClaim:
+                claimName: muscriptor-models
+            - name: tmp
+              emptyDir:
+                sizeLimit: 2Gi
+      EOF
+      if ! kubectl -n "$NS" wait --for=condition=complete job/muscriptor-model-sync --timeout=4800s; then
+        kubectl -n "$NS" describe job muscriptor-model-sync || true
+        kubectl -n "$NS" logs job/muscriptor-model-sync --all-containers=true || true
+        exit 1
+      fi
+      kubectl -n "$NS" logs job/muscriptor-model-sync --all-containers=true \
+        | tee /workspace/evidence/muscriptor-model-sync.txt
+      kubectl -n "$NS" delete job muscriptor-model-sync --wait=true
+---
 # PVC persistence: the volumes that hold Project and analysis data must be the
 # same PersistentVolumes before and after a deploy, and must still be readable.
 apiVersion: tekton.dev/v1
@@ -784,7 +895,7 @@ spec:
       set -euo pipefail
       NS=gpmidi-ml
       OUT="/workspace/evidence/pvc-$(params.phase).json"
-      kubectl -n "$NS" get pvc project-assets reference-time-data sheetsage2-data sheetsage2-models -o json \
+      kubectl -n "$NS" get pvc project-assets reference-time-data sheetsage2-data sheetsage2-models muscriptor-models -o json \
         | jq '[.items[] | {name: .metadata.name, uid: .metadata.uid,
                            volume: .spec.volumeName, phase: .status.phase,
                            capacity: .status.capacity.storage}]' \

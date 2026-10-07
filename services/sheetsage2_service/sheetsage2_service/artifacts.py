@@ -39,7 +39,7 @@ def _sha256(path: Path) -> str:
 def _midi_summary(path: Path) -> tuple[list[dict[str, int | str]], int]:
     midi = mido.MidiFile(path)
     if midi.type != 1:
-        raise ValueError("SheetSage2 combined MIDI must be Type 1")
+        raise ValueError("combined MIDI must be Type 1")
     tracks: list[dict[str, int | str]] = []
     note_total = 0
     for index, track in enumerate(midi.tracks):
@@ -48,7 +48,7 @@ def _midi_summary(path: Path) -> tuple[list[dict[str, int | str]], int]:
             tracks.append({"index": index, "name": track.name or f"Track {index}", "notes": notes})
             note_total += notes
     if not tracks:
-        raise ValueError("SheetSage2 MIDI has no note-bearing tracks")
+        raise ValueError("MIDI has no note-bearing tracks")
     return tracks, note_total
 
 
@@ -103,14 +103,14 @@ def _report_html(report: dict) -> str:
     sections = ", ".join(summary["sections"]) or "не определены"
     return f"""<!doctype html>
 <html lang=\"ru\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-<title>SheetSage2 — {html.escape(report['source_filename'])}</title>
+<title>{html.escape(report['transcriber_label'])} — {html.escape(report['source_filename'])}</title>
 <style>body{{font:16px system-ui;max-width:900px;margin:40px auto;padding:0 18px;color:#172033}}h1{{margin-bottom:4px}}.muted{{color:#667085}}table{{border-collapse:collapse;width:100%;margin:24px 0}}th,td{{padding:10px;border-bottom:1px solid #ddd;text-align:left}}code{{overflow-wrap:anywhere}}.ok{{background:#eaf8ef;padding:12px;border-radius:8px}}</style></head>
-<body><h1>SheetSage2: отчёт транскрипции</h1><p class=\"muted\">{html.escape(report['source_filename'])}</p>
+<body><h1>{html.escape(report['transcriber_label'])}: отчёт транскрипции</h1><p class=\"muted\">{html.escape(report['source_filename'])}</p>
 <p class=\"ok\">Собран единый Type‑1 MIDI: <strong>{html.escape(report['all_tracks_midi'])}</strong></p>
 <ul><li>Дорожек с нотами: {report['track_count']}</li><li>Всего нот: {report['note_count']}</li><li>Время обработки: {report['elapsed_seconds']:.2f} с</li></ul>
 <h2>Музыкальная разметка</h2><ul><li>Оценочный BPM: {html.escape(bpm)}</li><li>Beats / downbeats: {summary['beat_count']} / {summary['downbeat_count']}</li><li>Аккорды: {html.escape(chords)}</li><li>Тональности: {html.escape(keys)}</li><li>Секции: {html.escape(sections)}</li></ul>
 <table><thead><tr><th>#</th><th>Дорожка</th><th>Нот</th></tr></thead><tbody>{rows}</tbody></table>
-<h2>Воспроизводимость</h2><p>SheetSage2 revision: <code>{html.escape(report['model_revision'])}</code></p><p>SHA‑256 WAV: <code>{report['input_sha256']}</code></p>
+<h2>Воспроизводимость</h2><p>Model revision: <code>{html.escape(report['model_revision'])}</code></p><p>SHA‑256 audio: <code>{report['input_sha256']}</code></p>
 <p class=\"muted\">Результат является автоматической транскрипцией и предназначен для ручной проверки по тактам.</p></body></html>"""
 
 
@@ -122,11 +122,12 @@ def package_transcription(
     model_revision: str,
     input_sha256: str,
     elapsed_seconds: float,
+    transcriber: str = "sheetsage2",
 ) -> PackageResult:
     model_output = Path(model_output)
     source_midi = model_output / "transcription.mid"
     if not source_midi.is_file():
-        raise ValueError("SheetSage2 did not produce transcription.mid")
+        raise ValueError("transcriber did not produce transcription.mid")
     destination = Path(destination)
     if destination.exists():
         shutil.rmtree(destination)
@@ -141,8 +142,11 @@ def package_transcription(
         if item.is_file():
             shutil.copyfile(item, raw / item.name)
 
+    label = "MuScriptor Large" if transcriber == "muscriptor-large" else "SheetSage2"
     report = {
-        "schema_version": "gpmidi-sheetsage2-report-v1",
+        "schema_version": "gpmidi-audio-transcription-report-v2",
+        "transcriber": transcriber,
+        "transcriber_label": label,
         "source_filename": Path(original_filename).name,
         "input_sha256": input_sha256,
         "model_revision": model_revision,
@@ -160,7 +164,7 @@ def package_transcription(
 
     artifact_paths = [path for path in destination.rglob("*") if path.is_file()]
     manifest = {
-        "schema_version": "gpmidi-sheetsage2-package-v1",
+        "schema_version": "gpmidi-audio-transcription-package-v2",
         "files": [
             {
                 "path": path.relative_to(destination).as_posix(),
@@ -174,7 +178,8 @@ def package_transcription(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    archive = destination / f"{stem}_SheetSage2.zip"
+    suffix = "MuScriptor_Large" if transcriber == "muscriptor-large" else "SheetSage2"
+    archive = destination / f"{stem}_{suffix}.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
         for path in sorted(destination.rglob("*")):
             if path.is_file() and path != archive:

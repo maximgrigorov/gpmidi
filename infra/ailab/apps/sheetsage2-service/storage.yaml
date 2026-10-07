@@ -25,3 +25,17 @@ spec:
   resources:
     requests:
       storage: 8Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: muscriptor-models
+  namespace: gpmidi-ml
+  labels:
+    app: sheetsage2-service
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 8Gi

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Audio → MIDI · SheetSage2</title>
+  <title>Audio → MIDI · AI Transcription</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -25,11 +25,17 @@
     <nav class="tool-nav"><a href="{{ url_for('index') }}">GP → MIDI</a><a class="active" href="{{ url_for('sheetsage2_page') }}">Audio → MIDI</a></nav>
     <div class="sidebar-scroll">
       <div class="panel upload-panel">
-        <div class="panel-head compact-head"><div><h2>SheetSage2</h2><p class="muted">Загрузите оригинальный микс.</p></div></div>
+        <div class="panel-head compact-head"><div><h2>AI Transcription</h2><p class="muted">Загрузите оригинальный микс.</p></div></div>
         <form action="{{ url_for('sheetsage2_upload') }}" method="post" enctype="multipart/form-data" class="upload-form" id="audioUploadForm">
           <input type="file" name="file" id="audioFile" accept=".wav,.flac,.mp3,audio/wav,audio/flac,audio/mpeg" hidden required>
           <label class="dropzone" id="audioDropzone" for="audioFile"><span class="drop-icon">♫</span><strong>WAV, FLAC или MP3</strong><span>перетащите или выберите файл</span><small>До {{ max_size_mb }} МБ</small></label>
           <div class="filename muted" id="audioFilename">Файл не выбран</div>
+          <label for="transcriber"><strong>Модель транскрипции</strong></label>
+          <select name="transcriber" id="transcriber">
+            <option value="muscriptor-large" selected>MuScriptor Large · 1.4B · лучший полный MIDI</option>
+            <option value="sheetsage2">SheetSage2 · мелодии, аккорды и структура</option>
+          </select>
+          <p class="muted">MuScriptor работает с исходным миксом; stem separation не обязательна. Веса MuScriptor: CC BY-NC 4.0 (только некоммерческое использование).</p>
           <button type="submit" class="btn primary">Запустить анализ</button>
         </form>
       </div>
@@ -40,9 +46,9 @@
     </div>
   </aside>
   <main class="main">
-    <header class="topbar"><div class="crumbs"><span>Инструменты</span><span class="sep">/</span><span class="here">Audio → MIDI · SheetSage2</span></div></header>
+    <header class="topbar"><div class="crumbs"><span>Инструменты</span><span class="sep">/</span><span class="here">Audio → MIDI · AI Transcription</span></div></header>
     <div class="page">
-      <section class="page-head"><div><h1>Audio → MIDI · SheetSage2</h1><p class="subtitle">Единый многодорожечный MIDI для ручного сравнения по тактам в отдельной сессии Guitar Pro.</p></div></section>
+      <section class="page-head"><div><h1>Audio → MIDI · AI Transcription</h1><p class="subtitle">Единый многодорожечный MIDI для ручного сравнения по тактам в отдельной сессии Guitar Pro.</p></div></section>
       {% if service_error %}<div class="error-box">{{ service_error }}</div>{% endif %}
       {% if current_job %}
       <section class="panel status-card" id="jobCard" data-job-id="{{ current_job.id }}" data-status="{{ current_job.status }}">

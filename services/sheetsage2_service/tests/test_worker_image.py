@@ -22,3 +22,12 @@ def test_worker_torch_wheels_have_kernels_for_the_ailab_gpu():
     )
     assert f"torch=={pins['torch']}" in dockerfile
     assert f"torchaudio=={pins['torchaudio']}" in dockerfile
+
+
+def test_worker_pins_muscriptor_and_compatible_numpy_api_dependencies():
+    worker = (SERVICE / "requirements-worker.txt").read_text(encoding="utf-8")
+    api = (SERVICE / "requirements-api.txt").read_text(encoding="utf-8")
+    assert "muscriptor==0.3.0" in worker
+    assert "numpy==2.1.3" in worker
+    assert "fastapi==0.136.3" in api
+    assert "python-multipart==0.0.29" in api

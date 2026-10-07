@@ -10,6 +10,7 @@ SHEETSAGE2_NETWORK_POLICY = Path(
     "infra/ailab/apps/sheetsage2-service/networkpolicy.yaml"
 )
 SHEETSAGE2_DEPLOYMENT = Path("infra/ailab/apps/sheetsage2-service/deployment.yaml")
+SHEETSAGE2_STORAGE = Path("infra/ailab/apps/sheetsage2-service/storage.yaml")
 
 
 def test_deploy_task_selects_the_ready_pod_for_the_exact_image():
@@ -91,3 +92,50 @@ def test_sheetsage2_deploy_delivers_the_declared_readiness_probe():
     script = task["spec"]["steps"][0]["script"]
     assert script.index("readinessProbe") < script.index("rollout status")
     assert "readiness_path:" in script
+
+
+def test_muscriptor_large_model_cache_is_persistent_gated_and_synced_before_deploy():
+    storage = list(yaml.safe_load_all(SHEETSAGE2_STORAGE.read_text(encoding="utf-8")))
+    muscriptor_pvc = next(doc for doc in storage if doc["metadata"]["name"] == "muscriptor-models")
+    assert muscriptor_pvc["spec"]["resources"]["requests"]["storage"] == "8Gi"
+
+    deployment = yaml.safe_load(SHEETSAGE2_DEPLOYMENT.read_text(encoding="utf-8"))
+    env = {
+        item["name"]: item["value"]
+        for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+        if "value" in item
+    }
+    assert env["MUSCRIPTOR_MODEL_PVC"] == "muscriptor-models"
+
+    tasks = list(yaml.safe_load_all(TASKS.read_text(encoding="utf-8")))
+    sync = next(doc for doc in tasks if doc and doc["metadata"]["name"] == "muscriptor-model-sync")
+    script = sync["spec"]["steps"][0]["script"]
+    assert "sheetsage2_service.muscriptor_model_sync" in script
+    assert "secretKeyRef:" in script
+    assert "name: huggingface-token" in script
+    assert "claimName: muscriptor-models" in script
+
+    persistence = next(
+        doc for doc in tasks if doc and doc["metadata"]["name"] == "pvc-persistence-check"
+    )
+    assert "muscriptor-models" in persistence["spec"]["steps"][0]["script"]
+
+    pipeline = next(
+        doc for doc in yaml.safe_load_all(PIPELINE.read_text(encoding="utf-8"))
+        if doc and doc["metadata"]["name"] == "gpmidi-ci"
+    )
+    rows = {task["name"]: task for task in pipeline["spec"]["tasks"]}
+    assert rows["sync-muscriptor-model"]["runAfter"] == ["audit-sheetsage2-service"]
+    assert set(rows["deploy-sheetsage2-service"]["runAfter"]) == {
+        "sync-sheetsage2-models",
+        "sync-muscriptor-model",
+        "deploy-reference-time",
+    }
+
+    for path in (
+        Path("infra/ailab/scripts/run-pipeline.sh"),
+        Path("infra/ailab/tekton/triggers.yaml"),
+    ):
+        runner = path.read_text(encoding="utf-8")
+        assert "pipelineTaskName: sync-muscriptor-model" in runner
+        assert "serviceAccountName: tekton-model-sync" in runner
