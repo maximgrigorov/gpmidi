@@ -18,6 +18,7 @@ def transcribe(input_path: Path, output_path: Path) -> dict:
     )
     if not weights.is_file():
         raise RuntimeError("pinned MuScriptor model cache is incomplete")
+    torch.cuda.reset_peak_memory_stats()
     started = time.monotonic()
     model = TranscriptionModel.load_model(
         weights_path=weights,
@@ -35,6 +36,7 @@ def transcribe(input_path: Path, output_path: Path) -> dict:
             instruments=instruments or None,
         )
         (output_path / "transcription.mid").write_bytes(midi_bytes)
+        peak_vram_mib = torch.cuda.max_memory_allocated() / (1024 * 1024)
     finally:
         del model
         torch.cuda.empty_cache()
@@ -43,4 +45,5 @@ def transcribe(input_path: Path, output_path: Path) -> dict:
         "model": "MuScriptor Large",
         "device": "cuda",
         "dtype": "bfloat16",
+        "peak_vram_mib": peak_vram_mib,
     }

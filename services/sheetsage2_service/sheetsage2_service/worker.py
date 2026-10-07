@@ -113,6 +113,7 @@ def run_worker(
             elapsed_seconds=elapsed,
             transcriber=selected,
             requested_instruments=list(initial_state.get("instruments") or []),
+            peak_vram_mib=details.get("peak_vram_mib"),
         )
     # This is the worker's terminal boundary: every model/runtime failure must
     # produce durable, normalized state instead of leaving the job "running".

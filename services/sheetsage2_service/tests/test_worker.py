@@ -107,7 +107,7 @@ def test_worker_dispatches_muscriptor_large_from_persisted_job_state(tmp_path: P
         called.append(input_path.name)
         output.mkdir(parents=True)
         (output / "transcription.mid").write_bytes(midi_factory())
-        return {"elapsed_seconds": 1.25}
+        return {"elapsed_seconds": 1.25, "peak_vram_mib": 3072.0}
 
     assert run_worker(
         job_dir=job_dir,
@@ -119,3 +119,4 @@ def test_worker_dispatches_muscriptor_large_from_persisted_job_state(tmp_path: P
     assert report["transcriber"] == "muscriptor-large"
     assert report["model_revision"] == "large-rev"
     assert report["requested_instruments"] == ["voice", "drums"]
+    assert report["peak_vram_mib"] == 3072.0

@@ -27,6 +27,14 @@ def test_runtime_uses_cuda_bfloat16_pinned_local_weights_and_writes_midi(
         def empty_cache() -> None:
             calls["cache_cleared"] = True
 
+        @staticmethod
+        def reset_peak_memory_stats() -> None:
+            calls["peak_reset"] = True
+
+        @staticmethod
+        def max_memory_allocated() -> int:
+            return 3 * 1024 * 1024 * 1024
+
     bfloat16 = object()
     fake_torch = types.SimpleNamespace(cuda=FakeCuda(), bfloat16=bfloat16)
 
@@ -65,4 +73,5 @@ def test_runtime_uses_cuda_bfloat16_pinned_local_weights_and_writes_midi(
     assert metrics["model"] == "MuScriptor Large"
     assert metrics["device"] == "cuda"
     assert metrics["dtype"] == "bfloat16"
+    assert metrics["peak_vram_mib"] == 3072.0
     assert metrics["elapsed_seconds"] >= 0

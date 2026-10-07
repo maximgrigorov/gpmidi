@@ -133,6 +133,7 @@ def package_transcription(
     elapsed_seconds: float,
     transcriber: str = "sheetsage2",
     requested_instruments: list[str] | None = None,
+    peak_vram_mib: float | None = None,
 ) -> PackageResult:
     model_output = Path(model_output)
     source_midi = model_output / "transcription.mid"
@@ -158,6 +159,7 @@ def package_transcription(
         "transcriber": transcriber,
         "transcriber_label": label,
         "requested_instruments": list(requested_instruments or []),
+        "peak_vram_mib": None if peak_vram_mib is None else float(peak_vram_mib),
         "source_filename": Path(original_filename).name,
         "input_sha256": input_sha256,
         "model_revision": model_revision,
