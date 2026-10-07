@@ -1,6 +1,8 @@
 # План: веб-интерфейс GP → MIDI как пошаговый мастер (wizard)
 
-Статус: план, 2026-09-26. Реализация — в отдельной сессии.
+Статус: план, 2026-09-26. Макет утверждён (v2, выгрузка в
+[`docs/design/wizard-v2/`](design/wizard-v2/README.md)), задание на реализацию —
+[`docs/codex-ui-wizard-task.md`](codex-ui-wizard-task.md), 2026-10-08.
 Предмет: страница `templates/index.html` и маршруты `/upload` → `/jobs/<id>` →
 `/jobs/<id>/process` в `app.py`. Audio → MIDI (`sheetsage2.html`) и
 Проекты (`projects*.html`) затрагиваются только навигацией (этап 4).

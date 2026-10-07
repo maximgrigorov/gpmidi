@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Шаг 2 · Дорожки</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="wiz.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="ab" style="width: 1440px; height: 1150px;">
+  <header class="top">
+    <a class="brand" href="Main.dc.html"><span class="mark">M</span><span class="bname">конвертер midi</span></a>
+    <nav class="nav" aria-label="Разделы"><a class="on" href="Main.dc.html">GP → MIDI</a><a href="#">Audio → MIDI</a><a href="#">Проекты</a></nav>
+    <span class="sp"></span>
+    <a class="hbtn" href="S-History.dc.html"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 7v5l3 2"></path></svg>История<span class="cnt">4</span></a>
+  </header>
+  <div class="head">
+    <div class="head-in">
+      <div class="fileline"><span class="fn">Spring_Melody_v3_final.gp</span><span class="meta">Spring Melody <span class="dot">·</span> 75 BPM <span class="dot">·</span> 95 тактов <span class="dot">·</span> 4/4 <span class="dot">·</span> 9 дорожек</span><span class="grow"></span><a class="link xs" href="Main.dc.html">Другой файл</a></div>
+      <ol class="stepper" aria-label="Шаги">
+        <li class="done"><a href="Main.dc.html"><span class="n">✓</span>Файл</a></li>
+        <li class="cur"><span class="st" aria-current="step"><span class="n">2</span>Дорожки</span></li>
+        <li><span class="st"><span class="n">3</span>Звучание</span></li>
+        <li><span class="st"><span class="n">4</span>Дополнительно <span class="stp-o">· можно пропустить</span></span></li>
+        <li><span class="st"><span class="n">5</span>Результат</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <main class="page">
+    <div class="page-in">
+      <div class="q">
+        <h1>Какие дорожки конвертировать?</h1>
+        <p>Мы распознали инструмент и роль каждой дорожки. Роль решает, в какой группе дорожка окажется на шаге «Звучание»; сами ноты она не меняет.</p>
+      </div>
+      <div class="two">
+        <section class="card" aria-label="Дорожки">
+          <div class="tl-h">
+            <label class="cbx" title="Выбрать все / снять все"><input type="checkbox" checked="checked" aria-label="Выбрать все дорожки"></label>
+            <span class="over">#</span><span class="over">Дорожка</span><span class="over">Инструмент</span><span class="over">Роль</span>
+          </div>
+          <div class="tl">
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="1" checked="checked" aria-label="Drums"></label><span class="mono subtle">1</span><span class="tname">Drums</span><span><span class="inst dr"><i></i>Shreddage Drums</span></span><span class="role-fixed">Барабаны</span></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="2" checked="checked" aria-label="Acoustic Bass"></label><span class="mono subtle">2</span><span class="tname">Acoustic Bass</span><span><span class="inst dw"><i></i>Darkwall</span></span><select class="sel" aria-label="Роль: Acoustic Bass"><option selected="selected">Ритм-секция</option><option>Соло</option></select></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="3" checked="checked" aria-label="Keyboard (Staff 1)"></label><span class="mono subtle">3</span><span class="col"><span class="tname">Keyboard <span class="muted" style="font-weight: 450;">(Staff 1)</span></span></span><span><span class="inst no"><i></i>без маппинга</span></span><span class="role-fixed">Прочее</span></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="4" checked="checked" aria-label="Keyboard (Staff 2)"></label><span class="mono subtle">4</span><span class="tname">Keyboard <span class="muted" style="font-weight: 450;">(Staff 2)</span></span><span><span class="inst no"><i></i>без маппинга</span></span><span class="role-fixed">Прочее</span></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="5" checked="checked" aria-label="Synth (Staff 1)"></label><span class="mono subtle">5</span><span class="tname">Synth <span class="muted" style="font-weight: 450;">(Staff 1)</span></span><span><span class="inst no"><i></i>без маппинга</span></span><span class="role-fixed">Прочее</span></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="6" checked="checked" aria-label="Synth (Staff 2)"></label><span class="mono subtle">6</span><span class="tname">Synth <span class="muted" style="font-weight: 450;">(Staff 2)</span></span><span><span class="inst no"><i></i>без маппинга</span></span><span class="role-fixed">Прочее</span></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="7" checked="checked" aria-label="Vocals"></label><span class="mono subtle">7</span><span class="tname">Vocals</span><span><span class="inst no"><i></i>без маппинга</span></span><span class="role-fixed">Прочее</span></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="8" checked="checked" aria-label="Guitar (Solo)"></label><span class="mono subtle">8</span><span class="col"><span class="tname">Guitar <span class="muted" style="font-weight: 450;">(Solo)</span></span><span class="tnote">204 ноты с авторскими сдвигами GP8</span></span><span><span class="inst hy"><i></i>Hydra</span></span><select class="sel" aria-label="Роль: Guitar (Solo)"><option>Ритм-секция</option><option selected="selected">Соло</option></select></div>
+            <div class="tr"><label class="cbx"><input type="checkbox" name="track_indices" value="9" checked="checked" aria-label="Guitar (Rhythm)"></label><span class="mono subtle">9</span><span class="tname">Guitar <span class="muted" style="font-weight: 450;">(Rhythm)</span></span><span><span class="inst hy"><i></i>Hydra</span></span><select class="sel" aria-label="Роль: Guitar (Rhythm)"><option selected="selected">Ритм-секция</option><option>Соло</option></select></div>
+          </div>
+        </section>
+
+        <aside class="aside">
+          <section class="card">
+            <div class="card-h"><h2>По ролям</h2></div>
+            <div class="card-b">
+              <ul class="sum">
+                <li><span class="b" style="background: hsl(28,80%,45%);"></span><span class="grow">Барабаны</span><b class="num">1</b></li>
+                <li><span class="b"></span><span class="grow">Ритм-секция <span class="muted">— бас, ритм-гитара</span></span><b class="num">2</b></li>
+                <li><span class="b"></span><span class="grow">Соло</span><b class="num">1</b></li>
+                <li><span class="b off"></span><span class="grow">Прочее <span class="muted">— как есть</span></span><b class="num">5</b></li>
+              </ul>
+            </div>
+          </section>
+          <div class="infobox"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="hsl(221,78%,50%)" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01" stroke-linecap="round"></path></svg><span class="small">Соло определяем по имени дорожки (solo, lead). Если имя другое — смените роль здесь. Роль влияет только на группу настроек.</span></div>
+          <p class="small muted">Можно оставить одну дорожку — например, пересобрать только соло.</p>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <div class="bar"><div class="bar-in">
+    <a class="btn ghost" href="Main.dc.html">← Файл</a>
+    <span class="grow"></span>
+    <span class="hint">Выбрано 9 из 9</span>
+    <a class="btn pri" href="D3-Sound.dc.html">Далее: звучание →</a>
+  </div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1150}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
