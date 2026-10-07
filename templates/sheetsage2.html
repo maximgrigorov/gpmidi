@@ -16,6 +16,7 @@
     @keyframes pulse{50%{opacity:.35}}.download-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}.error-box{padding:14px;border-radius:8px;background:var(--err-soft);color:var(--err);font-weight:600}
     .info-list{padding:16px 20px 18px 38px}.session-status{font-size:11px;color:var(--fg-muted)}
     .dropzone.drag-active{border-color:var(--accent);background:var(--accent-soft)}
+    .instrument-filter{margin:10px 0;padding:10px;border:1px solid var(--border);border-radius:7px}.instrument-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-top:10px;max-height:230px;overflow:auto}.instrument-grid label{display:flex;gap:7px;align-items:center;font-size:12px}.instrument-filter[hidden]{display:none}
   </style>
 </head>
 <body>
@@ -35,7 +36,15 @@
             <option value="muscriptor-large" selected>MuScriptor Large · 1.4B · лучший полный MIDI</option>
             <option value="sheetsage2">SheetSage2 · мелодии, аккорды и структура</option>
           </select>
-          <p class="muted">MuScriptor работает с исходным миксом; stem separation не обязательна. Веса MuScriptor: CC BY-NC 4.0 (только некоммерческое использование).</p>
+          <details class="instrument-filter" id="instrumentFilter">
+            <summary><strong>Выбрать инструменты</strong> <span class="muted">(необязательно; без выбора — услышать все)</span></summary>
+            <div class="instrument-grid">
+              {% for instrument in muscriptor_instruments %}
+              <label><input type="checkbox" name="instruments" value="{{ instrument }}">{{ instrument.replace('_', ' ') }}</label>
+              {% endfor %}
+            </div>
+          </details>
+          <p class="muted">MuScriptor работает с исходным миксом; stem separation не обязательна. Фильтр запрещает модели декодировать невыбранные группы инструментов. Веса MuScriptor: CC BY-NC 4.0 (только некоммерческое использование).</p>
           <button type="submit" class="btn primary">Запустить анализ</button>
         </form>
       </div>
@@ -51,9 +60,10 @@
       <section class="page-head"><div><h1>Audio → MIDI · AI Transcription</h1><p class="subtitle">Единый многодорожечный MIDI для ручного сравнения по тактам в отдельной сессии Guitar Pro.</p></div></section>
       {% if service_error %}<div class="error-box">{{ service_error }}</div>{% endif %}
       {% if current_job %}
-      <section class="panel status-card" id="jobCard" data-job-id="{{ current_job.id }}" data-status="{{ current_job.status }}">
+      <section class="panel status-card" id="jobCard" data-job-id="{{ current_job.id }}" data-status="{{ current_job.status }}" data-transcriber="{{ current_job.transcriber or 'sheetsage2' }}">
         <h2>{{ current_job.original_filename }}</h2>
-        <div class="status-line"><span class="status-dot {{ current_job.status }}" id="statusDot"></span><strong id="statusText">{{ current_job.status }}</strong></div>
+        <div class="status-line"><span class="status-dot {{ current_job.status }}" id="statusDot"></span><strong id="statusText">{% if current_job.status == 'running' %}{{ 'MuScriptor' if current_job.transcriber == 'muscriptor-large' else 'SheetSage2' }} анализирует аудио{% elif current_job.status == 'queued' %}В очереди — ждём GPU{% elif current_job.status == 'succeeded' %}Готово{% elif current_job.status == 'failed' %}Ошибка{% else %}{{ current_job.status }}{% endif %}</strong></div>
+        {% if current_job.instruments %}<p class="muted">Инструменты: {{ current_job.instruments|join(', ') }}</p>{% endif %}
         {% if current_job.message %}<div class="error-box" id="jobMessage">{{ current_job.message }}</div>{% else %}<div id="jobMessage"></div>{% endif %}
         <div class="download-grid" id="downloads" {% if current_job.status != 'succeeded' %}hidden{% endif %}>
           <a class="btn primary" href="{{ url_for('sheetsage2_download', job_id=current_job.id, kind='midi') }}">Скачать общий MIDI</a>
@@ -72,6 +82,10 @@
 <script>
 const input=document.getElementById('audioFile');
 const dropZone=document.getElementById('audioDropzone');
+const transcriber=document.getElementById('transcriber');
+const instrumentFilter=document.getElementById('instrumentFilter');
+const syncInstrumentFilter=()=>{if(instrumentFilter){instrumentFilter.hidden=transcriber?.value!=='muscriptor-large';}};
+if(transcriber){transcriber.addEventListener('change',syncInstrumentFilter);syncInstrumentFilter();}
 if(input){input.addEventListener('change',()=>{document.getElementById('audioFilename').textContent=input.files[0]?.name||'Файл не выбран';});}
 if(input && dropZone){
   dropZone.addEventListener('dragover',(event)=>{event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect='copy';dropZone.classList.add('drag-active');});
@@ -79,9 +93,10 @@ if(input && dropZone){
   dropZone.addEventListener('drop',(event)=>{event.preventDefault();event.stopPropagation();dropZone.classList.remove('drag-active');const files=event.dataTransfer?.files;if(files?.length){input.files=files;input.dispatchEvent(new Event('change',{bubbles:true}));}});
 }
 const card=document.getElementById('jobCard');
-const labels={queued:'В очереди — ждём GPU',running:'SheetSage2 анализирует аудио',succeeded:'Готово',failed:'Ошибка',unavailable:'Сервис недоступен'};
+const labels={queued:'В очереди — ждём GPU',succeeded:'Готово',failed:'Ошибка',unavailable:'Сервис недоступен'};
+const statusLabel=(job)=>job.status==='running'?`${job.transcriber==='muscriptor-large'?'MuScriptor':'SheetSage2'} анализирует аудио`:(labels[job.status]||job.status);
 if(card && !['succeeded','failed'].includes(card.dataset.status)){
-  const poll=async()=>{try{const r=await fetch(`/audio-to-midi/jobs/${card.dataset.jobId}/status`,{cache:'no-store'});const j=await r.json();document.getElementById('statusText').textContent=labels[j.status]||j.status;const dot=document.getElementById('statusDot');dot.className=`status-dot ${j.status}`;if(j.message){const box=document.getElementById('jobMessage');box.className='error-box';box.textContent=j.message;}if(j.status==='succeeded'){document.getElementById('downloads').hidden=false;return;}if(j.status==='failed')return;}catch(e){}setTimeout(poll,3000)};setTimeout(poll,1500);
+  const poll=async()=>{try{const r=await fetch(`/audio-to-midi/jobs/${card.dataset.jobId}/status`,{cache:'no-store'});const j=await r.json();document.getElementById('statusText').textContent=statusLabel(j);const dot=document.getElementById('statusDot');dot.className=`status-dot ${j.status}`;if(j.message){const box=document.getElementById('jobMessage');box.className='error-box';box.textContent=j.message;}if(j.status==='succeeded'){document.getElementById('downloads').hidden=false;return;}if(j.status==='failed')return;}catch(e){}setTimeout(poll,3000)};setTimeout(poll,1500);
 }
 </script>
 </body></html>

@@ -25,10 +25,14 @@ def transcribe(input_path: Path, output_path: Path) -> dict:
         dtype=torch.bfloat16,
     )
     output_path.mkdir(parents=True, exist_ok=True)
+    instruments = [
+        value for value in os.environ.get("MUSCRIPTOR_INSTRUMENTS", "").split(",") if value
+    ]
     try:
         midi_bytes = model.transcribe_to_midi(
             input_path,
             detect_tempo=False,
+            instruments=instruments or None,
         )
         (output_path / "transcription.mid").write_bytes(midi_bytes)
     finally:

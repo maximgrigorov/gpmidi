@@ -61,6 +61,7 @@ def test_audio_tool_page_and_streaming_upload(monkeypatch):
         data={
             "file": (BytesIO(b"RIFFxxxxWAVEdata"), "song.wav"),
             "transcriber": "muscriptor-large",
+            "instruments": ["voice", "distorted_electric_guitar", "drums"],
         },
         content_type="multipart/form-data",
     )
@@ -69,6 +70,26 @@ def test_audio_tool_page_and_streaming_upload(monkeypatch):
     assert captured["body"] == b"RIFFxxxxWAVEdata"
     assert captured["headers"]["X-Filename"] == "song.wav"
     assert captured["headers"]["X-Transcriber"] == "muscriptor-large"
+    assert captured["headers"]["X-Instruments"] == "voice,distorted_electric_guitar,drums"
+    assert "Выбрать инструменты" in html
+    assert 'value="distorted_electric_guitar"' in html
+    assert "const statusLabel=" in html
+
+
+def test_audio_job_card_uses_the_persisted_transcriber_label(monkeypatch):
+    job = {
+        "id": "abc123def456",
+        "status": "running",
+        "original_filename": "song.wav",
+        "transcriber": "muscriptor-large",
+        "instruments": ["voice", "drums"],
+    }
+    monkeypatch.setattr(web.requests, "get", lambda *args, **kwargs: FakeResponse({"jobs": [job]}))
+
+    html = web.app.test_client().get("/audio-to-midi").get_data(as_text=True)
+
+    assert "MuScriptor анализирует аудио" in html
+    assert "Инструменты: voice, drums" in html
 
 
 def test_audio_dropzone_prevents_browser_navigation_and_selects_dropped_file(monkeypatch):

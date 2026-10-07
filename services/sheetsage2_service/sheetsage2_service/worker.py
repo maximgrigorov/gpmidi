@@ -112,6 +112,7 @@ def run_worker(
             input_sha256=_sha256(input_path),
             elapsed_seconds=elapsed,
             transcriber=selected,
+            requested_instruments=list(initial_state.get("instruments") or []),
         )
     # This is the worker's terminal boundary: every model/runtime failure must
     # produce durable, normalized state instead of leaving the job "running".

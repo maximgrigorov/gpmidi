@@ -82,6 +82,16 @@ SHEETSAGE2_API_BASE = os.environ.get(
     "SHEETSAGE2_API_BASE", "http://sheetsage2-service.gpmidi-ml.svc.cluster.local:8000"
 ).rstrip("/")
 SHEETSAGE2_API_TIMEOUT = float(os.environ.get("SHEETSAGE2_API_TIMEOUT", "180"))
+MUSCRIPTOR_INSTRUMENTS = (
+    "acoustic_piano", "electric_piano", "chromatic_percussion", "organ",
+    "acoustic_guitar", "clean_electric_guitar", "distorted_electric_guitar",
+    "acoustic_bass", "electric_bass", "violin", "viola", "cello", "contrabass",
+    "orchestral_harp", "timpani", "string_ensemble", "synth_strings", "voice",
+    "orchestra_hit", "trumpet", "trombone", "tuba", "french_horn", "brass_section",
+    "soprano_and_alto_sax", "tenor_sax", "baritone_sax", "oboe", "english_horn",
+    "bassoon", "clarinet", "flutes", "synth_lead", "synth_pad", "drums",
+)
+MUSCRIPTOR_INSTRUMENT_SET = frozenset(MUSCRIPTOR_INSTRUMENTS)
 SESSION_HISTORY_LIMIT = 8
 DEFAULT_TEMPO_US = 500000
 CUPS_SERVER = os.environ.get("CUPS_SERVER", "192.168.20.64")
@@ -1344,6 +1354,7 @@ def sheetsage2_page():
         "sheetsage2.html", jobs=jobs, current_job=current,
         service_error=service_error,
         max_size_mb=AUDIO_MAX_CONTENT_LENGTH // (1024 * 1024),
+        muscriptor_instruments=MUSCRIPTOR_INSTRUMENTS,
     )
 
 
@@ -1361,6 +1372,13 @@ def sheetsage2_upload():
     if transcriber not in {"sheetsage2", "muscriptor-large"}:
         flash("Выберите поддерживаемую модель транскрипции.", "error")
         return redirect(url_for("sheetsage2_page"))
+    instruments = list(dict.fromkeys(request.form.getlist("instruments")))
+    if any(item not in MUSCRIPTOR_INSTRUMENT_SET for item in instruments):
+        flash("Выбран неизвестный инструмент MuScriptor.", "error")
+        return redirect(url_for("sheetsage2_page"))
+    if instruments and transcriber != "muscriptor-large":
+        flash("Фильтр инструментов доступен только для MuScriptor.", "error")
+        return redirect(url_for("sheetsage2_page"))
     try:
         response = requests.put(
             f"{SHEETSAGE2_API_BASE}/v1/jobs",
@@ -1369,6 +1387,7 @@ def sheetsage2_upload():
                 **_sheetsage2_owner_headers(),
                 "X-Filename": secure_filename(uploaded.filename),
                 "X-Transcriber": transcriber,
+                "X-Instruments": ",".join(instruments),
                 "Content-Type": uploaded.mimetype or "application/octet-stream",
             },
             timeout=SHEETSAGE2_API_TIMEOUT,

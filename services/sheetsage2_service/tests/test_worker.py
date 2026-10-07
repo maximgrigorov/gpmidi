@@ -92,7 +92,13 @@ def test_worker_dispatches_muscriptor_large_from_persisted_job_state(tmp_path: P
     input_dir.mkdir(parents=True)
     _wav(input_dir / "song.wav")
     (job_dir / "state.json").write_text(
-        json.dumps({"status": "queued", "transcriber": "muscriptor-large"}),
+        json.dumps(
+            {
+                "status": "queued",
+                "transcriber": "muscriptor-large",
+                "instruments": ["voice", "drums"],
+            }
+        ),
         encoding="utf-8",
     )
     called = []
@@ -112,3 +118,4 @@ def test_worker_dispatches_muscriptor_large_from_persisted_job_state(tmp_path: P
     report = json.loads((job_dir / "result" / "report.json").read_text(encoding="utf-8"))
     assert report["transcriber"] == "muscriptor-large"
     assert report["model_revision"] == "large-rev"
+    assert report["requested_instruments"] == ["voice", "drums"]

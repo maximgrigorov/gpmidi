@@ -45,6 +45,7 @@ def test_runtime_uses_cuda_bfloat16_pinned_local_weights_and_writes_midi(
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(sys.modules, "muscriptor", fake_muscriptor)
     monkeypatch.setenv("MUSCRIPTOR_MODEL_PATH", str(weights))
+    monkeypatch.setenv("MUSCRIPTOR_INSTRUMENTS", "voice,distorted_electric_guitar,drums")
 
     metrics = transcribe_muscriptor(source, output)
 
@@ -55,7 +56,10 @@ def test_runtime_uses_cuda_bfloat16_pinned_local_weights_and_writes_midi(
     }
     assert calls["transcribe"] == (
         source,
-        {"detect_tempo": False},
+        {
+            "detect_tempo": False,
+            "instruments": ["voice", "distorted_electric_guitar", "drums"],
+        },
     )
     assert (output / "transcription.mid").read_bytes() == b"MThd-midi"
     assert metrics["model"] == "MuScriptor Large"

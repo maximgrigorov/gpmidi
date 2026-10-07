@@ -10,6 +10,7 @@ def build_worker_job(
     *, job_id: str, image: str, pvc_name: str,
     model_pvc_name: str = "sheetsage2-models",
     transcriber: str = "sheetsage2",
+    instruments: list[str] | None = None,
     muscriptor_model_pvc_name: str = "muscriptor-models",
 ) -> dict[str, Any]:
     if not _JOB_ID.fullmatch(job_id):
@@ -18,6 +19,7 @@ def build_worker_job(
         raise ValueError("worker image must be pinned by digest")
     if transcriber not in {"sheetsage2", "muscriptor-large"}:
         raise ValueError("unsupported transcriber")
+    instruments = instruments or []
     name = f"sheetsage2-{job_id}"
     return {
         "apiVersion": "batch/v1",
@@ -58,6 +60,10 @@ def build_worker_job(
                             "env": [
                                 {"name": "SHEETSAGE2_JOB_ID", "value": job_id},
                                 {"name": "AUDIO_TRANSCRIBER", "value": transcriber},
+                                {
+                                    "name": "MUSCRIPTOR_INSTRUMENTS",
+                                    "value": ",".join(instruments),
+                                },
                                 {
                                     "name": "MUSCRIPTOR_MODEL_PATH",
                                     "value": "/muscriptor-models/large/model.safetensors",

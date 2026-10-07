@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 
 from .failures import UserFailure, classify_container_failure, classify_pending_reason
 from .launcher import WorkerObservation, launcher_from_env
+from .muscriptor_instruments import validate_instruments
 
 _ALLOWED = {".wav", ".flac", ".mp3"}
 _MAX_BYTES = int(os.environ.get("SHEETSAGE2_MAX_UPLOAD_BYTES", str(512 * 1024 * 1024)))
@@ -26,7 +27,7 @@ _TRANSCRIBERS = {"sheetsage2", "muscriptor-large"}
 
 class Launcher(Protocol):
     def ready(self) -> None: ...
-    def launch(self, job_id: str, transcriber: str) -> None: ...
+    def launch(self, job_id: str, transcriber: str, instruments: list[str]) -> None: ...
     def observe(self, job_id: str) -> WorkerObservation: ...
     def delete(self, job_id: str) -> None: ...
 
@@ -123,11 +124,19 @@ def create_app(*, data_root: Path | None = None, launcher: Launcher | None = Non
         return {"status": "ready", "worker_control_plane": True}
 
     async def persist_and_launch(
-        filename: str, chunks, owner_sha256: str, transcriber: str,
+        filename: str,
+        chunks,
+        owner_sha256: str,
+        transcriber: str,
+        instruments: list[str],
     ) -> dict:
         filename = _safe_filename(filename)
         if transcriber not in _TRANSCRIBERS:
             raise HTTPException(422, "Неизвестная модель транскрипции.")
+        try:
+            instruments = validate_instruments(transcriber, instruments)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
         extension = Path(filename).suffix.lower()
         if extension not in _ALLOWED:
             raise HTTPException(415, "Поддерживаются WAV, FLAC и MP3.")
@@ -158,10 +167,11 @@ def create_app(*, data_root: Path | None = None, launcher: Launcher | None = Non
                 "stored_filename": filename,
                 "owner_token_sha256": owner_sha256,
                 "transcriber": transcriber,
+                "instruments": instruments,
                 "created_at": _now(),
             }
             _atomic_json(directory / "state.json", state)
-            worker_launcher.launch(identifier, transcriber)
+            worker_launcher.launch(identifier, transcriber, instruments)
         except HTTPException:
             shutil.rmtree(directory, ignore_errors=True)
             raise
@@ -178,21 +188,31 @@ def create_app(*, data_root: Path | None = None, launcher: Launcher | None = Non
         request: Request,
         file: UploadFile = File(...),
         transcriber: str = Form("sheetsage2"),
+        instruments: list[str] = Form(default=[]),
     ):
         async def upload_chunks():
             while chunk := await file.read(1024 * 1024):
                 yield chunk
 
         return await persist_and_launch(
-            file.filename or "", upload_chunks(), _owner_sha256(request), transcriber
+            file.filename or "",
+            upload_chunks(),
+            _owner_sha256(request),
+            transcriber,
+            instruments,
         )
 
     @app.put("/v1/jobs", status_code=202)
     async def create_job_stream(request: Request):
         filename = request.headers.get("X-Filename", "")
         transcriber = request.headers.get("X-Transcriber", "sheetsage2")
+        instruments = request.headers.get("X-Instruments", "").split(",")
         return await persist_and_launch(
-            filename, request.stream(), _owner_sha256(request), transcriber
+            filename,
+            request.stream(),
+            _owner_sha256(request),
+            transcriber,
+            instruments,
         )
 
     @app.get("/v1/jobs")

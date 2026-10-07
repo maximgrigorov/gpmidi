@@ -56,6 +56,7 @@ def test_muscriptor_worker_selects_large_model_and_its_verified_cache():
         image="registry.local/audio-midi@sha256:" + "1" * 64,
         pvc_name="sheetsage2-data",
         transcriber="muscriptor-large",
+        instruments=["voice", "distorted_electric_guitar", "drums"],
         muscriptor_model_pvc_name="muscriptor-models",
     )
     pod = manifest["spec"]["template"]["spec"]
@@ -63,6 +64,7 @@ def test_muscriptor_worker_selects_large_model_and_its_verified_cache():
     env = {item["name"]: item["value"] for item in container["env"]}
     assert env["AUDIO_TRANSCRIBER"] == "muscriptor-large"
     assert env["MUSCRIPTOR_MODEL_PATH"] == "/muscriptor-models/large/model.safetensors"
+    assert env["MUSCRIPTOR_INSTRUMENTS"] == "voice,distorted_electric_guitar,drums"
     volumes = {item["name"]: item for item in pod["volumes"]}
     assert volumes["muscriptor-models"]["persistentVolumeClaim"]["claimName"] == "muscriptor-models"
     mount = next(item for item in container["volumeMounts"] if item["name"] == "muscriptor-models")

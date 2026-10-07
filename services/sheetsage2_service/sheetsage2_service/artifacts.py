@@ -132,6 +132,7 @@ def package_transcription(
     input_sha256: str,
     elapsed_seconds: float,
     transcriber: str = "sheetsage2",
+    requested_instruments: list[str] | None = None,
 ) -> PackageResult:
     model_output = Path(model_output)
     source_midi = model_output / "transcription.mid"
@@ -156,6 +157,7 @@ def package_transcription(
         "schema_version": "gpmidi-audio-transcription-report-v2",
         "transcriber": transcriber,
         "transcriber_label": label,
+        "requested_instruments": list(requested_instruments or []),
         "source_filename": Path(original_filename).name,
         "input_sha256": input_sha256,
         "model_revision": model_revision,

@@ -38,11 +38,12 @@ class KubernetesLauncher:
     def ready(self) -> None:
         self.batch.list_namespaced_job(namespace=self.namespace, limit=1)
 
-    def launch(self, job_id: str, transcriber: str) -> None:
+    def launch(self, job_id: str, transcriber: str, instruments: list[str]) -> None:
         body = build_worker_job(
             job_id=job_id, image=self.image, pvc_name=self.pvc_name,
             model_pvc_name=self.model_pvc_name,
             transcriber=transcriber,
+            instruments=instruments,
             muscriptor_model_pvc_name=self.muscriptor_model_pvc_name,
         )
         self.batch.create_namespaced_job(namespace=self.namespace, body=body)
