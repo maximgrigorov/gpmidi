@@ -101,6 +101,14 @@ def _report_html(report: dict) -> str:
     chords = ", ".join(summary["chords"]) or "не определены"
     keys = ", ".join(summary["keys"]) or "не определены"
     sections = ", ".join(summary["sections"]) or "не определены"
+    license_notice = ""
+    if report.get("weights_license"):
+        license_notice = (
+            "<h2>Лицензия</h2><p><strong>Веса модели: "
+            f"{html.escape(report['weights_license'])}</strong> — только для "
+            "некоммерческого использования. Код модели: "
+            f"{html.escape(report['code_license'])}.</p>"
+        )
     return f"""<!doctype html>
 <html lang=\"ru\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
 <title>{html.escape(report['transcriber_label'])} — {html.escape(report['source_filename'])}</title>
@@ -111,6 +119,7 @@ def _report_html(report: dict) -> str:
 <h2>Музыкальная разметка</h2><ul><li>Оценочный BPM: {html.escape(bpm)}</li><li>Beats / downbeats: {summary['beat_count']} / {summary['downbeat_count']}</li><li>Аккорды: {html.escape(chords)}</li><li>Тональности: {html.escape(keys)}</li><li>Секции: {html.escape(sections)}</li></ul>
 <table><thead><tr><th>#</th><th>Дорожка</th><th>Нот</th></tr></thead><tbody>{rows}</tbody></table>
 <h2>Воспроизводимость</h2><p>Model revision: <code>{html.escape(report['model_revision'])}</code></p><p>SHA‑256 audio: <code>{report['input_sha256']}</code></p>
+{license_notice}
 <p class=\"muted\">Результат является автоматической транскрипцией и предназначен для ручной проверки по тактам.</p></body></html>"""
 
 
@@ -157,6 +166,14 @@ def package_transcription(
         "tracks": tracks,
         "musical_summary": _musical_summary(model_output),
     }
+    if transcriber == "muscriptor-large":
+        report.update(
+            {
+                "code_license": "MIT",
+                "weights_license": "CC BY-NC 4.0",
+                "commercial_use_allowed": False,
+            }
+        )
     report_json = destination / "report.json"
     report_html = destination / "report.html"
     report_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

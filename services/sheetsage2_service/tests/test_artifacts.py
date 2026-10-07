@@ -109,3 +109,27 @@ def test_package_rejects_midi_without_note_tracks(tmp_path: Path):
             input_sha256="b" * 64,
             elapsed_seconds=1.0,
         )
+
+
+def test_muscriptor_report_declares_noncommercial_weights_license(tmp_path: Path):
+    model_output = tmp_path / "model"
+    model_output.mkdir()
+    (model_output / "transcription.mid").write_bytes(_midi_bytes())
+
+    result = package_transcription(
+        model_output=model_output,
+        destination=tmp_path / "result",
+        original_filename="mix.wav",
+        model_revision="8809fdfbed2affa7ade94a7059e746e3880720e7",
+        input_sha256="c" * 64,
+        elapsed_seconds=2.5,
+        transcriber="muscriptor-large",
+    )
+
+    report = json.loads(result.report_json_path.read_text(encoding="utf-8"))
+    assert report["code_license"] == "MIT"
+    assert report["weights_license"] == "CC BY-NC 4.0"
+    assert report["commercial_use_allowed"] is False
+    report_html = result.report_html_path.read_text(encoding="utf-8")
+    assert "CC BY-NC 4.0" in report_html
+    assert "только для некоммерческого использования" in report_html

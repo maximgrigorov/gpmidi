@@ -55,7 +55,7 @@ def test_runtime_uses_cuda_bfloat16_pinned_local_weights_and_writes_midi(
     }
     assert calls["transcribe"] == (
         source,
-        {"detect_tempo": "best-effort"},
+        {"detect_tempo": False},
     )
     assert (output / "transcription.mid").read_bytes() == b"MThd-midi"
     assert metrics["model"] == "MuScriptor Large"

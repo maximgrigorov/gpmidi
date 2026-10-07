@@ -28,7 +28,7 @@ def transcribe(input_path: Path, output_path: Path) -> dict:
     try:
         midi_bytes = model.transcribe_to_midi(
             input_path,
-            detect_tempo="best-effort",
+            detect_tempo=False,
         )
         (output_path / "transcription.mid").write_bytes(midi_bytes)
     finally:
