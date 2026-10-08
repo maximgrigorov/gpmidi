@@ -284,6 +284,11 @@
   resolve to the legacy render when there is one** — every URL issued before
   versions existed has no `v`; resolving it to the newest render served v2's bytes
   under v1's name. Pages without `v` show the newest render.
+- **Whole-build links (`_ALL.mid`, ZIP, re-fingered GP) are derived from the
+  selected render in `_job_for_view`.** The job-level `combined_url` / `zip_url` /
+  `refingered_url` belong to whichever build ran last; using them made v1's page
+  hand out v2's `_ALL.mid` and ZIP (live NO-GO 2026-10-08). Per-track links live
+  inside each render and were never affected.
 - The server stores *effective* options (`effective_track_options`): a dependent
   flag whose parent is off is recorded as off, because the converter ignores it.
 - `EFFECT_LABELS` in `app.py` is the one place for the human names of the 13

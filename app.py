@@ -573,6 +573,22 @@ def _job_for_view(
         view.update(_render_snapshot(selected))
         view["active_version"] = int(selected["version"])
         view["active_render_legacy"] = bool(selected.get("legacy"))
+        # Whole-build downloads belong to one render. The job-level copies of
+        # their names and URLs are whatever the newest build wrote, so an older
+        # version's page rebuilt from them linked v2's _ALL.mid and ZIP (live
+        # NO-GO 2026-10-08). Derive them from the selected render instead.
+        for key in ("combined_name", "zip_name", "refingered_name"):
+            view[key] = selected.get(key)
+        version_arg = {} if selected.get("legacy") else {"v": str(int(selected["version"]))}
+        view["combined_url"] = (
+            url_for("download_track", job_id=view["id"], filename=view["combined_name"], **version_arg)
+            if view.get("combined_name") else None)
+        # Some pre-version manifests kept only zip_url; their ZIP is the legacy one.
+        has_zip = view.get("zip_name") or (selected.get("legacy") and job.get("zip_url"))
+        view["zip_url"] = url_for("download_zip", job_id=view["id"], **version_arg) if has_zip else None
+        view["refingered_url"] = (
+            url_for("download_track", job_id=view["id"], filename=view["refingered_name"], **version_arg)
+            if view.get("refingered_name") else None)
     for track in view.get("detected_tracks") or []:
         track["ui_role"] = _track_ui_role(track)
     previous = None
