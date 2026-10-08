@@ -22,4 +22,8 @@ regexes = [
   # `gitleaks detect` scans history on purpose.
   '''AKIAIOSFODNN7EXAMPLE''',
   '''wJalrXUtnFEMI''',
+
+  # Deterministic SHA-256 of the unchanged Keys.mid golden fixture. The same
+  # digest appears in four UI scenarios and is test evidence, not a credential.
+  '''a39848d31cc21658e535f89f16bf07235be40f7206ccd70951196aad95ff55e7''',
 ]
