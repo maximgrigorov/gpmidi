@@ -1,0 +1,60 @@
+{% set overview = current_job.overview or {} %}
+{% set version = current_job.active_version or 1 %}
+<section class="wizard-panel result-panel" data-step="result">
+  <div class="section-heading">
+    <div><span class="eyebrow">Шаг 5</span><h1>{% if current_job.status == 'error' %}Версия {{ version }} не собралась{% elif current_job.active_render_legacy %}Готово — исходная сборка{% else %}Готово — версия {{ version }}{% endif %}</h1><p>Каждая сборка сохраняется версией. Скачайте две и сравните на слух.</p></div>
+    <a class="btn" href="{{ url_for('job_details', job_id=current_job.id, step='sound', **{'from': version}) }}">Изменить звучание и пересобрать</a>
+  </div>
+  <nav class="version-chips" aria-label="Версии сборки">
+    {% for render in current_job.renders %}<a class="version-chip {{ 'active' if render.version == current_job.active_version else '' }} {{ 'error' if render.status == 'error' else '' }}" href="{{ url_for('job_details', job_id=current_job.id, step='result', v=render.version) }}" {% if render.version == current_job.active_version %}aria-current="page"{% endif %}><b>{{ render.label or ('v' ~ render.version) }}</b><span>{{ render.time }}{% if render.status == 'error' %} · ошибка{% elif render.overview %} · {{ render.overview.short }}{% endif %}</span></a>{% endfor %}
+  </nav>
+  {% if current_job.status == 'error' %}
+    <div class="error-state"><div><h2>Сборка остановилась с ошибкой</h2><p>Настройки этой версии сохранены, файлы других версий не тронуты.</p><details><summary>Подробности</summary><pre>{{ current_job.error }}</pre></details></div><a class="btn primary" href="{{ url_for('job_details', job_id=current_job.id, step='sound', **{'from': version}) }}">Изменить звучание</a></div>
+  {% else %}
+    <div class="download-hero">
+      <div class="dh-text"><span class="eyebrow">Для Logic Pro</span><h2>Все дорожки {{ 'этой сборки' if current_job.active_render_legacy else 'v' ~ version }} одним файлом</h2>{% if current_job.combined_name %}<span class="mono">{{ current_job.combined_name }}</span>{% endif %}</div>
+      <div class="dh-actions">
+        {% if current_job.combined_url %}<a class="btn primary download-primary" href="{{ current_job.combined_url }}">Скачать всё для Logic <span class="k">_ALL.mid</span></a>{% endif %}
+        {% if current_job.enriched_combined_url %}<a class="btn primary" href="{{ current_job.enriched_combined_url }}">Enriched · всё для Logic</a>{% endif %}
+        {% if current_job.zip_url %}<a class="btn" href="{{ current_job.zip_url }}">ZIP — все файлы</a>{% endif %}
+      </div>
+    </div>
+    <div class="result-layout">
+      <div class="result-track-grid">
+      {% for track in current_job.tracks %}
+        <article class="result-track-card">
+          <header><div><h2>{{ track.track_name }}</h2><p>{{ track.track_type_label }} · {{ track.get('notes', 0) }} нот</p></div><button type="button" class="btn btn-sm track-summary-row" data-preview-row="preview-{{ loop.index }}" data-preview-url="{{ track.preview_url }}">▶ Прослушать</button></header>
+          <div class="track-downloads">
+            <a class="btn btn-sm" href="{{ track.download_url }}">MIDI</a>
+            {% if track.enriched_download_url %}<a class="btn btn-sm primary" href="{{ track.enriched_download_url }}">Enriched MIDI</a>{% endif %}
+            {% if track.double_download_url %}<a class="btn btn-sm" href="{{ track.double_download_url }}">Double</a>{% endif %}
+            {% if track.playable %}<details class="tabs-dd"><summary class="btn btn-sm">Табы ▾</summary><div class="tabs-menu">
+              {% for artifact in track.playable.files %}<div class="artifact-action"><a href="{{ url_for('download_track', job_id=current_job.id, filename=artifact, v=version) }}">{{ artifact|replace(track.basename ~ '.', '') }}</a>{% if printing_enabled and artifact.endswith('.pdf') %}<form action="{{ url_for('print_artifact', job_id=current_job.id, v=version) }}" method="post"><input type="hidden" name="artifact" value="{{ artifact }}"><button class="link-btn" type="submit">Печать A4</button></form>{% endif %}</div>{% endfor %}
+              <details><summary class="link-btn">Параметры аппликатуры · {{ track.playable.preset }}</summary>
+              <form action="{{ url_for('regen_playable', job_id=current_job.id, v=version) }}" method="post" class="regen-form"><input type="hidden" name="track" value="{{ track.basename }}"><label>Пресет <select name="preset">{% for preset in ['auto','solo','rhythm','bass'] %}<option value="{{ preset }}" {% if track.playable.preset == preset %}selected{% endif %}>{{ preset }}</option>{% endfor %}</select></label>{% for key in ['sweet_spot_low','sweet_spot_high','sweet_spot_bonus','movement_penalty','string_switch_penalty','unplayable_fret_span'] %}{% set spec=tunable_params[key] %}<label>{{ spec[4] }}<input type="number" name="{{ key }}" value="{{ track.playable.params[key] }}" min="{{ spec[1] }}" max="{{ spec[2] }}" step="{% if spec[0].__name__ == 'float' %}0.1{% else %}1{% endif %}"></label>{% endfor %}<input type="hidden" name="prefer_open" value="false"><label><input type="checkbox" name="prefer_open" value="true" {% if track.playable.params.prefer_open %}checked{% endif %}> предпочитать открытые</label><button class="btn btn-sm" type="submit">Перегенерировать</button></form>
+              </details>
+            </div></details>{% endif %}
+          </div>
+          <div id="preview-{{ loop.index }}" class="preview-row is-hidden"><div>Загружаю preview…</div></div>
+          {% if track.get('processing_report') %}<details class="applied"><summary>Отчёт обработки</summary><ul>{% for line in track.processing_report %}<li>{{ line }}</li>{% endfor %}</ul></details>{% endif %}
+        </article>
+      {% endfor %}
+      </div>
+      <aside class="result-side">
+        <section class="side-card">
+          <h2>Что применено{% if not current_job.active_render_legacy %} в v{{ version }}{% endif %}</h2>
+          <dl class="applied-list">{% for line in overview.lines or [] %}<div><dt>{{ line.label }}</dt><dd>{{ line.value }}</dd></div>{% endfor %}</dl>
+          {% if overview.diff %}<div class="version-diff"><b>Отличие от предыдущей версии:</b><ul>{% for line in overview.diff %}<li>{{ line }}</li>{% endfor %}</ul></div>{% endif %}
+        </section>
+        {% if overview.daw %}<section class="side-card daw-checklist" data-daw-checklist="{{ current_job.id }}:v{{ version }}"><h2>Настройка DAW</h2><p class="hint">MIDI эти ручки не выставляет — проверьте в пресете Kontakt.</p>{% for item in overview.daw %}<label><input type="checkbox" data-check="{{ item.id }}"><span><b>{{ item.label }}</b><small>{{ item.hint }}</small></span></label>{% endfor %}</section>{% endif %}
+        {% if current_job.arrangement and current_job.arrangement.status in ('draft_ready', 'validated') %}
+          <section class="side-card"><h2>План выразительности <em class="tag-warn">эксперимент</em></h2><p>{{ current_job.arrangement.summary }}</p><form method="post" action="{{ url_for('apply_arrangement', job_id=current_job.id, v=version) }}"><input type="hidden" name="apply_token" value="{{ current_job.arrangement_apply_token or '' }}"><button class="btn primary" type="submit">Применить проверенный план</button></form></section>
+        {% elif current_job.arrangement and current_job.arrangement.status == 'draft_error' %}
+          <section class="side-card"><h2>План выразительности</h2><p class="form-warning">{{ current_job.arrangement.error }}</p></section>
+        {% endif %}
+        {% if current_job.enrichment_report_url %}<p><a class="btn" href="{{ current_job.enrichment_report_url }}">Открыть фактический HTML-отчёт</a></p>{% endif %}
+      </aside>
+    </div>
+  {% endif %}
+  <div class="result-actions"><button class="btn" type="submit" form="newSessionForm">Новый файл</button><form method="post" action="{{ url_for('delete_job', job_id=current_job.id) }}" onsubmit="return confirm('Удалить сессию и все версии?')"><button class="btn danger" type="submit">Удалить сессию</button></form></div>
+</section>

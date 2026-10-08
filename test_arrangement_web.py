@@ -45,7 +45,10 @@ def test_selected_tracks_prepare_hermes_context_on_processing_step(monkeypatch):
 
 
 def test_template_exposes_draft_only_workflow_without_direct_llm_apply():
-    source = Path("templates/index.html").read_text(encoding="utf-8")
+    source = "\n".join(
+        Path(path).read_text(encoding="utf-8")
+        for path in ("templates/index.html", "templates/_wizard_form.html", "templates/_wizard_result.html", "static/wizard.js")
+    )
 
     assert 'name="prepare_arrangement_context"' in source
     assert 'name="llm_arrangement"' not in source

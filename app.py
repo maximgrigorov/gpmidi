@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -255,6 +256,7 @@ def discover_tracks(song: Any) -> list[dict[str, Any]]:
             "instrument_preset": infer_instrument_preset(track_name, track_type),
             "available_effects": list(TRACK_EFFECTS.get(track_type, [])),
             "default_effects": default_track_effects(track, track_type),
+            "ui_role": ui_role(track_type, is_solo_track(track, track_type)),
             "selected": True,
         })
     return discovered
@@ -293,6 +295,302 @@ def parse_track_options(
             for effect in effects
         }
     return options
+
+
+DARKWALL_PITCH_BEND_RANGE = int(round(float(
+    (config_for_track_type("BASS") or {}).get(
+        "pitch_bend_range", PITCH_BEND_RANGE_ST
+    )
+)))
+
+# Human names of the per-track effects, in the order of the wizard table. One
+# source for the table, the step-3 summary and the result page; the technical
+# key stays visible in tooltips.
+EFFECT_LABELS = {
+    "humanize": "Оживление",
+    "ghost_notes": "Гост-ноты малого",
+    "lock_to_drums": "Вместе с барабанами",
+    "double_track": "Второй дубль L/R",
+    "palm_mute_motion": "Глушение как движение руки",
+    "fret_hand_cost": "Задержка при переносе руки",
+    "pick_direction": "Направление медиатора",
+    "auto_sustain_vibrato": "Вибрато на длинных нотах",
+    "fret_noise_on_hand_shift": "Шорох струн при переносе позиции",
+    "expand_gp_hidden_32nds": "Скрытые 32-е",
+    "preserve_gp_played_offsets": "Авторские сдвиги GP8",
+    "keep_gp_played_overlaps": "Перекрытия от сдвигов",
+    "humanize_timing_over_gp_offsets": "Оживление поверх сдвигов",
+}
+EFFECT_SHORT_LABELS = {
+    "humanize": "Оживить", "ghost_notes": "Гост-ноты", "lock_to_drums": "С барабанами",
+    "double_track": "Дубль L/R", "palm_mute_motion": "Глушение", "fret_hand_cost": "Задержка руки",
+    "pick_direction": "Медиатор", "auto_sustain_vibrato": "Вибрато", "fret_noise_on_hand_shift": "Шорох",
+    "expand_gp_hidden_32nds": "Скрытые 32-е", "preserve_gp_played_offsets": "Сдвиги GP8",
+    "keep_gp_played_overlaps": "Перекрытия", "humanize_timing_over_gp_offsets": "Поверх сдвигов",
+}
+assert set(EFFECT_LABELS) == {key for keys in TRACK_EFFECTS.values() for key in keys}
+UI_ROLE_LABELS = {"drums": "Барабаны", "rhythm": "Ритм-секция", "solo": "Соло", "other": "Прочее"}
+
+
+def ui_role(track_type: str, solo: bool) -> str:
+    """Wizard group of a track. Only the UI uses it; it never changes options."""
+    if track_type == "DRUMS":
+        return "drums"
+    if track_type in ("GUITAR", "BASS"):
+        return "solo" if solo else "rhythm"
+    return "other"
+
+
+def _track_ui_role(track: dict[str, Any]) -> str:
+    # Sessions parsed before the wizard have no ui_role; the solo default of
+    # preserve_gp_played_offsets is exactly is_solo_track, so it recovers it.
+    role = track.get("ui_role")
+    if role in UI_ROLE_LABELS:
+        return role
+    return ui_role(str(track.get("track_type") or ""),
+                   bool((track.get("default_effects") or {}).get("preserve_gp_played_offsets")))
+
+
+def _render_track_options(render: dict[str, Any]) -> dict[int, dict[str, bool]]:
+    return {int(index): dict(values or {})
+            for index, values in (render.get("track_options") or {}).items()}
+
+
+def _render_effect_tracks(job: dict[str, Any], render: dict[str, Any]) -> dict[str, list[int]]:
+    """Effect key -> selected track indices that had it ON in this render."""
+    options = _render_track_options(render)
+    selected = [int(index) for index in render.get("selected_track_indices") or options]
+    return {key: [index for index in selected if options.get(index, {}).get(key)]
+            for key in EFFECT_LABELS}
+
+
+def render_overview(job: dict[str, Any], render: dict[str, Any],
+                    previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Human summary of one render: what was applied, what differs, DAW checklist."""
+    detected = {int(track["index"]): track for track in job.get("detected_tracks") or []}
+    names = {index: str(track.get("track_name") or f"#{index}") for index, track in detected.items()}
+    selected = [int(index) for index in render.get("selected_track_indices") or []]
+    legacy_flags = not render.get("track_options")
+    effects = _render_effect_tracks(job, render)
+
+    def describe(key: str, indices: list[int]) -> str:
+        eligible = [index for index in selected
+                    if key in (detected.get(index, {}).get("available_effects") or [])]
+        if len(indices) > 2 and len(indices) == len(eligible):
+            return f"все доступные дорожки ({len(indices)})"
+        return ", ".join(names.get(index, f"#{index}") for index in indices)
+
+    lines = []
+    if legacy_flags:
+        # Old sessions kept only song-level flags.
+        lines = [{"label": EFFECT_LABELS[key], "value": "включено"}
+                 for key in EFFECT_LABELS if render.get(key)]
+    else:
+        lines = [{"label": EFFECT_LABELS[key], "value": describe(key, indices)}
+                 for key, indices in effects.items() if indices]
+    humanized = len(effects["humanize"]) if not legacy_flags else int(bool(render.get("humanize")))
+    if not humanized:
+        lines.insert(0, {"label": "Без оживления", "value": "MIDI как в нотах"})
+    if render.get("playable_tabs"):
+        lines.append({"label": "Играбельные табы", "value": "включены"})
+    if render.get("prepare_arrangement_context"):
+        lines.append({"label": "План выразительности",
+                      "value": "черновик OpenAI" if render.get("openai_arrangement_draft") else "контекст"})
+    lines.append({"label": "Seed", "value": str(render.get("seed", 7))})
+
+    if legacy_flags:
+        short = "исходная сборка"
+    elif humanized:
+        short = f"оживление: {humanized} дор." + (" · с барабанами" if effects["lock_to_drums"] else "")
+    else:
+        short = "как в нотах"
+
+    diff: list[str] = []
+    if previous is not None and not legacy_flags and previous.get("track_options"):
+        before = _render_effect_tracks(job, previous)
+        for key, indices in effects.items():
+            added = [names.get(i, f"#{i}") for i in indices if i not in before[key]]
+            removed = [names.get(i, f"#{i}") for i in before[key] if i not in indices]
+            if added:
+                diff.append(f"{EFFECT_LABELS[key]}: + {', '.join(added)}")
+            if removed:
+                diff.append(f"{EFFECT_LABELS[key]}: − {', '.join(removed)}")
+        prev_selected = [int(i) for i in previous.get("selected_track_indices") or []]
+        if sorted(prev_selected) != sorted(selected):
+            diff.append(f"Дорожек: {len(prev_selected)} → {len(selected)}")
+        if previous.get("seed", 7) != render.get("seed", 7):
+            diff.append(f"Seed: {previous.get('seed', 7)} → {render.get('seed', 7)}")
+        if bool(previous.get("playable_tabs")) != bool(render.get("playable_tabs")):
+            diff.append("Играбельные табы: " + ("включены" if render.get("playable_tabs") else "выключены"))
+        if not diff:
+            diff.append("настройки те же")
+
+    types = {detected.get(index, {}).get("track_type") for index in selected}
+    daw = []
+    if "GUITAR" in types:
+        daw.append({"id": "hydra_pb", "label": f"Hydra: PITCH BEND RANGE = {HYDRA_PITCH_BEND_RANGE}",
+                    "hint": "Kontakt не обязан слушать RPN; при меньшем значении глубокие бенды упрутся в потолок"})
+    if effects["pick_direction"]:
+        daw.append({"id": "hydra_pick", "label": "Hydra: Picking Mode на кейсвитчах C7 / C#7",
+                    "hint": "Other Performance Keyswitches — включено направление медиатора"})
+    if effects["palm_mute_motion"]:
+        daw.append({"id": "hydra_tightness", "label": "Hydra: Vel → Tightness включён",
+                    "hint": "без него velocity не меняет глубину глушения"})
+    if "BASS" in types:
+        daw.append({"id": "darkwall_pb", "label": f"Darkwall: PITCH BEND RANGE = {DARKWALL_PITCH_BEND_RANGE}",
+                    "hint": "значение из карты Darkwall; с пресетом ещё не сверено"})
+    return {"lines": lines, "short": short, "diff": diff, "daw": daw}
+
+
+@app.context_processor
+def _wizard_labels() -> dict[str, Any]:
+    return {"effect_labels": EFFECT_LABELS, "effect_short_labels": EFFECT_SHORT_LABELS,
+            "ui_role_labels": UI_ROLE_LABELS}
+
+
+_HUMANIZE_DEPENDENCIES = {
+    "ghost_notes", "lock_to_drums", "double_track", "palm_mute_motion",
+    "fret_hand_cost", "humanize_timing_over_gp_offsets",
+}
+_PLAYED_OFFSET_DEPENDENCIES = {
+    "keep_gp_played_overlaps", "humanize_timing_over_gp_offsets",
+}
+_RENDER_FIELDS = {
+    "tracks", "warnings", "playable_warnings", "playable_tabs", "refingered_name",
+    "zip_name", "combined_name", "humanize", "ghost_notes", "auto_sustain_vibrato",
+    "fret_noise_on_hand_shift", "expand_gp_hidden_32nds", "preserve_gp_played_offsets",
+    "fret_hand_cost", "keep_gp_played_overlaps", "humanize_timing_over_gp_offsets",
+    "lock_to_drums", "double_track", "pick_direction", "palm_mute_motion",
+    "prepare_arrangement_context", "openai_arrangement_draft", "arrangement_apply_token",
+    "seed", "arrangement", "arrangement_artifacts", "selected_track_indices",
+    "track_options", "created_at", "status", "error",
+}
+
+
+def effective_track_options(
+    options: dict[int, dict[str, bool]],
+) -> dict[int, dict[str, bool]]:
+    """Return the server-authoritative options that can affect a render."""
+    effective: dict[int, dict[str, bool]] = {}
+    for index, values in options.items():
+        row = {key: bool(value) for key, value in values.items()}
+        humanize = row.get("humanize", False)
+        preserve_offsets = row.get("preserve_gp_played_offsets", False)
+        for key in _HUMANIZE_DEPENDENCIES:
+            if key in row and not humanize:
+                row[key] = False
+        for key in _PLAYED_OFFSET_DEPENDENCIES:
+            if key in row and not preserve_offsets:
+                row[key] = False
+        effective[int(index)] = row
+    return effective
+
+
+def _render_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    return {key: job.get(key) for key in _RENDER_FIELDS if key in job}
+
+
+def ensure_job_renders(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expose old single-render manifests as a non-moving legacy version."""
+    renders = job.get("renders")
+    if isinstance(renders, list):
+        return renders
+    if job.get("stage") != "processed":
+        job["renders"] = []
+        return job["renders"]
+    legacy = {
+        **_render_snapshot(job),
+        "version": 1,
+        "label": "исходная сборка",
+        "legacy": True,
+        "relative_root": "",
+        "status": job.get("status", "ok"),
+    }
+    job["renders"] = [legacy]
+    return job["renders"]
+
+
+def render_by_version(job: dict[str, Any], version: int) -> dict[str, Any]:
+    render = next(
+        (item for item in ensure_job_renders(job) if int(item.get("version", 0)) == version),
+        None,
+    )
+    if render is None:
+        abort(404)
+    return render
+
+
+def render_root(job_dir: Path, render: dict[str, Any]) -> Path:
+    if render.get("legacy"):
+        return job_dir
+    return job_dir / "renders" / str(int(render["version"]))
+
+
+def _requested_render(
+    job: dict[str, Any], name: str = "v", *, prefer_legacy: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve ``?v=N`` (or ``?from=N``) to a render, 404 on anything invalid.
+
+    Without the parameter a page shows the newest render. File routes pass
+    ``prefer_legacy``: every URL issued before versions existed has no ``v`` and
+    points at the unmoved legacy output, so it must keep resolving there after
+    the session gets v2 -- otherwise v1's links hand out v2's bytes.
+    """
+    renders = ensure_job_renders(job)
+    raw = request.args.get(name)
+    if raw is None or raw == "":
+        if prefer_legacy:
+            legacy = next((item for item in renders if item.get("legacy")), None)
+            if legacy is not None:
+                return legacy
+        return renders[-1] if renders else None
+    try:
+        version = int(raw)
+    except (TypeError, ValueError):
+        abort(404)
+    if version < 1:
+        abort(404)
+    return render_by_version(job, version)
+
+
+def _job_for_view(
+    job: dict[str, Any],
+    *,
+    render: dict[str, Any] | None = None,
+    source_render: dict[str, Any] | None = None,
+    step: str | None = None,
+) -> dict[str, Any]:
+    """Build a template-only view without overwriting the persisted manifest."""
+    view = copy.deepcopy(job)
+    renders = ensure_job_renders(view)
+    if render is None and renders:
+        render = renders[-1]
+    if render is not None:
+        selected = next(
+            (item for item in renders if int(item.get("version", 0)) == int(render["version"])),
+            copy.deepcopy(render),
+        )
+        view.update(_render_snapshot(selected))
+        view["active_version"] = int(selected["version"])
+        view["active_render_legacy"] = bool(selected.get("legacy"))
+    for track in view.get("detected_tracks") or []:
+        track["ui_role"] = _track_ui_role(track)
+    previous = None
+    for item in renders:
+        item["overview"] = render_overview(view, item, previous)
+        stamp = str(item.get("created_at") or view.get("created_at") or "")
+        item["time"] = stamp[11:16] if len(stamp) >= 16 else stamp
+        if item.get("status") != "error":
+            previous = item
+    if render is not None:
+        view["overview"] = next(
+            (item["overview"] for item in renders if int(item.get("version", 0)) == int(render["version"])),
+            render_overview(view, render),
+        )
+    view["renders"] = renders
+    view["wizard_step"] = step or ("tracks" if view.get("stage") == "parsed" else "result")
+    view["source_render"] = copy.deepcopy(source_render) if source_render else None
+    return _attach_midi_downloads(view)
 
 
 def allowed_file(filename: str) -> bool:
@@ -383,7 +681,13 @@ def _attach_midi_downloads(job: dict[str, Any]) -> dict[str, Any]:
         name = str(artifact.get("name") or "")
         if not name.endswith(".mid") or name not in allowed:
             continue
-        download_url = url_for("download_track", job_id=job["id"], filename=name)
+        if job.get("active_version") and not job.get("active_render_legacy"):
+            download_url = url_for(
+                "download_track", job_id=job["id"], filename=name,
+                v=str(job["active_version"]),
+            )
+        else:
+            download_url = url_for("download_track", job_id=job["id"], filename=name)
         if artifact.get("type") == "TYPE_1_ALL":
             job["enriched_combined_name"] = name
             job["enriched_combined_url"] = download_url
@@ -407,9 +711,15 @@ def _attach_midi_downloads(job: dict[str, Any]) -> dict[str, Any]:
         and report_is_declared
     ):
         job["enrichment_report_name"] = report_name
-        job["enrichment_report_url"] = url_for(
-            "view_enrichment_report", job_id=job["id"], filename=report_name,
-        )
+        if job.get("active_version") and not job.get("active_render_legacy"):
+            job["enrichment_report_url"] = url_for(
+                "view_enrichment_report", job_id=job["id"], filename=report_name,
+                v=str(job["active_version"]),
+            )
+        else:
+            job["enrichment_report_url"] = url_for(
+                "view_enrichment_report", job_id=job["id"], filename=report_name,
+            )
     return job
 
 
@@ -668,6 +978,7 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                         palm_mute_motion: bool = False,
                         selected_track_indices: set[int] | None = None,
                         track_options: dict[int, dict[str, bool]] | None = None,
+                        render_version: int | None = None,
                         ) -> tuple[list[dict[str, Any]], list[Any]]:
     used: dict[str, int] = {}
     tracks: list[dict[str, Any]] = []
@@ -850,11 +1161,18 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
                 "stats": stats,
                 "notes": stats["notes"],
                 "download_name": out_path.name,
-                "download_url": url_for("download_track", job_id=job_id, filename=out_path.name),
+                "download_url": (url_for("download_track", job_id=job_id, filename=out_path.name,
+                                         v=str(render_version)) if render_version else
+                                 url_for("download_track", job_id=job_id, filename=out_path.name)),
                 "double_download_name": double_path.name if double_path else None,
-                "double_download_url": (url_for("download_track", job_id=job_id,
-                                                filename=double_path.name) if double_path else None),
-                "preview_url": url_for("preview_track", job_id=job_id, filename=preview_name),
+                "double_download_url": ((url_for("download_track", job_id=job_id,
+                                                 filename=double_path.name, v=str(render_version))
+                                         if render_version else url_for("download_track", job_id=job_id,
+                                                                        filename=double_path.name))
+                                        if double_path else None),
+                "preview_url": (url_for("preview_track", job_id=job_id, filename=preview_name,
+                                        v=str(render_version)) if render_version else
+                                url_for("preview_track", job_id=job_id, filename=preview_name)),
                 "preview_note_count": preview_data["note_count"],
                 "preview_duration_ms": preview_data["duration_ms"],
                 "preview_articulations": preview_data["articulation_counts"],
@@ -1020,38 +1338,39 @@ def create_job(uploaded_file=None, humanize: bool = False,
                track_options: dict[int, dict[str, bool]] | None = None,
                existing_job: dict[str, Any] | None = None) -> str:
     root = uploads_root()
+    prior_renders: list[dict[str, Any]] = []
     if existing_job is not None:
         job_id = str(existing_job["id"])
         job_dir = root / job_id
         input_dir = job_dir / "input"
-        output_dir = job_dir / "output"
         original_name = str(existing_job["original_name"])
         stored_name = str(existing_job["stored_name"])
         source_path = input_dir / stored_name
         if not source_path.is_file():
             raise FileNotFoundError("parsed Guitar Pro source is missing")
-        shutil.rmtree(output_dir, ignore_errors=True)
-        shutil.rmtree(job_dir / "preview", ignore_errors=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        prior_renders = ensure_job_renders(existing_job)
     else:
         if uploaded_file is None:
             raise ValueError("uploaded file is required for a new job")
         job_id = uuid.uuid4().hex[:12]
         job_dir = root / job_id
         input_dir = job_dir / "input"
-        output_dir = job_dir / "output"
         input_dir.mkdir(parents=True, exist_ok=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         original_name = uploaded_file.filename or "song.gp5"
         stored_name = unique_name(input_dir, original_name)
         source_path = input_dir / stored_name
         uploaded_file.save(source_path)
 
+    render_version = len(prior_renders) + 1
+    render_dir = job_dir / "renders" / str(render_version)
+    output_dir = render_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=False)
+
     song = parse_song(source_path)
     song_summary = summarize_song(song)
     tracks, midi_tracks = build_track_summary(
-        song, output_dir, job_dir, job_id,
+        song, output_dir, render_dir, job_id,
         humanize=humanize, ghost_notes=ghost_notes, seed=seed,
         auto_sustain_vibrato=auto_sustain_vibrato,
         fret_noise_on_hand_shift=fret_noise_on_hand_shift,
@@ -1066,6 +1385,7 @@ def create_job(uploaded_file=None, humanize: bool = False,
         palm_mute_motion=palm_mute_motion,
         selected_track_indices=selected_track_indices,
         track_options=track_options,
+        render_version=render_version,
     )
 
     if track_options:
@@ -1260,7 +1580,7 @@ def create_job(uploaded_file=None, humanize: bool = False,
             except Exception as exc:
                 playable_warnings.append(f"re-fingering отменён: {str(exc)[:240]}")
 
-    zip_path = make_zip(job_dir)
+    zip_path = make_zip(render_dir)
 
     job = {
         "id": job_id,
@@ -1279,12 +1599,14 @@ def create_job(uploaded_file=None, humanize: bool = False,
         "playable_warnings": playable_warnings,
         "playable_tabs": playable_tabs,
         "refingered_name": refingered_name,
-        "refingered_url": (url_for("download_track", job_id=job_id, filename=refingered_name)
+        "refingered_url": (url_for("download_track", job_id=job_id, filename=refingered_name,
+                                   v=str(render_version))
                            if refingered_name else None),
         "zip_name": zip_path.name,
-        "zip_url": url_for("download_zip", job_id=job_id),
+        "zip_url": url_for("download_zip", job_id=job_id, v=str(render_version)),
         "combined_name": combined_name,
-        "combined_url": (url_for("download_track", job_id=job_id, filename=combined_name)
+        "combined_url": (url_for("download_track", job_id=job_id, filename=combined_name,
+                                 v=str(render_version))
                          if combined_name else None),
         "humanize": humanize,
         "ghost_notes": ghost_notes,
@@ -1306,6 +1628,18 @@ def create_job(uploaded_file=None, humanize: bool = False,
         "arrangement": arrangement,
         "arrangement_artifacts": arrangement_artifacts,
     }
+    render = {
+        **_render_snapshot(job),
+        "job_id": job_id,
+        "version": render_version,
+        "label": f"v{render_version}",
+        "legacy": False,
+        "relative_root": f"renders/{render_version}",
+        "status": "ok",
+    }
+    render["artifact_names"] = sorted(_artifact_names(render))
+    job["renders"] = [*prior_renders, render]
+    job["active_version"] = render_version
 
     manifest = load_manifest()
     manifest["jobs"] = [j for j in manifest.get("jobs", []) if j["id"] != job_id]
@@ -1477,6 +1811,8 @@ def healthz():
 def index():
     manifest = load_manifest()
     current_job = get_current_job(manifest)
+    if current_job is not None:
+        current_job = _job_for_view(current_job)
     jobs = manifest.get("jobs", [])
     return render_template(
         "index.html", current_job=current_job, jobs=jobs,
@@ -1542,7 +1878,14 @@ def job_details(job_id: str):
         abort(404)
     manifest["current_job_id"] = job_id
     save_manifest(manifest)
-    current_job = _attach_midi_downloads(current_job)
+    step = request.args.get("step") or ("tracks" if current_job.get("stage") == "parsed" else "result")
+    if step not in {"tracks", "sound", "extra", "result"}:
+        abort(404)
+    current_render = _requested_render(current_job)
+    source_render = _requested_render(current_job, "from") if request.args.get("from") is not None else None
+    current_job = _job_for_view(
+        current_job, render=current_render, source_render=source_render, step=step,
+    )
     return render_template(
         "index.html", current_job=current_job, jobs=jobs,
         max_size_mb=GP_MAX_CONTENT_LENGTH // (1024 * 1024),
@@ -1574,8 +1917,6 @@ def process_job(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    if job.get("stage") != "parsed":
-        abort(409, description="job is already processed")
 
     discovered = list(job.get("detected_tracks") or [])
     known_indices = {int(track["index"]) for track in discovered}
@@ -1588,7 +1929,7 @@ def process_job(job_id: str):
     if not selected.issubset(known_indices):
         abort(400, description="unknown track selected")
 
-    options = parse_track_options(request.form, selected, discovered)
+    options = effective_track_options(parse_track_options(request.form, selected, discovered))
     try:
         seed = int(request.form.get("seed") or 7)
     except ValueError:
@@ -1610,8 +1951,31 @@ def process_job(job_id: str):
             existing_job=job,
         )
     except Exception as exc:  # pragma: no cover
-        flash(f"Обработка не выполнена: {exc}", "error")
-        return redirect(url_for("job_details", job_id=job_id))
+        renders = ensure_job_renders(job)
+        version = len(renders) + 1
+        failed = {
+            "version": version,
+            "label": f"v{version}",
+            "legacy": False,
+            "relative_root": f"renders/{version}",
+            "status": "error",
+            "error": str(exc)[:500],
+            "created_at": human_timestamp(),
+            "job_id": job_id,
+            "selected_track_indices": sorted(selected),
+            "track_options": options,
+            "seed": seed,
+            "playable_tabs": request.form.get("playable_tabs") == "on",
+            "prepare_arrangement_context": prepare_context,
+            "openai_arrangement_draft": openai_draft,
+            "artifact_names": [],
+            "tracks": [],
+        }
+        renders.append(failed)
+        job.update({"stage": "processed", "status": "error", "error": failed["error"]})
+        save_manifest(manifest)
+        flash("Обработка не выполнена; настройки сохранены в версии с ошибкой.", "error")
+        return redirect(url_for("job_details", job_id=job_id, step="result", v=version))
 
     mode = "одна дорожка" if len(selected) == 1 else f"{len(selected)} дорожек"
     flash(
@@ -1619,7 +1983,7 @@ def process_job(job_id: str):
         "передавались в expression workflow.",
         "success",
     )
-    return redirect(url_for("job_details", job_id=job_id))
+    return redirect(url_for("job_details", job_id=job_id, step="result"))
 
 
 def _artifact_names(job: dict[str, Any]) -> set[str]:
@@ -1628,6 +1992,8 @@ def _artifact_names(job: dict[str, Any]) -> set[str]:
     for track in job.get("tracks", []):
         if track.get("download_name"):
             names.add(track["download_name"])
+        if track.get("double_download_name"):
+            names.add(track["double_download_name"])
         names.update((track.get("playable") or {}).get("files", []))
     return names
 
@@ -1638,54 +2004,57 @@ def apply_arrangement(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    arrangement = job.get("arrangement") or {}
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
+    arrangement = owner.get("arrangement") or {}
     if arrangement.get("status") == "applied":
         flash("Enriched MIDI уже собран; повторное применение не выполнялось.", "warning")
         return redirect(url_for("job_details", job_id=job_id))
     if arrangement.get("status") != "draft_ready" or not arrangement.get("plan_name"):
         abort(400, description="OpenAI draft не готов к применению")
-    expected_token = str(job.get("arrangement_apply_token") or "")
+    expected_token = str(owner.get("arrangement_apply_token") or "")
     submitted_token = str(request.form.get("apply_token") or "")
     if not expected_token or not secrets.compare_digest(expected_token, submitted_token):
         abort(400, description="Недействительное подтверждение применения")
 
     job_dir = uploads_root() / job_id
+    owner_root = render_root(job_dir, owner) if render else job_dir
     source_path = job_dir / "input" / job["stored_name"]
     plan_name = str(arrangement["plan_name"])
     if Path(plan_name).name != plan_name:
         abort(400, description="Недействительное имя плана")
-    plan_path = job_dir / "output" / plan_name
+    plan_path = owner_root / "output" / plan_name
     if not source_path.is_file() or not plan_path.is_file():
         flash("Исходный GP или draft plan недоступен; baseline не изменён.", "error")
         return redirect(url_for("job_details", job_id=job_id))
-    temp_dir = job_dir / "openai-apply"
+    temp_dir = owner_root / "openai-apply"
     copied: list[str] = []
     try:
         apply_manifest = apply_arrangement_plan(
             source_path, plan_path, temp_dir,
             approved=True,
-            seed=int(job.get("seed", 7)),
+            seed=int(owner.get("seed", 7)),
             render_options={
-                "humanize": bool(job.get("humanize")),
-                "ghost_notes": bool(job.get("ghost_notes")),
-                "auto_sustain_vibrato": bool(job.get("auto_sustain_vibrato")),
-                "fret_noise_on_hand_shift": bool(job.get("fret_noise_on_hand_shift")),
-                "expand_gp_hidden_32nds": bool(job.get("expand_gp_hidden_32nds")),
-                "preserve_gp_played_offsets": bool(job.get("preserve_gp_played_offsets")),
-                "fret_hand_cost": bool(job.get("fret_hand_cost")),
-                "keep_gp_played_overlaps": bool(job.get("keep_gp_played_overlaps")),
-                "humanize_timing_over_gp_offsets": bool(job.get("humanize_timing_over_gp_offsets")),
-                "lock_to_drums": bool(job.get("lock_to_drums")),
-                "pick_direction": bool(job.get("pick_direction")),
-                "palm_mute_motion": bool(job.get("palm_mute_motion")),
+                "humanize": bool(owner.get("humanize")),
+                "ghost_notes": bool(owner.get("ghost_notes")),
+                "auto_sustain_vibrato": bool(owner.get("auto_sustain_vibrato")),
+                "fret_noise_on_hand_shift": bool(owner.get("fret_noise_on_hand_shift")),
+                "expand_gp_hidden_32nds": bool(owner.get("expand_gp_hidden_32nds")),
+                "preserve_gp_played_offsets": bool(owner.get("preserve_gp_played_offsets")),
+                "fret_hand_cost": bool(owner.get("fret_hand_cost")),
+                "keep_gp_played_overlaps": bool(owner.get("keep_gp_played_overlaps")),
+                "humanize_timing_over_gp_offsets": bool(owner.get("humanize_timing_over_gp_offsets")),
+                "lock_to_drums": bool(owner.get("lock_to_drums")),
+                "pick_direction": bool(owner.get("pick_direction")),
+                "palm_mute_motion": bool(owner.get("palm_mute_motion")),
             },
             included_track_indices={
-                int(track["index"]) for track in job.get("tracks", [])
+                int(track["index"]) for track in owner.get("tracks", [])
                 if track.get("index") is not None
             } or None,
             track_options={
                 int(index): dict(options)
-                for index, options in (job.get("track_options") or {}).items()
+                for index, options in (owner.get("track_options") or {}).items()
             } or None,
         )
         for artifact in sorted(temp_dir.iterdir()):
@@ -1695,25 +2064,25 @@ def apply_arrangement(job_id: str):
             if name == "manifest.json":
                 stem = safe_filename(Path(job["original_name"]).stem) or "song"
                 name = f"{stem}_expression-manifest.json"
-            destination = job_dir / "output" / name
+            destination = owner_root / "output" / name
             if destination.exists():
                 raise RuntimeError("enriched artifact would overwrite an existing file")
             shutil.copy2(artifact, destination)
             copied.append(name)
     except Exception:
         for name in copied:
-            (job_dir / "output" / name).unlink(missing_ok=True)
+            (owner_root / "output" / name).unlink(missing_ok=True)
         flash("Enriched-сборка не выполнена; baseline сохранён без изменений.", "error")
         return redirect(url_for("job_details", job_id=job_id))
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    job.setdefault("arrangement_artifacts", []).extend(copied)
+    owner.setdefault("arrangement_artifacts", []).extend(copied)
     expression_by_track = {
         str(stats.get("track")): stats
         for stats in apply_manifest.get("track_stats", [])
     }
-    for track in job.get("tracks", []):
+    for track in owner.get("tracks", []):
         expression = expression_by_track.get(str(track.get("track_name")))
         if expression is None:
             continue
@@ -1722,8 +2091,9 @@ def apply_arrangement(job_id: str):
         "status": "applied", "applied": True,
         "apply_manifest": apply_manifest, "enriched_artifacts": copied,
     })
-    job["arrangement_apply_token"] = None
-    make_zip(job_dir)
+    owner["arrangement_apply_token"] = None
+    owner["artifact_names"] = sorted(_artifact_names(owner))
+    make_zip(owner_root)
     save_manifest(manifest)
     flash("Enriched MIDI собран отдельно; baseline не перезаписан.", "success")
     return redirect(url_for("job_details", job_id=job_id))
@@ -1735,10 +2105,13 @@ def view_enrichment_report(job_id: str, filename: str):
     job = _job_by_id(manifest, job_id)
     if job is None or Path(job_id).name != job_id or Path(filename).name != filename:
         abort(404)
-    _attach_midi_downloads(job)
-    if filename != job.get("enrichment_report_name"):
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
+    view = _job_for_view(job, render=render)
+    if filename != view.get("enrichment_report_name"):
         abort(404)
-    path = uploads_root() / job_id / "output" / filename
+    owner_root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
+    path = owner_root / "output" / filename
     if not path.is_file():
         abort(404)
     return send_file(path, mimetype="text/html", as_attachment=False, download_name=path.name)
@@ -1748,11 +2121,16 @@ def view_enrichment_report(job_id: str, filename: str):
 def download_track(job_id: str, filename: str):
     manifest = load_manifest()
     job = _job_by_id(manifest, job_id)
-    if job is None or filename not in _artifact_names(job) or Path(filename).name != filename:
+    if job is None or Path(filename).name != filename:
+        abort(404)
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
+    if filename not in _artifact_names(owner):
         abort(404)
     if Path(job_id).name != job_id:
         abort(404)
-    path = uploads_root() / job_id / "output" / filename
+    root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
+    path = root / "output" / filename
     if not path.is_file():
         abort(404)
     return send_file(path, as_attachment=True, download_name=path.name)
@@ -1764,7 +2142,14 @@ def preview_track(job_id: str, filename: str):
     # basename check this route served any readable *.json on the filesystem.
     if Path(filename).name != filename or Path(job_id).name != job_id:
         abort(404)
-    path = uploads_root() / job_id / "preview" / filename
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None:
+        abort(404)
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
+    root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
+    path = root / "preview" / filename
     if not path.is_file() or path.suffix.lower() != ".json":
         abort(404)
     return send_file(path, mimetype="application/json")
@@ -1774,7 +2159,14 @@ def preview_track(job_id: str, filename: str):
 def download_zip(job_id: str):
     if Path(job_id).name != job_id:
         abort(404)
-    path = uploads_root() / job_id / "tracks.zip"
+    manifest = load_manifest()
+    job = _job_by_id(manifest, job_id)
+    if job is None:
+        abort(404)
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
+    root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
+    path = root / "tracks.zip"
     if not path.exists():
         abort(404)
     return send_file(path, as_attachment=True, download_name=f"{job_id}_tracks.zip")
@@ -1802,10 +2194,12 @@ def regen_playable(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    if not job.get("playable_tabs"):
-        abort(400, description="playable tabs выключены для этого джоба")
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
+    if not owner.get("playable_tabs"):
+        abort(400, description="playable tabs выключены для этой версии")
     basename = request.form.get("track", "")
-    summary = next((item for item in job.get("tracks", []) if item.get("basename") == basename and item.get("playable")), None)
+    summary = next((item for item in owner.get("tracks", []) if item.get("basename") == basename and item.get("playable")), None)
     if summary is None:
         abort(400, description="трек отсутствует в манифесте playable tabs")
     incoming = {key: value for key, value in request.form.items() if key != "track"}
@@ -1823,6 +2217,7 @@ def regen_playable(job_id: str):
         abort(400, description=str(exc))
 
     job_dir = uploads_root() / job_id
+    owner_root = render_root(job_dir, owner) if render else job_dir
     source_path = job_dir / "input" / job["stored_name"]
     song = parse_song(source_path)
     source_tracks = {track.name: track for track in song.tracks}
@@ -1833,28 +2228,33 @@ def regen_playable(job_id: str):
     version = int(old_playable.get("version", 1)) + 1
     try:
         result = generate_track(
-            song, source_track, job_dir / "output", preset=preset,
+            song, source_track, owner_root / "output", preset=preset,
             overrides=checked, version=version, generate_score=False,
         )
         summary["playable"] = result.manifest_dict()
         generations: dict[str, TrackGeneration] = {source_track.name: result}
-        for other in job.get("tracks", []):
+        for other in owner.get("tracks", []):
             if other is summary or not other.get("playable"):
                 continue
             track = source_tracks.get(other["track_name"])
             if track is not None:
                 generations[track.name] = _mapping_generation(track, other["playable"])
-        if job.get("refingered_name"):
+        if owner.get("refingered_name"):
             refinger_gp(
-                source_path, generations, job_dir / "output" / job["refingered_name"],
+                source_path, generations, owner_root / "output" / owner["refingered_name"],
                 original_song=song,
             )
-        make_zip(job_dir)
+        owner["artifact_names"] = sorted(_artifact_names(owner))
+        make_zip(owner_root)
     except Exception as exc:
         abort(500, description=f"перегенерация не удалась: {exc}")
     save_manifest(manifest)
     flash(f"Таб {summary['track_name']} перегенерирован: v{version}.", "success")
-    return redirect(url_for("job_details", job_id=job_id))
+    if render:
+        return redirect(url_for(
+            "job_details", job_id=job_id, step="result", v=int(render["version"]),
+        ))
+    return redirect(url_for("job_details", job_id=job_id, step="result"))
 
 
 @app.post("/jobs/<job_id>/print")
@@ -1863,20 +2263,27 @@ def print_artifact(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
+    render = _requested_render(job, prefer_legacy=True)
+    owner = render or job
     artifact = request.form.get("artifact", "")
-    if artifact not in _artifact_names(job) or Path(artifact).name != artifact or not artifact.lower().endswith(".pdf"):
+    if artifact not in _artifact_names(owner) or Path(artifact).name != artifact or not artifact.lower().endswith(".pdf"):
         abort(400, description="PDF отсутствует в манифесте джоба")
     if not CUPS_PRINTER:
         abort(400, description="серверная печать выключена")
+    owner_root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
     result = print_pdf(
-        uploads_root() / job_id / "output" / artifact,
+        owner_root / "output" / artifact,
         server=CUPS_SERVER, printer=CUPS_PRINTER,
     )
     if result.ok:
         flash(f"PDF отправлен на печать: {result.request_id or 'задание принято'}", "success")
     else:
         flash(f"Печать не удалась: {result.error}", "error")
-    return redirect(url_for("job_details", job_id=job_id))
+    if render:
+        return redirect(url_for(
+            "job_details", job_id=job_id, step="result", v=int(render["version"]),
+        ))
+    return redirect(url_for("job_details", job_id=job_id, step="result"))
 
 
 @app.post("/jobs/<job_id>/delete")

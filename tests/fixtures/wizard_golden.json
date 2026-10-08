@@ -1,0 +1,40 @@
+{
+  "all_roles_humanized": {
+    "Bass.mid": "963a34fb77ae2e68908c579c437a60b0aecf71f8d193f50b56f6a925c48441bc",
+    "Drums.mid": "21a57011f9485de051cf09edaa7bc8bd51923ddc5e9b5249e8cb6cbdea2c8c88",
+    "Guitar (Rhythm).mid": "ee54078009a12194ac8d16ca24f88ec8ede35185265e2907cb341d6f5b37a5be",
+    "Guitar (Solo).mid": "894ba45dedcf34ee78e0dd7eeba50c054eaa43fddd0baf653270102c871817b5",
+    "Keys.mid": "a39848d31cc21658e535f89f16bf07235be40f7206ccd70951196aad95ff55e7",
+    "wizard_fixture_ALL.mid": "07e61814c98c534342099adb54107552e5cf988ffea1496f454425b0e65a4726"
+  },
+  "defaults": {
+    "Bass.mid": "2cf5b4a314b3f718fdbaad540df841867abfb248b34193a7e0dedb5c4f856db7",
+    "Drums.mid": "21a57011f9485de051cf09edaa7bc8bd51923ddc5e9b5249e8cb6cbdea2c8c88",
+    "Guitar (Rhythm).mid": "0a866c1aa64ebaffdce3b831f9653d402e3fd816cc915075e8967c51b30dd6f5",
+    "Guitar (Solo).mid": "b940072fd0dc5bcc0b329735b4cbd30a445f12fc7793de1b9eeff7ed554ca76f",
+    "Keys.mid": "a39848d31cc21658e535f89f16bf07235be40f7206ccd70951196aad95ff55e7",
+    "wizard_fixture_ALL.mid": "b2c4dbbc5f0d8307aa3911e0e20fd79fa152600ed3391bcca1db8837d35d85e6"
+  },
+  "per_track_exception": {
+    "Bass.mid": "2cf5b4a314b3f718fdbaad540df841867abfb248b34193a7e0dedb5c4f856db7",
+    "Drums.mid": "21a57011f9485de051cf09edaa7bc8bd51923ddc5e9b5249e8cb6cbdea2c8c88",
+    "Guitar (Rhythm).mid": "0a866c1aa64ebaffdce3b831f9653d402e3fd816cc915075e8967c51b30dd6f5",
+    "Guitar (Solo).mid": "894ba45dedcf34ee78e0dd7eeba50c054eaa43fddd0baf653270102c871817b5",
+    "Keys.mid": "a39848d31cc21658e535f89f16bf07235be40f7206ccd70951196aad95ff55e7",
+    "wizard_fixture_ALL.mid": "f7bbf0ca4c47012ad03bd35137cfc229b6534b79bf085f9b235226b2a32be0b8"
+  },
+  "rhythm_options": {
+    "Bass.mid": "963a34fb77ae2e68908c579c437a60b0aecf71f8d193f50b56f6a925c48441bc",
+    "Drums.mid": "21a57011f9485de051cf09edaa7bc8bd51923ddc5e9b5249e8cb6cbdea2c8c88",
+    "Guitar (Rhythm) (double).mid": "c4f248fc02a8543b3c4b8d7ffa201a73f5789d5a5cb029c7de6f577006ad150f",
+    "Guitar (Rhythm).mid": "067185769b0288d767261e4129a6f15e82042a8beab4a3f2e10501b3f49c7f41",
+    "Guitar (Solo) (double).mid": "9381505cb056380d042a511c40bcf2f0b1d9acf9ca3cdac6b63ba343d9357e70",
+    "Guitar (Solo).mid": "e4b3f7ca506f8db6af6315cf627af02ee1a14e5f16271f9415ae2645cb47dd26",
+    "Keys.mid": "a39848d31cc21658e535f89f16bf07235be40f7206ccd70951196aad95ff55e7",
+    "wizard_fixture_ALL.mid": "a5af0a21df87c46719a089503232660db2c5483dfd3b91b27611142dd9d4a236"
+  },
+  "single_track": {
+    "Guitar (Solo).mid": "b940072fd0dc5bcc0b329735b4cbd30a445f12fc7793de1b9eeff7ed554ca76f",
+    "wizard_fixture_ALL.mid": "39003d04e2bdf94103e14a9c86c5ac59b4e8b3155228e83d1d83bc15c90e69ed"
+  }
+}

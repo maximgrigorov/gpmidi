@@ -62,7 +62,8 @@ def test_processing_step_forwards_independent_per_track_performance_life_flags(m
 
 
 def test_track_selection_template_exposes_separate_performance_life_checkboxes():
-    source = Path("templates/index.html").read_text(encoding="utf-8")
+    source = Path("templates/_wizard_form.html").read_text(encoding="utf-8")
 
-    assert 'name="track_{{ track.index }}_auto_sustain_vibrato"' in source
-    assert 'name="track_{{ track.index }}_fret_noise_on_hand_shift"' in source
+    assert 'name="track_{{ track.index }}_{{ key }}"' in source
+    assert "auto_sustain_vibrato" in source
+    assert "fret_noise_on_hand_shift" in source

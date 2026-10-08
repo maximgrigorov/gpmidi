@@ -62,7 +62,7 @@ def test_template_hides_openai_without_token_and_shows_with_token_for_parsed_job
     assert "только выбранные дорожки" in page.decode()
 
 
-def test_applied_job_shows_explicit_baseline_and_enriched_midi_downloads_without_zip(monkeypatch):
+def test_applied_job_shows_explicit_baseline_enriched_and_zip_downloads(monkeypatch):
     import app as web
 
     job = {
@@ -104,15 +104,15 @@ def test_applied_job_shows_explicit_baseline_and_enriched_midi_downloads_without
     for endpoint in ("/jobs/job", "/"):
         page = web.app.test_client().get(endpoint).data.decode()
 
-        assert "Baseline · общий MIDI" in page
-        assert "Enriched · общий MIDI" in page
+        assert "Скачать всё для Logic" in page
+        assert "Enriched · всё для Logic" in page
         assert 'href="/download/job/song_ALL.mid"' in page
         assert 'href="/download/job/song_expression_ALL.mid"' in page
-        assert "Baseline MIDI" in page
+        assert ">MIDI</a>" in page
         assert "Enriched MIDI" in page
         assert 'href="/download/job/Solo.mid"' in page
         assert 'href="/download/job/Solo_expression.mid"' in page
-        assert "ZIP по дорожкам" not in page
+        assert "ZIP — все файлы" in page
         assert "Context JSON" not in page
         assert "Expression plan" not in page
         assert "Usage" not in page
@@ -162,7 +162,7 @@ def test_successful_job_persists_exact_prompt_artifact_and_hash(monkeypatch, tmp
 
     job = saved["jobs"][0]
     prompt_name = job["arrangement"]["prompt_name"]
-    prompt_path = job_root / job_id / "output" / prompt_name
+    prompt_path = job_root / job_id / "renders" / "1" / "output" / prompt_name
     assert captured["instructions"] == normalized
     assert prompt_path.read_text() == normalized
     assert hashlib.sha256(prompt_path.read_bytes()).hexdigest() == prompt_hash
@@ -200,8 +200,9 @@ def test_provider_failure_keeps_baseline_and_sanitizes(monkeypatch, tmp_path):
     assert job["id"] == job_id
     assert job["arrangement"]["status"] == "draft_error"
     assert "secret" not in job["arrangement"]["error"]
-    assert (job_root / job_id / "output" / "song_arrangement-context.json").exists()
-    prompt_path = job_root / job_id / "output" / job["arrangement"]["prompt_name"]
+    render_output = job_root / job_id / "renders" / "1" / "output"
+    assert (render_output / "song_arrangement-context.json").exists()
+    prompt_path = render_output / job["arrangement"]["prompt_name"]
     assert prompt_path.read_text() == "Failure-path prompt"
     assert job["arrangement"]["prompt_sha256"] == hashlib.sha256(
         prompt_path.read_bytes()

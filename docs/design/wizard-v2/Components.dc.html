@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Лист компонентов</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="wiz.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="ab" style="width: 1440px; height: 2100px;">
+  <div class="doc" style="gap: 40px;">
+    <div class="col" style="gap: 6px;"><h1>Компоненты мастера</h1><p>Всё собрано из токенов gpmidi. Цели нажатия — от 44 px, текст — от 4.5:1.</p></div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px 64px; align-items: start;">
+
+      <!-- Stepper -->
+      <div class="cmp" style="grid-column: span 2;">
+        <span class="cmp-t">Степпер · пройден / текущий / впереди / необязательный</span>
+        <div class="card" style="padding: 0 24px;">
+          <ol class="stepper" aria-label="Шаги (пример)">
+            <li class="done"><a href="#"><span class="n">✓</span>Файл</a></li><li class="done"><a href="#"><span class="n">✓</span>Дорожки</a></li><li class="cur"><span class="st" aria-current="step"><span class="n">3</span>Звучание</span></li><li><span class="st"><span class="n">4</span>Дополнительно <span class="stp-o">· можно пропустить</span></span></li><li><span class="st"><span class="n">5</span>Результат</span></li>
+          </ol>
+        </div>
+        <div class="row" style="gap: 24px; align-items: flex-start;">
+          <div class="card" style="width: 358px; padding: 12px 16px;"><div class="mstep"><b>Шаг 3 из 5 · Звучание</b><div class="segs" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i></div></div></div>
+          <p class="small muted" style="max-width: 560px;">Пройденные шаги — ссылки <span class="mono">?step=…</span>. Будущие недоступны, пока не пройден текущий; исключение — «Дополнительно» после «Звучания». На телефоне — строка «Шаг N из 5» и пять сегментов.</p>
+        </div>
+      </div>
+
+      <!-- Buttons -->
+      <div class="cmp">
+        <span class="cmp-t">Кнопки</span>
+        <div class="row wrapf" style="gap: 10px;">
+          <button class="btn pri" type="button">Далее: звучание →</button><button class="btn" type="button">Собрать без дополнительного</button><button class="btn ghost" type="button">← Дорожки</button>
+        </div>
+        <div class="row wrapf" style="gap: 10px;">
+          <button class="btn pri lg" type="button">Скачать всё для Logic <span class="k">_ALL.mid</span></button><button class="btn danger" type="button">Удалить сессию</button><button class="btn dis" type="button" aria-disabled="true">Далее</button>
+        </div>
+      </div>
+
+      <!-- Badges -->
+      <div class="cmp">
+        <span class="cmp-t">Инструменты и метки</span>
+        <div class="row wrapf" style="gap: 8px;"><span class="inst hy"><i></i>Hydra</span><span class="inst dw"><i></i>Darkwall</span><span class="inst dr"><i></i>Shreddage Drums</span><span class="inst no"><i></i>без маппинга</span></div>
+        <div class="row wrapf" style="gap: 8px;"><span class="bdg ok">по умолчанию</span><span class="bdg warn">изменено · 1</span><span class="bdg warn">добавляет ноты в партию</span><span class="bdg acc">4 опции</span><span class="bdg line">исключений нет</span><span class="bdg warn">эксперимент</span></div>
+      </div>
+
+      <!-- Group card -->
+      <div class="cmp">
+        <span class="cmp-t">Карточка группы · развёрнута</span>
+        <section class="grp">
+          <div class="grp-h"><div class="ttl"><h2>Барабаны</h2><div class="trk"><span class="inst dr"><i></i>Drums</span></div></div></div>
+          <div class="sw-row"><label class="swl"><input class="sw" type="checkbox" checked="checked"><span class="col"><span class="t">Оживить барабаны</span><span class="d">Живая velocity и микротайминг</span></span></label></div>
+          <div class="nest"><label class="opt"><span class="bx"><input type="checkbox"></span><span class="tx"><span class="tt">Гост-ноты малого <span class="bdg warn">добавляет ноты в партию</span></span><span class="dd">Партия малого изменится</span></span></label></div>
+        </section>
+        <span class="cmp-t" style="margin-top: 8px;">Свёрнута — сводка в заголовке</span>
+        <section class="grp"><button class="acc-h" type="button" aria-expanded="false"><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg><h2 style="width: 130px;">Ритм-секция</h2><span class="grow small muted">Оживлена · вместе с барабанами · дубль</span><span class="bdg acc">3 опции</span></button></section>
+        <span class="cmp-t" style="margin-top: 8px;">Выключено — вложенного нет</span>
+        <section class="grp"><div class="sw-row" style="border-top: none;"><label class="swl"><input class="sw" type="checkbox"><span class="col"><span class="t">Оживить соло</span><span class="d">Velocity и микротайминг</span></span></label></div></section>
+      </div>
+
+      <!-- Option rows -->
+      <div class="cmp">
+        <span class="cmp-t">Строка опции</span>
+        <div class="card" style="padding: 8px 20px;">
+          <label class="opt"><span class="bx"><input type="checkbox"></span><span class="tx"><span class="tt">Шорох струн при переносе позиции</span><span class="dd">Скольжение пальцев при смене позиции</span><span class="for">Acoustic Bass, Guitar (Rhythm)</span></span></label>
+          <label class="opt"><span class="bx"><input type="checkbox" checked="checked"></span><span class="tx"><span class="tt">Второй дубль L/R</span><span class="dd">Отдельный файл «(double)»</span><span class="for">только Guitar (Rhythm)</span></span></label>
+        </div>
+        <span class="cmp-t" style="margin-top: 8px;">Подсказка с техническим ключом (hover / focus)</span>
+        <div class="row" style="gap: 12px; align-items: flex-start;">
+          <span class="small" style="font-weight: 560; padding-top: 10px;">Вместе с барабанами</span>
+          <span style="background: var(--fg); color: #fff; border-radius: 6px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45;"><span class="mono" style="font-size: 12px; color: hsl(220,20%,85%);">track_2_lock_to_drums</span><br><span class="mono" style="font-size: 12px; color: hsl(220,20%,85%);">track_9_lock_to_drums</span></span>
+        </div>
+        <p class="xs muted">Ключ показывается в <span class="mono">title</span> и в видимой подсказке по фокусу. Строка — настоящий <span class="mono">label</span> вокруг <span class="mono">input</span>, кликабельна целиком.</p>
+      </div>
+
+      <!-- Nested -->
+      <div class="cmp">
+        <span class="cmp-t">Вложенные опции · два уровня</span>
+        <section class="grp">
+          <div class="sw-row" style="border-top: none;"><label class="swl"><input class="sw" type="checkbox" checked="checked"><span class="col"><span class="t">Подготовить план выразительности</span></span></label></div>
+          <div class="nest">
+            <label class="opt"><span class="bx"><input type="checkbox" checked="checked"></span><span class="tx"><span class="tt">Черновик плана через OpenAI</span></span></label>
+            <div class="nest" style="margin: 0 0 8px 12px;"><span class="link small">▸ Промпт для модели</span></div>
+          </div>
+        </section>
+        <p class="xs muted">Дочерние опции существуют в DOM, только когда родитель включён (серверный шаблон + <span class="mono">hidden</span>). Выключение родителя не сбрасывает дочерние — при повторном включении они возвращаются. На сервер дочерние поля уходят только при включённом родителе.</p>
+      </div>
+
+      <!-- Alerts -->
+      <div class="cmp">
+        <span class="cmp-t">Сообщения</span>
+        <div class="warnbox"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="hsl(30,85%,32%)" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01" stroke-linecap="round"></path></svg><span class="col" style="gap: 8px;"><span><b>Барабаны не оживлены.</b> Ритм-секция привяжется к ровной сетке.</span><button class="btn sm" type="button" style="align-self: flex-start;">Оживить барабаны</button></span></div>
+        <div class="errbox"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="hsl(358,65%,45%)" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 16.5h.01" stroke-linecap="round"></path></svg><span><b>Файл слишком большой.</b> Можно до 128 МБ.</span></div>
+        <div class="infobox"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="hsl(221,78%,50%)" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01" stroke-linecap="round"></path></svg><span class="small">Роль влияет только на группу настроек.</span></div>
+      </div>
+
+      <!-- Matrix -->
+      <div class="cmp" style="grid-column: span 2;">
+        <span class="cmp-t">Таблица по дорожкам · фрагмент</span>
+        <div class="card" style="padding: 0 4px 4px;">
+          <table class="mx">
+            <thead><tr><th></th><th><span class="g">Оживление</span>Оживить</th><th>Гост-ноты</th><th>С барабанами</th><th>Дубль L/R</th><th><span class="g">Без оживления</span>Медиатор</th><th>Шорох</th><th><span class="g">Точность нот</span>Скрытые 32-е</th><th>Сдвиги GP8</th><th>Перекрытия</th></tr></thead>
+            <tbody>
+              <tr class="gr"><td colspan="10">Ритм-секция</td></tr>
+              <tr><td><b>2 · Acoustic Bass</b></td><td><label class="c"><input type="checkbox" checked="checked" aria-label="оживить"></label></td><td class="dash">—</td><td><label class="c ex"><input type="checkbox" aria-label="с барабанами, исключение"></label></td><td class="dash">—</td><td class="dash">—</td><td><label class="c"><input type="checkbox" aria-label="шорох"></label></td><td><label class="c"><input type="checkbox" checked="checked" aria-label="32-е"></label></td><td><label class="c"><input type="checkbox" aria-label="сдвиги"></label></td><td><span class="dep"></span></td></tr>
+              <tr><td><b>9 · Guitar (Rhythm)</b></td><td><label class="c"><input type="checkbox" checked="checked" aria-label="оживить"></label></td><td class="dash">—</td><td><label class="c"><input type="checkbox" checked="checked" aria-label="с барабанами"></label></td><td><label class="c"><input type="checkbox" checked="checked" aria-label="дубль"></label></td><td><label class="c"><input type="checkbox" checked="checked" aria-label="медиатор"></label></td><td><label class="c"><input type="checkbox" aria-label="шорох"></label></td><td><label class="c"><input type="checkbox" checked="checked" aria-label="32-е"></label></td><td><label class="c"><input type="checkbox" aria-label="сдвиги"></label></td><td><span class="dep"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="xs muted">✓/□ — чекбокс с полем <span class="mono">track_N_ключ</span>. «—» — опции нет в <span class="mono">TRACK_EFFECTS</span> для типа. Пунктир — зависит от выключенной опции этой же дорожки. Оранжевая рамка — значение отличается от групповой настройки роли. На телефоне таблица превращается в список дорожек-аккордеонов.</p>
+      </div>
+
+      <!-- Result track card -->
+      <div class="cmp">
+        <span class="cmp-t">Карточка дорожки результата</span>
+        <article class="tcard">
+          <div class="tc-h"><button class="play" type="button" aria-label="Прослушать"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"></path></svg></button><div class="nm"><b>Guitar (Rhythm)</b><span class="xs muted">Hydra · ритм-секция · keyswitch-мэппинг, bend/slide</span></div><a class="btn sm" href="#">MIDI</a><a class="btn sm" href="#">Double</a><a class="btn sm" href="#">Табы ▾</a></div>
+        </article>
+        <p class="xs muted">Кнопки — только для файлов, которые реально есть в версии. ▶ раскрывает piano-roll, плеер и выбор тембра (текущие <span class="mono">buildPreviewMarkup</span> / <span class="mono">wirePlayer</span>). «Табы ▾» — ASCII, PDF, печать A4 (если настроен принтер), GP с новой аппликатурой, параметры перегенерации.</p>
+      </div>
+
+      <!-- Version chips -->
+      <div class="cmp">
+        <span class="cmp-t">Чипы версий</span>
+        <div class="vchips"><button class="vchip" type="button">v1 <span class="tm">14:02 · как в нотах</span></button><button class="vchip on" type="button" aria-pressed="true">v2 <span class="tm">14:10</span></button><span class="vchip">v3 <span class="tm">идёт сборка</span></span><span class="vchip" style="border-color: var(--err); color: var(--err);">v4 <span class="tm" style="color: var(--err);">ошибка</span></span></div>
+        <div class="vchips"><span class="vchip on">исходная сборка <span class="tm">24 сент.</span></span></div>
+        <p class="xs muted">Чип — ссылка <span class="mono">?step=result&amp;v=2</span>. Подпись — время и короткая сводка отличия.</p>
+      </div>
+
+      <!-- Checklist -->
+      <div class="cmp">
+        <span class="cmp-t">Чек-лист «Настройка DAW» · все возможные пункты</span>
+        <div class="card" style="padding: 0 20px;">
+          <ul class="check">
+            <li><label><input type="checkbox" checked="checked"><span class="col"><span>Hydra: <span class="v">PITCH BEND RANGE = 7</span></span><span class="xs muted">есть хотя бы одна дорожка Hydra</span></span></label></li>
+            <li><label><input type="checkbox"><span class="col"><span>Hydra: <b>Picking Mode</b> на кейсвитчах C7/C#7</span><span class="xs muted">если включено направление медиатора</span></span></label></li>
+            <li><label><input type="checkbox"><span class="col"><span>Hydra: <b>Vel → Tightness</b> включён</span><span class="xs muted">если включено глушение как движение руки</span></span></label></li>
+            <li><label><input type="checkbox"><span class="col"><span>Darkwall: <span class="v">PITCH BEND RANGE = 2</span></span><span class="xs muted">есть дорожка Darkwall</span></span></label></li>
+          </ul>
+        </div>
+        <p class="xs muted">Отметки — только в браузере (<span class="mono">localStorage</span> по сессии), на сервер не уходят.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2100}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

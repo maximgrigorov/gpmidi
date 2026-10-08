@@ -281,7 +281,8 @@ def test_processing_step_forwards_hidden_32nds_per_track(monkeypatch):
 
 
 def test_track_selection_template_exposes_hidden_32nds_checkbox():
-    source = Path("templates/index.html").read_text(encoding="utf-8")
+    source = Path("templates/_wizard_form.html").read_text(encoding="utf-8")
 
-    assert 'name="track_{{ track.index }}_expand_gp_hidden_32nds"' in source
-    assert "hidden GP 32nds" in source
+    assert 'name="track_{{ track.index }}_{{ key }}"' in source
+    assert "expand_gp_hidden_32nds" in source
+    assert "Скрытые 32-е" in source

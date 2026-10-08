@@ -1,0 +1,11 @@
+<aside class="history-drawer" data-history-drawer aria-hidden="true" aria-label="История сессии">
+  <div class="drawer-head"><strong>История</strong><button class="icon-btn" type="button" data-history-close aria-label="Закрыть">×</button></div>
+  <button class="btn primary drawer-new" type="submit" form="newSessionForm">Новый файл</button>
+  <div class="history-list">
+    {% for job in jobs %}
+      <a href="{{ url_for('job_details', job_id=job.id, step='result' if job.stage == 'processed' else 'tracks') }}" class="history-item {{ 'active' if current_job and current_job.id == job.id else '' }}">
+        <span>{{ job.original_name }}</span><small>{{ job.created_at }} · {{ (job.renders or [])|length or 1 }} вер.</small>
+      </a>
+    {% else %}<p class="muted">Здесь появятся обработанные файлы.</p>{% endfor %}
+  </div>
+</aside><div class="drawer-backdrop" data-history-close></div>
