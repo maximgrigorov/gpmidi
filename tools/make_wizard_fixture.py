@@ -8,7 +8,6 @@ from pathlib import Path
 
 import guitarpro
 
-
 TRACKS = (
     ("Drums", True, 0),
     ("Bass", False, 33),

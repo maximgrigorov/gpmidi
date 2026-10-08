@@ -201,10 +201,11 @@ def test_processing_step_forwards_played_offsets_per_track(monkeypatch):
 
 
 def test_track_selection_template_exposes_gp_played_offsets_checkbox():
-    source = Path("templates/index.html").read_text(encoding="utf-8")
+    source = Path("templates/_wizard_form.html").read_text(encoding="utf-8")
 
-    assert 'name="track_{{ track.index }}_preserve_gp_played_offsets"' in source
-    assert "preserve GP played offsets" in source
+    assert 'name="track_{{ track.index }}_{{ key }}"' in source
+    assert "preserve_gp_played_offsets" in source
+    assert "Авторские сдвиги GP" in source
 
 
 def test_spring_melody_measures_66_67_preserve_relative_gp_attack_offsets():

@@ -1,0 +1,42 @@
+<section class="wizard-panel result-panel" data-step="result">
+  <div class="section-heading">
+    <div><span class="eyebrow">Шаг 5</span><h1>Готово: версия {{ current_job.active_version or 1 }}</h1><p>{{ current_job.original_name }} · {{ current_job.song.tracks }} исходных дорожек</p></div>
+  </div>
+  <nav class="version-chips" aria-label="Версии сборки">
+    {% for render in current_job.renders %}<a class="version-chip {{ 'active' if render.version == current_job.active_version else '' }} {{ 'error' if render.status == 'error' else '' }}" href="{{ url_for('job_details', job_id=current_job.id, step='result', v=render.version) }}">{{ render.label or ('v' ~ render.version) }}{% if render.status == 'error' %} · ошибка{% endif %}</a>{% endfor %}
+  </nav>
+  {% if current_job.status == 'error' %}
+    <div class="error-state"><h2>Сборка не завершилась</h2><p>{{ current_job.error }}</p><a class="btn primary" href="{{ url_for('job_details', job_id=current_job.id, step='sound', from=current_job.active_version) }}">Повторить с этими настройками</a></div>
+  {% else %}
+    <div class="download-hero">
+      {% if current_job.combined_url %}<a class="btn primary download-primary" href="{{ current_job.combined_url }}">Baseline · общий MIDI · _ALL.mid</a>{% endif %}
+      {% if current_job.enriched_combined_url %}<a class="btn primary download-primary" href="{{ current_job.enriched_combined_url }}">Enriched · общий MIDI</a>{% endif %}
+      {% if current_job.zip_url %}<a class="btn" href="{{ current_job.zip_url }}">Скачать ZIP</a>{% endif %}
+    </div>
+    <div class="result-track-grid">
+    {% for track in current_job.tracks %}
+      <article class="result-track-card">
+        <header><div><h2>{{ track.track_name }}</h2><p>{{ track.track_type_label }} · {{ track.get('notes', 0) }} нот</p></div><button type="button" class="btn btn-sm track-summary-row" data-preview-row="preview-{{ loop.index }}" data-preview-url="{{ track.preview_url }}">Прослушать</button></header>
+        <div class="track-downloads">
+          <a class="btn btn-sm primary" href="{{ track.download_url }}">Baseline MIDI</a>
+          {% if track.enriched_download_url %}<a class="btn btn-sm primary" href="{{ track.enriched_download_url }}">Enriched MIDI</a>{% endif %}
+          {% if track.double_download_url %}<a class="btn btn-sm" href="{{ track.double_download_url }}">Double</a>{% endif %}
+          {% if track.playable %}<details><summary class="btn btn-sm">Табы ▾</summary><div class="tabs-menu">
+            {% for artifact in track.playable.files %}<div class="artifact-action"><a href="{{ url_for('download_track', job_id=current_job.id, filename=artifact, v=current_job.active_version) }}">{{ artifact|replace(track.basename ~ '.', '') }}</a>{% if printing_enabled and artifact.endswith('.pdf') %}<form action="{{ url_for('print_artifact', job_id=current_job.id, v=current_job.active_version) }}" method="post"><input type="hidden" name="artifact" value="{{ artifact }}"><button class="link-btn" type="submit">Печать A4</button></form>{% endif %}</div>{% endfor %}
+            <form action="{{ url_for('regen_playable', job_id=current_job.id, v=current_job.active_version) }}" method="post" class="regen-form"><input type="hidden" name="track" value="{{ track.basename }}"><label>Пресет <select name="preset">{% for preset in ['auto','solo','rhythm','bass'] %}<option value="{{ preset }}" {% if track.playable.preset == preset %}selected{% endif %}>{{ preset }}</option>{% endfor %}</select></label>{% for key in ['sweet_spot_low','sweet_spot_high','sweet_spot_bonus','movement_penalty','string_switch_penalty','unplayable_fret_span'] %}{% set spec=tunable_params[key] %}<label>{{ spec[4] }}<input type="number" name="{{ key }}" value="{{ track.playable.params[key] }}" min="{{ spec[1] }}" max="{{ spec[2] }}" step="{% if spec[0].__name__ == 'float' %}0.1{% else %}1{% endif %}"></label>{% endfor %}<input type="hidden" name="prefer_open" value="false"><label><input type="checkbox" name="prefer_open" value="true" {% if track.playable.params.prefer_open %}checked{% endif %}> предпочитать открытые</label><button class="btn btn-sm" type="submit">Перегенерировать</button></form>
+          </div></details>{% endif %}
+        </div>
+        <div id="preview-{{ loop.index }}" class="preview-row is-hidden"><div>Нажмите «Прослушать», чтобы загрузить preview.</div></div>
+        <details class="applied"><summary>Что применено</summary><ul>{% for line in (track.get('processing_report') or []) %}<li>{{ line }}</li>{% endfor %}{% for key, enabled in (track.get('effects') or {}).items() if enabled %}<li title="{{ key }}">{{ key }}</li>{% else %}{% if not track.get('processing_report') %}<li>Только точный перенос нот</li>{% endif %}{% endfor %}</ul></details>
+      </article>
+    {% endfor %}
+    </div>
+    {% if current_job.active_version and current_job.active_version > 1 %}<p class="version-diff">Отличие от v{{ current_job.active_version - 1 }}: изменены настройки этой сборки; предыдущие файлы сохранены.</p>{% endif %}
+    {% if current_job.enrichment_report_url %}<p><a class="btn" href="{{ current_job.enrichment_report_url }}">Открыть фактический HTML-отчёт</a></p>{% endif %}
+    {% if current_job.arrangement and current_job.arrangement.status in ('draft_ready', 'validated') %}
+      <section class="outcome-summary"><h2>План выразительности <span class="count-badge">эксперимент</span></h2><p>{{ current_job.arrangement.summary }}</p><form method="post" action="{{ url_for('apply_arrangement', job_id=current_job.id, v=current_job.active_version) }}"><input type="hidden" name="apply_token" value="{{ current_job.arrangement_apply_token or '' }}"><button class="btn primary" type="submit">Применить проверенный план</button></form></section>
+    {% endif %}
+    <section class="daw-checklist" data-daw-checklist="{{ current_job.id }}"><h2>Настройка DAW</h2>{% if current_job.tracks %}<label><input type="checkbox" data-check="import"> Импортировать MIDI с исходным темпом</label>{% endif %}{% if current_job.combined_name %}<label><input type="checkbox" data-check="type1"> Проверить разбиение Type‑1 по дорожкам</label>{% endif %}{% if current_job.tracks|selectattr('double_download_name')|list %}<label><input type="checkbox" data-check="pan"> Развести Double влево и вправо</label>{% endif %}</section>
+  {% endif %}
+  <div class="result-actions"><a class="btn primary" href="{{ url_for('job_details', job_id=current_job.id, step='sound', from=current_job.active_version or 1) }}">Изменить звучание и пересобрать</a><form method="post" action="{{ url_for('delete_job', job_id=current_job.id) }}" onsubmit="return confirm('Удалить сессию и все версии?')"><button class="btn danger" type="submit">Удалить сессию</button></form></div>
+</section>

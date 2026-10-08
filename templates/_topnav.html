@@ -1,0 +1,9 @@
+<header class="topbar">
+  <a class="brand" href="{{ url_for('index') }}" aria-label="GP MIDI Studio">GP MIDI Studio</a>
+  <nav class="topnav" aria-label="Основная навигация">
+    <a class="{{ 'active' if request.endpoint in ('index', 'job_details') else '' }}" href="{{ url_for('index') }}">GP → MIDI</a>
+    <a class="{{ 'active' if request.endpoint == 'sheetsage2_page' else '' }}" href="{{ url_for('sheetsage2_page') }}">Audio → MIDI</a>
+    <a class="{{ 'active' if request.endpoint in ('projects_list', 'project_detail') else '' }}" href="{{ url_for('projects_list') }}">Проекты</a>
+  </nav>
+  {% if request.endpoint in ('index', 'job_details') %}<button class="btn history-toggle" type="button" data-history-open>История</button>{% endif %}
+</header>

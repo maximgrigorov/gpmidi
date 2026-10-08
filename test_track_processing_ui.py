@@ -142,7 +142,7 @@ def test_process_route_supports_one_selected_track_and_passes_per_track_effects(
     )
 
     assert response.status_code == 302
-    assert response.headers["Location"].endswith(f"/jobs/{job_id}")
+    assert response.headers["Location"].endswith(f"/jobs/{job_id}?step=result")
     assert captured["existing_job"]["id"] == job_id
     assert captured["selected_track_indices"] == {2}
     assert captured["track_options"] == {2: {
@@ -236,14 +236,16 @@ def test_track_summary_only_renders_selected_tracks_with_their_own_options(monke
 
 
 def test_template_exposes_default_all_track_selection_per_track_effects_and_report():
-    source = Path("templates/index.html").read_text(encoding="utf-8")
+    source = "\n".join(
+        Path(path).read_text(encoding="utf-8")
+        for path in ("templates/index.html", "templates/_wizard_form.html", "templates/_wizard_result.html")
+    )
 
     assert 'name="track_indices"' in source
     assert "checked" in source.split('name="track_indices"', 1)[1].split(">", 1)[0]
-    assert 'name="track_{{ track.index }}_humanize"' in source
-    assert 'name="track_{{ track.index }}_auto_sustain_vibrato"' in source
+    assert 'name="track_{{ track.index }}_{{ key }}"' in source
     assert "processing_report" in source
-    assert "Обработать выбранные" in source
+    assert "Собрать MIDI" in source
 
 
 def test_stored_upload_name_keeps_its_extension(tmp_path: Path):
@@ -292,6 +294,6 @@ def test_discovery_prechecks_hidden_32nds_everywhere_and_played_offsets_on_solo(
     assert solo["default_effects"] == {"expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": True}
     assert rhythm["default_effects"] == {"expand_gp_hidden_32nds": True, "preserve_gp_played_offsets": False}
     assert synth["default_effects"] == {"expand_gp_hidden_32nds": True}
-    source = Path("templates/index.html").read_text(encoding="utf-8")
-    assert "get('expand_gp_hidden_32nds') %} checked" in source
-    assert "get('preserve_gp_played_offsets') %} checked" in source
+    source = Path("templates/_wizard_form.html").read_text(encoding="utf-8")
+    assert "track.default_effects.get(key, false)" in source
+    assert "opts.get(key, track.default_effects.get(key, false))" in source
