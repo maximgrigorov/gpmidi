@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Спецификация для вёрстки</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="wiz.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0} .tbl code{font-family:'JetBrains Mono',monospace;font-size:12px}</style>
+</helmet>
+<div class="ab" style="width: 1440px; height: 2300px;">
+  <div class="doc">
+    <div class="col" style="gap: 6px;"><h1>Спецификация для вёрстки</h1><p>Flask + Jinja + ванильный JS. Один шаблон сессии, частичные шаблоны на шаг. Сервер получает ровно те же поля, что сейчас.</p></div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 56px; align-items: start;">
+      <div class="col" style="gap: 10px;">
+        <h2>Устройство страницы</h2>
+        <table class="tbl">
+          <tbody>
+            <tr><td style="width: 34%;">Шаг ①</td><td><code>/</code> — зона загрузки. После успешного <code>/upload</code> — редирект на <code>/jobs/&lt;id&gt;?step=tracks</code></td></tr>
+            <tr><td>Шаги ②–④</td><td>Одна <code>&lt;form&gt;</code> в одном шаблоне, три секции. Сервер по <code>?step=</code> ставит <code>hidden</code> лишним. JS переключает секции и делает <code>history.pushState</code>, <code>popstate</code> возвращает назад — значения формы не теряются</td></tr>
+            <tr><td>Шаг ⑤</td><td><code>?step=result&amp;v=N</code>. Без <code>v</code> — последняя версия</td></tr>
+            <tr><td>Отправка</td><td>«Собрать» — POST на <code>/jobs/&lt;id&gt;/process</code>, каждая отправка = новая версия (снять 409)</td></tr>
+            <tr><td>«Изменить и пересобрать»</td><td><code>?step=sound&amp;from=v2</code> — форма заполняется опциями v2 из манифеста</td></tr>
+            <tr><td>Без JS</td><td>Все три секции видны подряд, таблица «по дорожкам» раскрыта и работает — форма остаётся отправляемой</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col" style="gap: 10px;">
+        <h2>Как группы превращаются в поля</h2>
+        <table class="tbl">
+          <tbody>
+            <tr><td style="width: 34%;">Источник правды</td><td>Чекбоксы таблицы «по дорожкам» — единственные <code>input</code> с <code>name="track_N_ключ"</code>, <code>value="on"</code>. Сервер рендерит их из <code>default_effects</code></td></tr>
+            <tr><td>Групповые контролы</td><td>Без <code>name</code>. <code>data-role</code> + <code>data-effect</code>: переключение ставит значение во все ячейки своей роли, где опция доступна</td></tr>
+            <tr><td>Исключение</td><td>Ручная правка ячейки → <code>data-exception</code>; групповой контрол такие ячейки не трогает. «Убрать исключения» выравнивает по группе</td></tr>
+            <tr><td>Зависимости</td><td>Если родитель ячейки выключен, ячейка получает <code>disabled</code> и не отправляется — как в текущем UI. <code>humanize</code> → 6 опций; <code>preserve_gp_played_offsets</code> → перекрытия; оба → «поверх сдвигов»</td></tr>
+            <tr><td>Роль</td><td>Только UI: <code>data-role</code> на строке дорожки, поля не шлёт. Смена роли переносит дорожку в другую группу; дефолты «Точности нот» не пересчитываются</td></tr>
+            <tr><td>Предупреждение</td><td>Есть дорожка с <code>lock_to_drums</code> и <code>humanize</code>, но ни у одной выбранной DRUMS нет <code>humanize</code> (или барабаны не выбраны)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col" style="gap: 10px; grid-column: span 2;">
+        <h2>Контрол → поле формы</h2>
+        <table class="tbl">
+          <thead><tr><th>Шаг</th><th>Контрол</th><th>Поле</th><th>Дорожки</th><th>По умолчанию</th></tr></thead>
+          <tbody>
+            <tr><td>②</td><td>Чекбокс дорожки</td><td><code>track_indices</code> = N (несколько)</td><td>все</td><td>все выбраны</td></tr>
+            <tr><td>②</td><td>Роль (select)</td><td>— (только UI)</td><td>GUITAR, BASS</td><td><code>is_solo_track</code></td></tr>
+            <tr><td>③</td><td>Оживить · Барабаны / Ритм-секция / Соло</td><td><code>track_N_humanize</code></td><td>DRUMS, GUITAR, BASS роли</td><td>выкл</td></tr>
+            <tr><td>③</td><td>└ Гост-ноты малого</td><td><code>track_N_ghost_notes</code></td><td>DRUMS</td><td>выкл</td></tr>
+            <tr><td>③</td><td>└ Вместе с барабанами</td><td><code>track_N_lock_to_drums</code></td><td>ритм: GUITAR, BASS</td><td>выкл</td></tr>
+            <tr><td>③</td><td>└ Второй дубль L/R</td><td><code>track_N_double_track</code></td><td>ритм: GUITAR</td><td>выкл</td></tr>
+            <tr><td>③</td><td>└ Глушение как движение руки</td><td><code>track_N_palm_mute_motion</code></td><td>ритм: GUITAR</td><td>выкл</td></tr>
+            <tr><td>③</td><td>└ Задержка при переносе руки</td><td><code>track_N_fret_hand_cost</code></td><td>соло: GUITAR</td><td>выкл</td></tr>
+            <tr><td>③</td><td>Направление медиатора (ритм, соло)</td><td><code>track_N_pick_direction</code></td><td>GUITAR роли</td><td>выкл</td></tr>
+            <tr><td>③</td><td>Шорох струн (ритм, соло)</td><td><code>track_N_fret_noise_on_hand_shift</code></td><td>GUITAR, BASS роли</td><td>выкл</td></tr>
+            <tr><td>③</td><td>Вибрато на длинных нотах</td><td><code>track_N_auto_sustain_vibrato</code></td><td>соло: GUITAR</td><td>выкл</td></tr>
+            <tr><td>③ Точность</td><td>Разносить скрытые 32-е</td><td><code>track_N_expand_gp_hidden_32nds</code></td><td>GUITAR, BASS, OTHER</td><td><b>вкл</b></td></tr>
+            <tr><td>③ Точность</td><td>Сохранять авторские сдвиги GP8</td><td><code>track_N_preserve_gp_played_offsets</code></td><td>GUITAR, BASS</td><td><b>вкл на соло</b></td></tr>
+            <tr><td>③ Точность</td><td>└ Оставлять перекрытия</td><td><code>track_N_keep_gp_played_overlaps</code></td><td>GUITAR, BASS</td><td>выкл</td></tr>
+            <tr><td>③ Точность</td><td>└ Оживление поверх сдвигов</td><td><code>track_N_humanize_timing_over_gp_offsets</code></td><td>GUITAR, BASS</td><td>выкл</td></tr>
+            <tr><td>③</td><td>Вариант исполнения</td><td><code>seed</code> (0–9999)</td><td>песня</td><td>7</td></tr>
+            <tr><td>④</td><td>Играбельные табы</td><td><code>playable_tabs</code></td><td>песня</td><td>выкл</td></tr>
+            <tr><td>④</td><td>Подготовить план → Черновик OpenAI → Промпт</td><td><code>prepare_arrangement_context</code> → <code>openai_arrangement_draft</code> → <code>arrangement_prompt</code></td><td>песня; карточка только при <code>openai_configured</code></td><td>выкл / выкл / промпт сервера</td></tr>
+          </tbody>
+        </table>
+        <p class="small">Опции, которых нет в группе роли (например, вибрато на ритм-гитаре или «вместе с барабанами» на соло), доступны в таблице «по дорожкам». Все 13 ключей <code>TRACK_EFFECTS</code> на месте.</p>
+      </div>
+
+      <div class="col" style="gap: 10px;">
+        <h2>Цвета</h2>
+        <table class="tbl">
+          <thead><tr><th>Токен</th><th>Значение</th><th>Применение · контраст</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw8" style="background: hsl(220,20%,98.5%);"></span>bg</td><td><code>hsl(220 20% 98.5%)</code></td><td>фон страницы</td></tr>
+            <tr><td><span class="sw8" style="background: #fff;"></span>bg-elev</td><td><code>#ffffff</code></td><td>карточки, шапка, панель действий</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(220,22%,96%);"></span>bg-sunken</td><td><code>hsl(220 22% 96%)</code></td><td>заголовки таблиц, невыбранные строки</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(222,30%,14%);"></span>fg</td><td><code>hsl(222 30% 14%)</code></td><td>текст · 15.8:1</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(220,14%,38%);"></span>fg-muted <b>↓</b></td><td><code>hsl(220 14% 38%)</code></td><td>пояснения · 6.4:1 (было 42%)</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(220,11%,44%);"></span>fg-subtle <b>↓</b></td><td><code>hsl(220 11% 44%)</code></td><td>метки, «—» · 5.1:1 (было 3.1:1)</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(220,16%,90%);"></span>border</td><td><code>hsl(220 16% 90%)</code></td><td>разделители (декор)</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(220,10%,55%);"></span>border-control <b>new</b></td><td><code>hsl(220 10% 55%)</code></td><td>границы полей и кнопок · 3.4:1</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(221,78%,50%);"></span>accent</td><td><code>hsl(221 78% 50%)</code></td><td>главное действие, ссылки · белый на нём 5.7:1</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(221,80%,96%);"></span>accent-soft</td><td><code>hsl(221 80% 96%)</code></td><td>выбранное · accent на нём 5.1:1</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(221,60%,80%);"></span>accent-line <b>new</b></td><td><code>hsl(221 60% 80%)</code></td><td>линия вложенности, пройденные шаги</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(152,55%,28%);"></span>ok <b>↓</b></td><td><code>hsl(152 55% 28%)</code></td><td>на ok-soft 5.5:1 (было 3.6:1)</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(30,85%,32%);"></span>warn <b>↓</b></td><td><code>hsl(30 85% 32%)</code></td><td>предупреждения, исключения · на warn-soft 5.4:1</td></tr>
+            <tr><td><span class="sw8" style="background: hsl(358,65%,45%);"></span>err</td><td><code>hsl(358 65% 45%)</code></td><td>ошибки · 5.8:1</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col" style="gap: 24px;">
+        <div class="col" style="gap: 10px;">
+          <h2>Шрифты</h2>
+          <table class="tbl">
+            <tbody>
+              <tr><td>Заголовок шага</td><td>Inter 24/30 · 650 · −0.02em (телефон 21)</td></tr>
+              <tr><td>Заголовок карточки</td><td>Inter 16/22 · 620</td></tr>
+              <tr><td>Главный переключатель</td><td>Inter 15/22 · 620</td></tr>
+              <tr><td>Текст, опции</td><td>Inter 14/21 · 400/560 <span class="muted">(было 13)</span></td></tr>
+              <tr><td>Пояснение</td><td>Inter 13/19 · 400 · fg-muted</td></tr>
+              <tr><td>Метка</td><td>Inter 11–12 · 600 · uppercase · .06em</td></tr>
+              <tr><td>Файлы, ключи, seed</td><td>JetBrains Mono 12.5 · 400–500</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col" style="gap: 10px;">
+          <h2>Отступы, радиусы, размеры</h2>
+          <table class="tbl">
+            <tbody>
+              <tr><td>Шкала отступов</td><td>4 · 8 · 12 · 16 · 20 · 24 · 28 · 32</td></tr>
+              <tr><td>Страница</td><td>поля 32 (телефон 16), колонка до 1216, боковая 340, промежуток 24</td></tr>
+              <tr><td>Карточка</td><td>поля 16×20 (телефон 14×16), между карточками 16</td></tr>
+              <tr><td>Вложенность</td><td>отступ 42 + линия 2px accent-line, внутри 20</td></tr>
+              <tr><td>Радиусы</td><td>6 — кнопки и поля · 8 — сообщения, ячейки · 10 — карточки · 14 — зона загрузки, главный блок · 999 — чипы</td></tr>
+              <tr><td>Цели нажатия</td><td>кнопки, поля, чипы, ячейки таблицы — 44; главная кнопка — 56</td></tr>
+              <tr><td>Шапка / панель действий</td><td>60 / 80 (телефон 56 / 76), панель — sticky снизу</td></tr>
+              <tr><td>Точки перелома</td><td>≥ 1024 — две колонки; &lt; 1024 — одна, сводка над панелью; ≤ 600 — телефонная шапка и степпер, таблица → аккордеон</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2300}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
