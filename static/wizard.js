@@ -61,6 +61,9 @@
     window.scrollTo({top: 0});
   };
   if (wizard) showStep(currentStep(), false);
+  // Without JS the group switches do nothing, so the table ships open; with JS
+  // the groups drive it and it starts collapsed, as in the mockup.
+  $('[data-matrix]', wizard)?.removeAttribute('open');
   window.addEventListener('popstate', () => { if (wizard) showStep(currentStep(), false); });
 
   // The table cells are the only inputs with names: group controls (data-role +
