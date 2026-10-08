@@ -273,3 +273,46 @@ def test_failed_build_is_recorded_as_render(monkeypatch):
     assert response.headers["Location"].endswith("/jobs/job?step=result&v=1")
     assert job["renders"][0]["status"] == "error"
     assert job["renders"][0]["track_options"] == {1: {"humanize": True}}
+
+
+def test_legacy_links_keep_serving_legacy_files_after_a_new_version(monkeypatch, tmp_path: Path):
+    """An old session that gets v2 must still serve its own files from version-less URLs.
+
+    Old manifests store download/preview URLs without ``v``; the result page of the
+    legacy version builds them the same way. Resolving them to the newest render
+    handed out v2's bytes under v1's name.
+    """
+    import app as web
+
+    job_id = "legacy"
+    job_dir = tmp_path / job_id
+    (job_dir / "output").mkdir(parents=True)
+    (job_dir / "output" / "solo.mid").write_bytes(b"legacy-midi")
+    (job_dir / "preview").mkdir()
+    (job_dir / "preview" / "solo.json").write_text('{"v": "legacy"}', encoding="utf-8")
+    (job_dir / "renders" / "2" / "output").mkdir(parents=True)
+    (job_dir / "renders" / "2" / "output" / "solo.mid").write_bytes(b"v2-midi")
+    (job_dir / "renders" / "2" / "preview").mkdir()
+    (job_dir / "renders" / "2" / "preview" / "solo.json").write_text('{"v": "2"}', encoding="utf-8")
+    manifest = {
+        "jobs": [{
+            "id": job_id, "stage": "processed", "tracks": [{"download_name": "solo.mid"}],
+            "original_name": "old.gp5", "song": {"tracks": 1}, "detected_tracks": [],
+        }],
+        "current_job_id": job_id,
+    }
+    legacy = web.ensure_job_renders(manifest["jobs"][0])[0]
+    manifest["jobs"][0]["renders"] = [legacy, {
+        "version": 2, "label": "v2", "legacy": False, "relative_root": "renders/2",
+        "status": "ok", "tracks": [{"download_name": "solo.mid"}],
+    }]
+    monkeypatch.setattr(web, "uploads_root", lambda: tmp_path)
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
+    web.app.config.update(TESTING=True)
+    client = web.app.test_client()
+
+    assert client.get(f"/download/{job_id}/solo.mid").data == b"legacy-midi"
+    assert client.get(f"/download/{job_id}/solo.mid?v=1").data == b"legacy-midi"
+    assert client.get(f"/download/{job_id}/solo.mid?v=2").data == b"v2-midi"
+    assert client.get(f"/preview/{job_id}/solo.json").get_json() == {"v": "legacy"}
+    assert client.get(f"/preview/{job_id}/solo.json?v=2").get_json() == {"v": "2"}

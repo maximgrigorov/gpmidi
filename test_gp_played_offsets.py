@@ -205,7 +205,7 @@ def test_track_selection_template_exposes_gp_played_offsets_checkbox():
 
     assert 'name="track_{{ track.index }}_{{ key }}"' in source
     assert "preserve_gp_played_offsets" in source
-    assert "Авторские сдвиги GP" in source
+    assert "Авторские сдвиги атак GP8" in source
 
 
 def test_spring_melody_measures_66_67_preserve_relative_gp_attack_offsets():

@@ -104,15 +104,15 @@ def test_applied_job_shows_explicit_baseline_enriched_and_zip_downloads(monkeypa
     for endpoint in ("/jobs/job", "/"):
         page = web.app.test_client().get(endpoint).data.decode()
 
-        assert "Baseline · общий MIDI" in page
-        assert "Enriched · общий MIDI" in page
+        assert "Скачать всё для Logic" in page
+        assert "Enriched · всё для Logic" in page
         assert 'href="/download/job/song_ALL.mid"' in page
         assert 'href="/download/job/song_expression_ALL.mid"' in page
-        assert "Baseline MIDI" in page
+        assert ">MIDI</a>" in page
         assert "Enriched MIDI" in page
         assert 'href="/download/job/Solo.mid"' in page
         assert 'href="/download/job/Solo_expression.mid"' in page
-        assert "Скачать ZIP" in page
+        assert "ZIP — все файлы" in page
         assert "Context JSON" not in page
         assert "Expression plan" not in page
         assert "Usage" not in page

@@ -45,101 +45,229 @@
 
   const wizard = $('#wizardForm');
   const panels = $$('[data-step]');
-  const validSteps = ['tracks', 'sound', 'extra', 'result'];
-  const currentStep = () => new URL(location.href).searchParams.get('step') || (wizard ? 'tracks' : 'result');
+  const formSteps = ['tracks', 'sound', 'extra'];
+  const validSteps = [...formSteps, 'result'];
+  const currentStep = () => {
+    const step = new URL(location.href).searchParams.get('step');
+    if (wizard) return formSteps.includes(step) ? step : 'tracks';
+    return 'result';
+  };
   const showStep = (step, push = true) => {
     if (!validSteps.includes(step)) return;
     document.body.classList.add('js-ready');
-    panels.forEach(panel => panel.hidden = panel.dataset.step !== step);
+    panels.forEach(panel => { panel.hidden = panel.dataset.step !== step; });
     $$('.stepper li').forEach((item, index) => item.classList.toggle('active', index === validSteps.indexOf(step) + 1));
     if (push) { const url = new URL(location.href); url.searchParams.set('step', step); history.pushState({step}, '', url); }
-    window.scrollTo({top: 0, behavior: 'smooth'});
+    window.scrollTo({top: 0});
   };
   if (wizard) showStep(currentStep(), false);
-  window.addEventListener('popstate', () => wizard && showStep(currentStep(), false));
+  window.addEventListener('popstate', () => { if (wizard) showStep(currentStep(), false); });
 
+  // The table cells are the only inputs with names: group controls (data-role +
+  // data-effect, role "*" = every track) set cells and read their state back.
+  const parents = {
+    ghost_notes: 'humanize', lock_to_drums: 'humanize', double_track: 'humanize',
+    palm_mute_motion: 'humanize', fret_hand_cost: 'humanize',
+    humanize_timing_over_gp_offsets: 'humanize', keep_gp_played_overlaps: 'preserve_gp_played_offsets',
+  };
+  const precisionKeys = ['expand_gp_hidden_32nds', 'preserve_gp_played_offsets', 'keep_gp_played_overlaps', 'humanize_timing_over_gp_offsets'];
+  const plural = (n, one, few, many) => {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+  };
+  const rows = () => $$('[data-effect-row]', wizard);
+  const rowSelected = row => row.dataset.selected !== '0';
+  const rowsOfRole = role => rows().filter(row => role === '*' || row.dataset.role === role);
+  const cellsFor = (role, effect, onlySelected = false) => rowsOfRole(role)
+    .filter(row => !onlySelected || rowSelected(row))
+    .map(row => $(`input[data-effect="${effect}"]`, row)).filter(Boolean);
+  const cellOf = (row, effect) => $(`input[data-effect="${effect}"]`, row);
+  const cellEnabled = cell => {
+    const row = cell.closest('[data-effect-row]');
+    if (!rowSelected(row)) return false;
+    const parent = parents[cell.dataset.effect];
+    if (parent && !cellOf(row, parent)?.checked) return false;
+    if (cell.dataset.effect === 'humanize_timing_over_gp_offsets' && !cellOf(row, 'preserve_gp_played_offsets')?.checked) return false;
+    return true;
+  };
   const selectedTracks = () => $$('input[name="track_indices"]', wizard).filter(input => input.checked);
-  const syncTrackSelection = () => {
-    const selected = new Set(selectedTracks().map(input => input.value));
-    $$('[data-effect-row]', wizard).forEach(row => row.dataset.selected = selected.has(row.dataset.track) ? '1' : '0');
-    const warning = $('[data-no-tracks]', wizard); if (warning) warning.hidden = selected.size > 0;
-    updateDependencies();
-  };
-  $$('input[name="track_indices"]', wizard).forEach(input => input.addEventListener('change', syncTrackSelection));
 
-  const parents = {ghost_notes:'humanize', lock_to_drums:'humanize', double_track:'humanize', palm_mute_motion:'humanize', fret_hand_cost:'humanize', humanize_timing_over_gp_offsets:'humanize', keep_gp_played_overlaps:'preserve_gp_played_offsets'};
-  const updateDependencies = () => {
-    $$('[data-effect-row]', wizard).forEach(row => {
-      const selected = row.dataset.selected !== '0';
-      $$('input[data-effect]', row).forEach(cell => {
-        const effect = cell.dataset.effect;
-        const parent = parents[effect];
-        let enabled = selected && (!parent || $(`input[data-effect="${parent}"]`, row)?.checked);
-        if (effect === 'humanize_timing_over_gp_offsets') enabled = enabled && $(`input[data-effect="preserve_gp_played_offsets"]`, row)?.checked;
-        cell.disabled = !enabled;
-        cell.closest('td')?.classList.toggle('disabled', !enabled);
-      });
-    });
-    updateSummary();
-  };
-
-  $$('[data-role-select]', wizard).forEach(select => select.addEventListener('change', () => {
-    const card = select.closest('[data-track-card]');
-    const row = $(`[data-effect-row][data-track="${card.dataset.track}"]`, wizard);
-    card.dataset.role = select.value; if (row) row.dataset.role = select.value; updateSummary();
-  }));
-  $$('[data-role][data-effect]', wizard).forEach(group => group.addEventListener('change', () => {
-    $$(`[data-effect-row][data-role="${group.dataset.role}"] input[data-effect="${group.dataset.effect}"]`, wizard).forEach(cell => {
-      if (!cell.dataset.exception) cell.checked = group.checked;
-    }); updateDependencies();
-  }));
-  $$('[data-effect-row] input[data-effect]', wizard).forEach(cell => cell.addEventListener('change', () => {
-    cell.dataset.exception = '1'; updateDependencies();
-  }));
-  $$('[data-clear-exceptions]', wizard).forEach(button => button.addEventListener('click', () => {
-    const role = button.dataset.clearExceptions;
-    $$(`[data-effect-row][data-role="${role}"] input[data-effect]`, wizard).forEach(cell => delete cell.dataset.exception);
-    $$(`[data-role="${role}"][data-effect]`, wizard).forEach(group => group.dispatchEvent(new Event('change')));
-  }));
-  $('[data-reset-defaults]', wizard)?.addEventListener('click', () => {
-    $$('[data-effect-row] input[data-effect]', wizard).forEach(cell => { cell.checked = cell.dataset.default === '1'; delete cell.dataset.exception; });
-    updateDependencies();
-  });
-  $('[data-humanize-drums]', wizard)?.addEventListener('click', () => {
-    $$('[data-effect-row][data-role="drums"] input[data-effect="humanize"]', wizard).forEach(cell => { cell.checked = true; delete cell.dataset.exception; }); updateDependencies();
-  });
-
-  function updateSummary() {
+  function refresh() {
     if (!wizard) return;
-    const active = $$('[data-effect-row] input[data-effect]:checked', wizard).filter(cell => !cell.disabled && cell.closest('tr').dataset.selected !== '0');
-    const changes = $$('[data-effect-row] input[data-effect]', wizard).filter(cell => cell.checked !== (cell.dataset.default === '1'));
-    const count = $('[data-change-count]', wizard); if (count) count.textContent = changes.length ? `изменено · ${changes.length}` : 'по умолчанию';
-    const list = $('[data-outcome-list]', wizard); if (list) {
-      const names = [...new Set(active.map(cell => cell.closest('td').previousElementSibling ? cell.dataset.effect : cell.dataset.effect))];
-      list.innerHTML = names.length ? names.map(name => `<li>${name}</li>`).join('') : '<li>Точный перенос нот без дополнительного оживления</li>';
+    const selected = new Set(selectedTracks().map(input => input.value));
+    rows().forEach(row => { row.dataset.selected = selected.has(row.dataset.track) ? '1' : '0'; });
+    const noTracks = $('[data-no-tracks]', wizard); if (noTracks) noTracks.hidden = selected.size > 0;
+    const count = $('[data-selected-count]', wizard); if (count) count.textContent = `Выбрано ${selected.size} из ${rows().length}`;
+    rows().forEach(row => $$('input[data-effect]', row).forEach(cell => {
+      const on = cellEnabled(cell);
+      cell.disabled = !on;
+      cell.closest('td')?.classList.toggle('disabled', !on);
+      cell.closest('td')?.classList.toggle('exception', Boolean(cell.dataset.exception));
+    }));
+
+    $$('[data-role][data-effect]', wizard).forEach(control => {
+      const cells = cellsFor(control.dataset.role, control.dataset.effect, true);
+      const option = control.closest('[data-group-option]');
+      if (option) option.hidden = cells.length === 0;
+      const on = cells.filter(cell => cell.checked).length;
+      control.checked = cells.length > 0 && on === cells.length;
+      control.indeterminate = on > 0 && on < cells.length;
+      control.disabled = cells.length === 0 || cells.every(cell => cell.disabled);
+      control.closest('label')?.classList.toggle('is-disabled', control.disabled);
+    });
+
+    $$('[data-role-group]', wizard).forEach(card => {
+      const role = card.dataset.roleGroup;
+      const roleRows = rowsOfRole(role).filter(rowSelected);
+      $('[data-role-empty]', card).hidden = roleRows.length > 0;
+      $('[data-role-body]', card).hidden = roleRows.length === 0;
+      card.classList.toggle('is-empty', roleRows.length === 0);
+      $('[data-role-tracks]', card).textContent = roleRows.map(row => row.dataset.trackName).join(', ');
+      const humanize = $('input[data-effect="humanize"]', card);
+      const humanizeOn = Boolean(humanize && (humanize.checked || humanize.indeterminate));
+      const nested = $('[data-nested]', card);
+      const nestedCount = $$('[data-group-option]', nested).filter(option => !option.hidden).length;
+      nested.hidden = !humanizeOn || nestedCount === 0;
+      const hint = $('[data-nested-hint]', card);
+      hint.hidden = humanizeOn || nestedCount === 0;
+      hint.textContent = `Ещё ${nestedCount} ${plural(nestedCount, 'опция', 'опции', 'опций')} — после включения оживления`;
+      const exceptions = rowsOfRole(role).some(row => $$('input[data-exception]', row).length > 0);
+      $('[data-clear-exceptions]', card).hidden = !exceptions;
+    });
+    const others = rowsOfRole('other').filter(rowSelected);
+    const otherLine = $('[data-other-line]', wizard);
+    if (otherLine) {
+      otherLine.hidden = others.length === 0;
+      $('[data-role-tracks-other]', otherLine).textContent = others.map(row => row.dataset.trackName).join(', ');
     }
-    const drumOn = $$('[data-effect-row][data-role="drums"] input[data-effect="humanize"]', wizard).some(cell => cell.checked && !cell.disabled);
-    const lockOn = $$('[data-effect-row] input[data-effect="lock_to_drums"]', wizard).some(cell => cell.checked && !cell.disabled);
-    const drumSelected = $$('[data-effect-row][data-role="drums"]', wizard).some(row => row.dataset.selected !== '0');
-    const warning = $('[data-drum-warning]', wizard); if (warning) warning.hidden = !(lockOn && (!drumOn || !drumSelected));
+
+    const preserve = cellsFor('*', 'preserve_gp_played_offsets', true);
+    const soloRule = cell => cell.checked === (cell.closest('[data-effect-row]').dataset.role === 'solo');
+    const mode = preserve.every(soloRule) ? 'solo'
+      : preserve.every(cell => cell.checked) ? 'all'
+        : preserve.every(cell => !cell.checked) ? 'none' : 'custom';
+    $$('[data-offsets-mode]', wizard).forEach(button => button.setAttribute('aria-pressed', String(button.dataset.offsetsMode === mode)));
+    const precisionChanges = precisionKeys.flatMap(key => cellsFor('*', key, true))
+      .filter(cell => cell.checked !== (cell.dataset.default === '1')).length;
+    const precisionCount = $('[data-precision-count]', wizard);
+    if (precisionCount) {
+      precisionCount.textContent = precisionChanges ? `изменено · ${precisionChanges}` : 'по умолчанию';
+      precisionCount.classList.toggle('changed', precisionChanges > 0);
+    }
+    const exceptionCount = rows().filter(rowSelected).flatMap(row => $$('input[data-exception]', row)).length;
+    const changeCount = $('[data-change-count]', wizard);
+    if (changeCount) {
+      changeCount.textContent = exceptionCount ? `исключений: ${exceptionCount}` : 'как в группах';
+      changeCount.classList.toggle('changed', exceptionCount > 0);
+    }
+
+    const list = $('[data-outcome-list]', wizard);
+    if (list) {
+      const active = rows().filter(rowSelected);
+      // Column order of the table = the order of EFFECT_LABELS on the server.
+      const keys = $$('.effect-table thead th[data-effect-key]', wizard).map(th => th.dataset.effectKey);
+      const lines = [];
+      if (!active.some(row => cellOf(row, 'humanize')?.checked)) lines.push('Без оживления — MIDI как в нотах');
+      keys.forEach(key => {
+        const on = active.filter(row => { const cell = cellOf(row, key); return cell && cell.checked && !cell.disabled; });
+        if (on.length) lines.push(`${cellOf(on[0], key).dataset.label}: ${on.map(row => row.dataset.trackName).join(', ')}`);
+      });
+      list.replaceChildren(...lines.map(text => { const item = document.createElement('li'); item.textContent = text; return item; }));
+    }
+
+    const drumRows = rowsOfRole('drums').filter(rowSelected);
+    const drumOn = drumRows.some(row => cellOf(row, 'humanize')?.checked);
+    const lockOn = cellsFor('*', 'lock_to_drums', true).some(cell => cell.checked && !cell.disabled);
+    const warning = $('[data-drum-warning]', wizard);
+    if (warning) {
+      warning.hidden = !(lockOn && !drumOn);
+      $('[data-drum-warning-text]', warning).textContent = drumRows.length
+        ? 'Ритм-секция привяжется к ровной сетке — разницы на слух не будет.'
+        : 'Дорожка барабанов не выбрана — привязываться не к чему.';
+      $('[data-humanize-drums]', warning).hidden = drumRows.length === 0;
+    }
   }
 
+  $$('input[name="track_indices"]', wizard).forEach(input => input.addEventListener('change', refresh));
+  $$('[data-role-select]', wizard).forEach(select => select.addEventListener('change', () => {
+    const card = select.closest('[data-track-card]');
+    card.dataset.role = select.value;
+    const row = $(`[data-effect-row][data-track="${card.dataset.track}"]`, wizard);
+    if (row) row.dataset.role = select.value;
+    refresh();
+  }));
+  $$('[data-role][data-effect]', wizard).forEach(control => control.addEventListener('change', () => {
+    cellsFor(control.dataset.role, control.dataset.effect).forEach(cell => { if (!cell.dataset.exception) cell.checked = control.checked; });
+    refresh();
+  }));
+  rows().forEach(row => $$('input[data-effect]', row).forEach(cell => cell.addEventListener('change', () => {
+    cell.dataset.exception = '1';
+    refresh();
+  })));
+  $$('[data-clear-exceptions]', wizard).forEach(button => button.addEventListener('click', () => {
+    const roleRows = rowsOfRole(button.dataset.clearExceptions);
+    const effects = new Set(roleRows.flatMap(row => $$('input[data-exception]', row).map(cell => cell.dataset.effect)));
+    effects.forEach(effect => {
+      const cells = roleRows.map(row => cellOf(row, effect)).filter(Boolean);
+      const normal = cells.find(cell => !cell.dataset.exception);
+      cells.forEach(cell => {
+        if (cell.dataset.exception) cell.checked = normal ? normal.checked : cell.dataset.default === '1';
+        delete cell.dataset.exception;
+      });
+    });
+    refresh();
+  }));
+  $$('[data-offsets-mode]', wizard).forEach(button => button.addEventListener('click', () => {
+    const mode = button.dataset.offsetsMode;
+    rows().forEach(row => {
+      const cell = cellOf(row, 'preserve_gp_played_offsets');
+      if (!cell) return;
+      cell.checked = mode === 'all' || (mode === 'solo' && row.dataset.role === 'solo');
+      delete cell.dataset.exception;
+    });
+    refresh();
+  }));
+  $('[data-reset-precision]', wizard)?.addEventListener('click', () => {
+    precisionKeys.forEach(key => cellsFor('*', key).forEach(cell => { cell.checked = cell.dataset.default === '1'; delete cell.dataset.exception; }));
+    refresh();
+  });
+  $('[data-reset-defaults]', wizard)?.addEventListener('click', () => {
+    rows().forEach(row => $$('input[data-effect]', row).forEach(cell => { cell.checked = cell.dataset.default === '1'; delete cell.dataset.exception; }));
+    refresh();
+  });
+  $('[data-humanize-drums]', wizard)?.addEventListener('click', () => {
+    rowsOfRole('drums').forEach(row => { const cell = cellOf(row, 'humanize'); if (cell) { cell.checked = true; delete cell.dataset.exception; } });
+    refresh();
+  });
+
   $$('[data-next]', wizard).forEach(button => button.addEventListener('click', () => {
-    if (!selectedTracks().length) { syncTrackSelection(); showStep('tracks'); return; }
+    if (!selectedTracks().length) { refresh(); showStep('tracks'); return; }
     showStep(button.dataset.next);
   }));
   $$('[data-back]', wizard).forEach(button => button.addEventListener('click', () => showStep(button.dataset.back)));
   wizard?.addEventListener('submit', event => {
-    if (!selectedTracks().length) { event.preventDefault(); syncTrackSelection(); showStep('tracks'); return; }
+    if (!selectedTracks().length) { event.preventDefault(); refresh(); showStep('tracks'); return; }
     const overlay = $('[data-building]'); if (overlay) overlay.hidden = false;
+    // A second click during a synchronous build would start a second version.
+    setTimeout(() => $$('button[type="submit"]', wizard).forEach(button => { button.disabled = true; }), 0);
   });
-  syncTrackSelection();
+  window.addEventListener('pageshow', () => {
+    $$('button[type="submit"]', wizard).forEach(button => { button.disabled = false; });
+    const overlay = $('[data-building]'); if (overlay) overlay.hidden = true;
+  });
+  refresh();
 
   $$('[data-daw-checklist]').forEach(list => {
     const key = `gpmidi:daw:${list.dataset.dawChecklist}`;
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(key) || '{}'); } catch (_) {}
     $$('[data-check]', list).forEach(box => { box.checked = Boolean(saved[box.dataset.check]); box.addEventListener('change', () => { saved[box.dataset.check] = box.checked; localStorage.setItem(key, JSON.stringify(saved)); }); });
   });
+
+    // Piano-roll preview and player (moved from the old index.html unchanged).
+    const previewCache = new Map();
+    let activePlayer = null;
 
     function formatMs(ms) {
       const total = Math.max(0, Math.floor(ms / 1000));

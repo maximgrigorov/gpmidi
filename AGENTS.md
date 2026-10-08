@@ -266,16 +266,31 @@
   Against `origin/main` with the same options only 27 guitar note ENDS changed;
   attacks, pitches, velocities and all drum/OTHER files are identical.
 
-## Web UI options
-- `humanize` / `ghost_notes` / `seed` are POST form fields on `/upload`, all
-  optional, all off by default (hidden 32nds and solo played offsets are the
-  exception, see Render defaults). The ghost checkbox is gated on humanize in JS —
-  ghosts only exist inside humanization.
-- `fret_hand_cost` is a per-track GUITAR effect (`track_N_fret_hand_cost`); its
-  checkbox is disabled until that track's humanize is checked.
-- The job page shows a badge for the mode used, and the manifest stores
-  `humanize` / `ghost_notes` / `fret_hand_cost` per job, so an old session states
-  what produced it.
+## Web UI: five-step wizard with versions (2026-10-08)
+- Plan `docs/UI_WIZARD_PLAN.md`, approved mockup `docs/design/wizard-v2/`, task
+  `docs/codex-ui-wizard-task.md`. Steps: file → tracks → sound → extra → result,
+  `?step=` in the URL; one `<form>` for steps 2-4.
+- **Form contract is unchanged** (`track_indices`, `track_<N>_<effect>`, `seed`,
+  `playable_tabs`, arrangement fields). In step 3 the per-track table cells are the
+  only named inputs; role-group controls (`data-role` + `data-effect`, role `*` =
+  all tracks) just set those cells. Roles (drums / rhythm / solo / other) are UI
+  only and never change defaults (`default_track_effects` stays the source).
+- **Same form → same MIDI bytes**: `test_ui_form_golden.py` +
+  `tests/fixtures/wizard_golden.json`, recorded on main before the UI change.
+  Re-record only deliberately, and only when the converter is meant to change.
+- Every `POST /jobs/<id>/process` is a new render in `renders/<n>/` (no 409); old
+  manifests read as a legacy render whose files stay in `output/` and `preview/`.
+  **Version-less file URLs (download, preview, zip, report, regen, print, apply)
+  resolve to the legacy render when there is one** — every URL issued before
+  versions existed has no `v`; resolving it to the newest render served v2's bytes
+  under v1's name. Pages without `v` show the newest render.
+- The server stores *effective* options (`effective_track_options`): a dependent
+  flag whose parent is off is recorded as off, because the converter ignores it.
+- `EFFECT_LABELS` in `app.py` is the one place for the human names of the 13
+  effects (table, step-3 summary, result page); `render_overview` builds "what was
+  applied", the diff to the previous version and the DAW checklist (Hydra PB range,
+  Picking Mode only with `pick_direction`, Vel → Tightness only with
+  `palm_mute_motion`, Darkwall PB range) from the render's effective options.
 
 ## Still open (do not "fix" silently — ask first)
 - `--humanize` note ends (LESSONS.md p.16): fixed and approved on

@@ -256,10 +256,7 @@ def discover_tracks(song: Any) -> list[dict[str, Any]]:
             "instrument_preset": infer_instrument_preset(track_name, track_type),
             "available_effects": list(TRACK_EFFECTS.get(track_type, [])),
             "default_effects": default_track_effects(track, track_type),
-            "ui_role": ("drums" if track_type == "DRUMS" else
-                        "bass" if track_type == "BASS" else
-                        "solo" if is_solo_track(track, track_type) else
-                        "rhythm" if track_type == "GUITAR" else "other"),
+            "ui_role": ui_role(track_type, is_solo_track(track, track_type)),
             "selected": True,
         })
     return discovered
@@ -298,6 +295,157 @@ def parse_track_options(
             for effect in effects
         }
     return options
+
+
+DARKWALL_PITCH_BEND_RANGE = int(round(float(
+    (config_for_track_type("BASS") or {}).get(
+        "pitch_bend_range", PITCH_BEND_RANGE_ST
+    )
+)))
+
+# Human names of the per-track effects, in the order of the wizard table. One
+# source for the table, the step-3 summary and the result page; the technical
+# key stays visible in tooltips.
+EFFECT_LABELS = {
+    "humanize": "Оживление",
+    "ghost_notes": "Гост-ноты малого",
+    "lock_to_drums": "Вместе с барабанами",
+    "double_track": "Второй дубль L/R",
+    "palm_mute_motion": "Глушение как движение руки",
+    "fret_hand_cost": "Задержка при переносе руки",
+    "pick_direction": "Направление медиатора",
+    "auto_sustain_vibrato": "Вибрато на длинных нотах",
+    "fret_noise_on_hand_shift": "Шорох струн при переносе позиции",
+    "expand_gp_hidden_32nds": "Скрытые 32-е",
+    "preserve_gp_played_offsets": "Авторские сдвиги GP8",
+    "keep_gp_played_overlaps": "Перекрытия от сдвигов",
+    "humanize_timing_over_gp_offsets": "Оживление поверх сдвигов",
+}
+EFFECT_SHORT_LABELS = {
+    "humanize": "Оживить", "ghost_notes": "Гост-ноты", "lock_to_drums": "С барабанами",
+    "double_track": "Дубль L/R", "palm_mute_motion": "Глушение", "fret_hand_cost": "Задержка руки",
+    "pick_direction": "Медиатор", "auto_sustain_vibrato": "Вибрато", "fret_noise_on_hand_shift": "Шорох",
+    "expand_gp_hidden_32nds": "Скрытые 32-е", "preserve_gp_played_offsets": "Сдвиги GP8",
+    "keep_gp_played_overlaps": "Перекрытия", "humanize_timing_over_gp_offsets": "Поверх сдвигов",
+}
+assert set(EFFECT_LABELS) == {key for keys in TRACK_EFFECTS.values() for key in keys}
+UI_ROLE_LABELS = {"drums": "Барабаны", "rhythm": "Ритм-секция", "solo": "Соло", "other": "Прочее"}
+
+
+def ui_role(track_type: str, solo: bool) -> str:
+    """Wizard group of a track. Only the UI uses it; it never changes options."""
+    if track_type == "DRUMS":
+        return "drums"
+    if track_type in ("GUITAR", "BASS"):
+        return "solo" if solo else "rhythm"
+    return "other"
+
+
+def _track_ui_role(track: dict[str, Any]) -> str:
+    # Sessions parsed before the wizard have no ui_role; the solo default of
+    # preserve_gp_played_offsets is exactly is_solo_track, so it recovers it.
+    role = track.get("ui_role")
+    if role in UI_ROLE_LABELS:
+        return role
+    return ui_role(str(track.get("track_type") or ""),
+                   bool((track.get("default_effects") or {}).get("preserve_gp_played_offsets")))
+
+
+def _render_track_options(render: dict[str, Any]) -> dict[int, dict[str, bool]]:
+    return {int(index): dict(values or {})
+            for index, values in (render.get("track_options") or {}).items()}
+
+
+def _render_effect_tracks(job: dict[str, Any], render: dict[str, Any]) -> dict[str, list[int]]:
+    """Effect key -> selected track indices that had it ON in this render."""
+    options = _render_track_options(render)
+    selected = [int(index) for index in render.get("selected_track_indices") or options]
+    return {key: [index for index in selected if options.get(index, {}).get(key)]
+            for key in EFFECT_LABELS}
+
+
+def render_overview(job: dict[str, Any], render: dict[str, Any],
+                    previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Human summary of one render: what was applied, what differs, DAW checklist."""
+    detected = {int(track["index"]): track for track in job.get("detected_tracks") or []}
+    names = {index: str(track.get("track_name") or f"#{index}") for index, track in detected.items()}
+    selected = [int(index) for index in render.get("selected_track_indices") or []]
+    legacy_flags = not render.get("track_options")
+    effects = _render_effect_tracks(job, render)
+
+    def describe(key: str, indices: list[int]) -> str:
+        eligible = [index for index in selected
+                    if key in (detected.get(index, {}).get("available_effects") or [])]
+        if len(indices) > 2 and len(indices) == len(eligible):
+            return f"все доступные дорожки ({len(indices)})"
+        return ", ".join(names.get(index, f"#{index}") for index in indices)
+
+    lines = []
+    if legacy_flags:
+        # Old sessions kept only song-level flags.
+        lines = [{"label": EFFECT_LABELS[key], "value": "включено"}
+                 for key in EFFECT_LABELS if render.get(key)]
+    else:
+        lines = [{"label": EFFECT_LABELS[key], "value": describe(key, indices)}
+                 for key, indices in effects.items() if indices]
+    humanized = len(effects["humanize"]) if not legacy_flags else int(bool(render.get("humanize")))
+    if not humanized:
+        lines.insert(0, {"label": "Без оживления", "value": "MIDI как в нотах"})
+    if render.get("playable_tabs"):
+        lines.append({"label": "Играбельные табы", "value": "включены"})
+    if render.get("prepare_arrangement_context"):
+        lines.append({"label": "План выразительности",
+                      "value": "черновик OpenAI" if render.get("openai_arrangement_draft") else "контекст"})
+    lines.append({"label": "Seed", "value": str(render.get("seed", 7))})
+
+    if legacy_flags:
+        short = "исходная сборка"
+    elif humanized:
+        short = f"оживление: {humanized} дор." + (" · с барабанами" if effects["lock_to_drums"] else "")
+    else:
+        short = "как в нотах"
+
+    diff: list[str] = []
+    if previous is not None and not legacy_flags and previous.get("track_options"):
+        before = _render_effect_tracks(job, previous)
+        for key, indices in effects.items():
+            added = [names.get(i, f"#{i}") for i in indices if i not in before[key]]
+            removed = [names.get(i, f"#{i}") for i in before[key] if i not in indices]
+            if added:
+                diff.append(f"{EFFECT_LABELS[key]}: + {', '.join(added)}")
+            if removed:
+                diff.append(f"{EFFECT_LABELS[key]}: − {', '.join(removed)}")
+        prev_selected = [int(i) for i in previous.get("selected_track_indices") or []]
+        if sorted(prev_selected) != sorted(selected):
+            diff.append(f"Дорожек: {len(prev_selected)} → {len(selected)}")
+        if previous.get("seed", 7) != render.get("seed", 7):
+            diff.append(f"Seed: {previous.get('seed', 7)} → {render.get('seed', 7)}")
+        if bool(previous.get("playable_tabs")) != bool(render.get("playable_tabs")):
+            diff.append("Играбельные табы: " + ("включены" if render.get("playable_tabs") else "выключены"))
+        if not diff:
+            diff.append("настройки те же")
+
+    types = {detected.get(index, {}).get("track_type") for index in selected}
+    daw = []
+    if "GUITAR" in types:
+        daw.append({"id": "hydra_pb", "label": f"Hydra: PITCH BEND RANGE = {HYDRA_PITCH_BEND_RANGE}",
+                    "hint": "Kontakt не обязан слушать RPN; при меньшем значении глубокие бенды упрутся в потолок"})
+    if effects["pick_direction"]:
+        daw.append({"id": "hydra_pick", "label": "Hydra: Picking Mode на кейсвитчах C7 / C#7",
+                    "hint": "Other Performance Keyswitches — включено направление медиатора"})
+    if effects["palm_mute_motion"]:
+        daw.append({"id": "hydra_tightness", "label": "Hydra: Vel → Tightness включён",
+                    "hint": "без него velocity не меняет глубину глушения"})
+    if "BASS" in types:
+        daw.append({"id": "darkwall_pb", "label": f"Darkwall: PITCH BEND RANGE = {DARKWALL_PITCH_BEND_RANGE}",
+                    "hint": "значение из карты Darkwall; с пресетом ещё не сверено"})
+    return {"lines": lines, "short": short, "diff": diff, "daw": daw}
+
+
+@app.context_processor
+def _wizard_labels() -> dict[str, Any]:
+    return {"effect_labels": EFFECT_LABELS, "effect_short_labels": EFFECT_SHORT_LABELS,
+            "ui_role_labels": UI_ROLE_LABELS}
 
 
 _HUMANIZE_DEPENDENCIES = {
@@ -378,10 +526,23 @@ def render_root(job_dir: Path, render: dict[str, Any]) -> Path:
     return job_dir / "renders" / str(int(render["version"]))
 
 
-def _requested_render(job: dict[str, Any], name: str = "v") -> dict[str, Any] | None:
+def _requested_render(
+    job: dict[str, Any], name: str = "v", *, prefer_legacy: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve ``?v=N`` (or ``?from=N``) to a render, 404 on anything invalid.
+
+    Without the parameter a page shows the newest render. File routes pass
+    ``prefer_legacy``: every URL issued before versions existed has no ``v`` and
+    points at the unmoved legacy output, so it must keep resolving there after
+    the session gets v2 -- otherwise v1's links hand out v2's bytes.
+    """
     renders = ensure_job_renders(job)
     raw = request.args.get(name)
     if raw is None or raw == "":
+        if prefer_legacy:
+            legacy = next((item for item in renders if item.get("legacy")), None)
+            if legacy is not None:
+                return legacy
         return renders[-1] if renders else None
     try:
         version = int(raw)
@@ -412,6 +573,20 @@ def _job_for_view(
         view.update(_render_snapshot(selected))
         view["active_version"] = int(selected["version"])
         view["active_render_legacy"] = bool(selected.get("legacy"))
+    for track in view.get("detected_tracks") or []:
+        track["ui_role"] = _track_ui_role(track)
+    previous = None
+    for item in renders:
+        item["overview"] = render_overview(view, item, previous)
+        stamp = str(item.get("created_at") or view.get("created_at") or "")
+        item["time"] = stamp[11:16] if len(stamp) >= 16 else stamp
+        if item.get("status") != "error":
+            previous = item
+    if render is not None:
+        view["overview"] = next(
+            (item["overview"] for item in renders if int(item.get("version", 0)) == int(render["version"])),
+            render_overview(view, render),
+        )
     view["renders"] = renders
     view["wizard_step"] = step or ("tracks" if view.get("stage") == "parsed" else "result")
     view["source_render"] = copy.deepcopy(source_render) if source_render else None
@@ -1829,7 +2004,7 @@ def apply_arrangement(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     arrangement = owner.get("arrangement") or {}
     if arrangement.get("status") == "applied":
@@ -1930,7 +2105,7 @@ def view_enrichment_report(job_id: str, filename: str):
     job = _job_by_id(manifest, job_id)
     if job is None or Path(job_id).name != job_id or Path(filename).name != filename:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     view = _job_for_view(job, render=render)
     if filename != view.get("enrichment_report_name"):
@@ -1948,7 +2123,7 @@ def download_track(job_id: str, filename: str):
     job = _job_by_id(manifest, job_id)
     if job is None or Path(filename).name != filename:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     if filename not in _artifact_names(owner):
         abort(404)
@@ -1971,7 +2146,7 @@ def preview_track(job_id: str, filename: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
     path = root / "preview" / filename
@@ -1988,7 +2163,7 @@ def download_zip(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
     path = root / "tracks.zip"
@@ -2019,7 +2194,7 @@ def regen_playable(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     if not owner.get("playable_tabs"):
         abort(400, description="playable tabs выключены для этой версии")
@@ -2088,7 +2263,7 @@ def print_artifact(job_id: str):
     job = _job_by_id(manifest, job_id)
     if job is None:
         abort(404)
-    render = _requested_render(job)
+    render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     artifact = request.form.get("artifact", "")
     if artifact not in _artifact_names(owner) or Path(artifact).name != artifact or not artifact.lower().endswith(".pdf"):
