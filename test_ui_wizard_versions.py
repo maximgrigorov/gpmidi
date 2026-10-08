@@ -316,3 +316,78 @@ def test_legacy_links_keep_serving_legacy_files_after_a_new_version(monkeypatch,
     assert client.get(f"/download/{job_id}/solo.mid?v=2").data == b"v2-midi"
     assert client.get(f"/preview/{job_id}/solo.json").get_json() == {"v": "legacy"}
     assert client.get(f"/preview/{job_id}/solo.json?v=2").get_json() == {"v": "2"}
+
+
+def _hrefs(page: str) -> list[str]:
+    import html
+    import re
+
+    return [html.unescape(href) for href in re.findall(r'href="([^"]+)"', page)]
+
+
+def test_older_version_page_links_its_own_combined_midi_and_zip(monkeypatch, tmp_path: Path):
+    """Live NO-GO 2026-10-08: on v1's page after v2 the _ALL.mid and ZIP buttons
+    pointed at ?v=2. They were job-level fields that only the newest build set;
+    per-track links were right because they live inside each render."""
+    import app as web
+
+    monkeypatch.setattr(web, "SESSIONS_ROOT", tmp_path)
+    web.app.config.update(TESTING=True, SECRET_KEY="wizard-version-links")
+    client = web.app.test_client()
+    job_path = client.post(
+        "/upload",
+        data={"file": (io.BytesIO(FIXTURE.read_bytes()), FIXTURE.name)},
+        content_type="multipart/form-data",
+    ).headers["Location"]
+    form = {"track_indices": ["1", "2", "3", "4", "5"], "seed": "7"}
+    assert client.post(f"{job_path}/process", data=form).status_code == 302
+    session_dir = next(tmp_path.iterdir())
+    job_id = json.loads((session_dir / "manifest.json").read_text(encoding="utf-8"))["jobs"][0]["id"]
+    v1_dir = session_dir / "uploads" / job_id / "renders" / "1"
+    v1_all = next((v1_dir / "output").glob("*_ALL.mid")).read_bytes()
+    v1_zip = (v1_dir / "tracks.zip").read_bytes()
+
+    assert client.post(f"{job_path}/process", data={**form, "seed": "8", "track_1_humanize": "on"}).status_code == 302
+
+    page = client.get(f"/jobs/{job_id}?step=result&v=1").get_data(as_text=True)
+    hrefs = _hrefs(page)
+    combined = [href for href in hrefs if href.endswith("_ALL.mid?v=1") or "_ALL.mid?v=" in href]
+    zips = [href for href in hrefs if "/all.zip" in href]
+    assert combined and all(href.endswith("?v=1") for href in combined), combined
+    assert zips and all(href.endswith("?v=1") for href in zips), zips
+    assert client.get(combined[0]).data == v1_all
+    assert client.get(zips[0]).data == v1_zip
+
+    page_v2 = client.get(f"/jobs/{job_id}?step=result&v=2").get_data(as_text=True)
+    assert all(href.endswith("?v=2") for href in _hrefs(page_v2) if "_ALL.mid" in href or "/all.zip" in href)
+
+
+def test_version_page_offers_its_refingered_gp(monkeypatch, tmp_path: Path):
+    """The re-fingered GP download existed on the old page and was lost in the wizard."""
+    import app as web
+
+    job_id = "job"
+    for version in ("1", "2"):
+        out = tmp_path / job_id / "renders" / version / "output"
+        out.mkdir(parents=True)
+        out.joinpath("song_refingered.gp").write_bytes(f"gp-v{version}".encode())
+    renders = [{
+        "version": n, "label": f"v{n}", "legacy": False, "relative_root": f"renders/{n}",
+        "status": "ok", "tracks": [], "refingered_name": "song_refingered.gp",
+        "artifact_names": ["song_refingered.gp"], "selected_track_indices": [], "track_options": {},
+    } for n in (1, 2)]
+    manifest = {"jobs": [{
+        "id": job_id, "stage": "processed", "original_name": "song.gp", "song": {"tracks": 1},
+        "detected_tracks": [], "renders": renders, "refingered_name": "song_refingered.gp",
+        "refingered_url": f"/download/{job_id}/song_refingered.gp?v=2",
+    }], "current_job_id": job_id}
+    monkeypatch.setattr(web, "uploads_root", lambda: tmp_path)
+    monkeypatch.setattr(web, "load_manifest", lambda: manifest)
+    monkeypatch.setattr(web, "save_manifest", lambda _manifest: None)
+    web.app.config.update(TESTING=True)
+    client = web.app.test_client()
+
+    page = client.get(f"/jobs/{job_id}?step=result&v=1").get_data(as_text=True)
+    gp_links = [href for href in _hrefs(page) if "song_refingered.gp" in href]
+    assert gp_links == [f"/download/{job_id}/song_refingered.gp?v=1"]
+    assert client.get(gp_links[0]).data == b"gp-v1"
