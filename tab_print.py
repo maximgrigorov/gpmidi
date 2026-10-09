@@ -32,7 +32,7 @@ class _TabPDF(FPDF):
     def footer(self):
         self.set_y(-9)
         self.set_font("DejaVuMono", size=6)
-        self.cell(0, 4, f"{self.footer_text} · стр. {self.page_no()}", align="C")
+        self.cell(0, 4, f"{self.footer_text} · page {self.page_no()}", align="C")
 
 
 def _systems(text: str) -> list[list[str]]:
@@ -89,10 +89,10 @@ def ascii_to_pdf(
     if clipped:
         pdf.set_y(-14)
         pdf.set_font("DejaVuMono", size=6)
-        pdf.cell(0, 3, "ВНИМАНИЕ: строки шире A4 обрезаны справа", align="C")
+        pdf.cell(0, 3, "Warning: lines wider than A4 are clipped on the right", align="C")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pdf.output(str(output_path))
-    return PdfResult(output_path, "строки шире A4 обрезаны справа" if clipped else None)
+    return PdfResult(output_path, "lines wider than A4 are clipped on the right" if clipped else None)
 
 
 def print_pdf(
@@ -104,7 +104,7 @@ def print_pdf(
 ) -> PrintResult:
     pdf_path = Path(pdf_path)
     if not printer:
-        return PrintResult(False, error="CUPS_PRINTER не настроен")
+        return PrintResult(False, error="CUPS_PRINTER is not set")
     command = [
         "lp", "-h", server, "-d", printer,
         # Absolute path: a relative name beginning with "-" would be parsed by lp

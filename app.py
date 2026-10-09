@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ import secrets
 import shutil
 import uuid
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -115,10 +117,10 @@ if not os.environ.get("SECRET_KEY"):
 SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
 
 TRACK_LABELS = {
-    "GUITAR": "Гитара / Hydra",
-    "BASS": "Бас / Darkwall",
-    "DRUMS": "Барабаны / Shreddage Drums",
-    "OTHER": "Без маппинга",
+    "GUITAR": "Guitar / Hydra",
+    "BASS": "Bass / Darkwall",
+    "DRUMS": "Drums / Shreddage Drums",
+    "OTHER": "No mapping",
 }
 
 TRACK_EFFECTS = {
@@ -151,22 +153,22 @@ TRACK_EFFECTS = {
 
 FIX_DESCRIPTIONS = {
     "GUITAR": [
-        "Shreddage Hydra keyswitch-мэппинг",
-        "коррекция артикуляций",
-        "pitch bend / slide перенос",
+        "Shreddage Hydra keyswitch mapping",
+        "articulation correction",
+        "pitch bend / slide transfer",
         "vibrato -> CC1",
     ],
     "BASS": [
-        "Shreddage Darkwall keyswitch-мэппинг",
-        "коррекция артикуляций",
-        "pitch bend / slide перенос",
+        "Shreddage Darkwall keyswitch mapping",
+        "articulation correction",
+        "pitch bend / slide transfer",
         "vibrato -> CC1",
     ],
     "DRUMS": [
-        "перевод GM-нот в раскладку Shreddage Drums",
-        "remap: High Tom/Ride 2/Surdo, предупреждение о Side Stick",
+        "GM notes mapped to the Shreddage Drums layout",
+        "remap: High Tom/Ride 2/Surdo, Side Stick warning",
     ],
-    "OTHER": ["ноты скопированы как есть без артикуляционного маппинга"],
+    "OTHER": ["notes copied as is, no articulation mapping"],
 }
 
 
@@ -307,29 +309,29 @@ DARKWALL_PITCH_BEND_RANGE = int(round(float(
 # source for the table, the step-3 summary and the result page; the technical
 # key stays visible in tooltips.
 EFFECT_LABELS = {
-    "humanize": "Оживление",
-    "ghost_notes": "Гост-ноты малого",
-    "lock_to_drums": "Вместе с барабанами",
-    "double_track": "Второй дубль L/R",
-    "palm_mute_motion": "Глушение как движение руки",
-    "fret_hand_cost": "Задержка при переносе руки",
-    "pick_direction": "Направление медиатора",
-    "auto_sustain_vibrato": "Вибрато на длинных нотах",
-    "fret_noise_on_hand_shift": "Шорох струн при переносе позиции",
-    "expand_gp_hidden_32nds": "Скрытые 32-е",
-    "preserve_gp_played_offsets": "Авторские сдвиги GP8",
-    "keep_gp_played_overlaps": "Перекрытия от сдвигов",
-    "humanize_timing_over_gp_offsets": "Оживление поверх сдвигов",
+    "humanize": "Humanize",
+    "ghost_notes": "Snare ghost notes",
+    "lock_to_drums": "Lock to drums",
+    "double_track": "Double track L/R",
+    "palm_mute_motion": "Palm-mute motion",
+    "fret_hand_cost": "Fret-hand shift delay",
+    "pick_direction": "Pick direction",
+    "auto_sustain_vibrato": "Vibrato on long notes",
+    "fret_noise_on_hand_shift": "Fret noise on position shifts",
+    "expand_gp_hidden_32nds": "Hidden GP 32nds",
+    "preserve_gp_played_offsets": "GP8 played offsets",
+    "keep_gp_played_overlaps": "Keep offset overlaps",
+    "humanize_timing_over_gp_offsets": "Humanize over offsets",
 }
 EFFECT_SHORT_LABELS = {
-    "humanize": "Оживить", "ghost_notes": "Гост-ноты", "lock_to_drums": "С барабанами",
-    "double_track": "Дубль L/R", "palm_mute_motion": "Глушение", "fret_hand_cost": "Задержка руки",
-    "pick_direction": "Медиатор", "auto_sustain_vibrato": "Вибрато", "fret_noise_on_hand_shift": "Шорох",
-    "expand_gp_hidden_32nds": "Скрытые 32-е", "preserve_gp_played_offsets": "Сдвиги GP8",
-    "keep_gp_played_overlaps": "Перекрытия", "humanize_timing_over_gp_offsets": "Поверх сдвигов",
+    "humanize": "Humanize", "ghost_notes": "Ghosts", "lock_to_drums": "Lock to drums",
+    "double_track": "Double L/R", "palm_mute_motion": "PM motion", "fret_hand_cost": "Shift delay",
+    "pick_direction": "Pick dir.", "auto_sustain_vibrato": "Vibrato", "fret_noise_on_hand_shift": "Fret noise",
+    "expand_gp_hidden_32nds": "Hidden 32nds", "preserve_gp_played_offsets": "GP8 offsets",
+    "keep_gp_played_overlaps": "Overlaps", "humanize_timing_over_gp_offsets": "Over offsets",
 }
 assert set(EFFECT_LABELS) == {key for keys in TRACK_EFFECTS.values() for key in keys}
-UI_ROLE_LABELS = {"drums": "Барабаны", "rhythm": "Ритм-секция", "solo": "Соло", "other": "Прочее"}
+UI_ROLE_LABELS = {"drums": "Drums", "rhythm": "Rhythm section", "solo": "Solo", "other": "Other"}
 
 
 def ui_role(track_type: str, solo: bool) -> str:
@@ -377,33 +379,34 @@ def render_overview(job: dict[str, Any], render: dict[str, Any],
         eligible = [index for index in selected
                     if key in (detected.get(index, {}).get("available_effects") or [])]
         if len(indices) > 2 and len(indices) == len(eligible):
-            return f"все доступные дорожки ({len(indices)})"
+            return f"all eligible tracks ({len(indices)})"
         return ", ".join(names.get(index, f"#{index}") for index in indices)
 
     lines = []
     if legacy_flags:
         # Old sessions kept only song-level flags.
-        lines = [{"label": EFFECT_LABELS[key], "value": "включено"}
+        lines = [{"label": EFFECT_LABELS[key], "value": "on"}
                  for key in EFFECT_LABELS if render.get(key)]
     else:
         lines = [{"label": EFFECT_LABELS[key], "value": describe(key, indices)}
                  for key, indices in effects.items() if indices]
     humanized = len(effects["humanize"]) if not legacy_flags else int(bool(render.get("humanize")))
     if not humanized:
-        lines.insert(0, {"label": "Без оживления", "value": "MIDI как в нотах"})
+        lines.insert(0, {"label": "Without humanize", "value": "MIDI as written"})
     if render.get("playable_tabs"):
-        lines.append({"label": "Играбельные табы", "value": "включены"})
+        lines.append({"label": "Playable tabs", "value": "on"})
     if render.get("prepare_arrangement_context"):
-        lines.append({"label": "План выразительности",
-                      "value": "черновик OpenAI" if render.get("openai_arrangement_draft") else "контекст"})
+        lines.append({"label": "Expression plan",
+                      "value": "OpenAI draft" if render.get("openai_arrangement_draft") else "context only"})
     lines.append({"label": "Seed", "value": str(render.get("seed", 7))})
 
     if legacy_flags:
-        short = "исходная сборка"
+        short = "original build"
     elif humanized:
-        short = f"оживление: {humanized} дор." + (" · с барабанами" if effects["lock_to_drums"] else "")
+        short = (f"humanized: {humanized} track" + ("" if humanized == 1 else "s")
+                 + (" · locked to drums" if effects["lock_to_drums"] else ""))
     else:
-        short = "как в нотах"
+        short = "as written"
 
     diff: list[str] = []
     if previous is not None and not legacy_flags and previous.get("track_options"):
@@ -417,28 +420,28 @@ def render_overview(job: dict[str, Any], render: dict[str, Any],
                 diff.append(f"{EFFECT_LABELS[key]}: − {', '.join(removed)}")
         prev_selected = [int(i) for i in previous.get("selected_track_indices") or []]
         if sorted(prev_selected) != sorted(selected):
-            diff.append(f"Дорожек: {len(prev_selected)} → {len(selected)}")
+            diff.append(f"Tracks: {len(prev_selected)} → {len(selected)}")
         if previous.get("seed", 7) != render.get("seed", 7):
             diff.append(f"Seed: {previous.get('seed', 7)} → {render.get('seed', 7)}")
         if bool(previous.get("playable_tabs")) != bool(render.get("playable_tabs")):
-            diff.append("Играбельные табы: " + ("включены" if render.get("playable_tabs") else "выключены"))
+            diff.append("Playable tabs: " + ("on" if render.get("playable_tabs") else "off"))
         if not diff:
-            diff.append("настройки те же")
+            diff.append("same settings")
 
     types = {detected.get(index, {}).get("track_type") for index in selected}
     daw = []
     if "GUITAR" in types:
         daw.append({"id": "hydra_pb", "label": f"Hydra: PITCH BEND RANGE = {HYDRA_PITCH_BEND_RANGE}",
-                    "hint": "Kontakt не обязан слушать RPN; при меньшем значении глубокие бенды упрутся в потолок"})
+                    "hint": "Kontakt may ignore the RPN; with a smaller range deep bends hit the ceiling"})
     if effects["pick_direction"]:
-        daw.append({"id": "hydra_pick", "label": "Hydra: Picking Mode на кейсвитчах C7 / C#7",
-                    "hint": "Other Performance Keyswitches — включено направление медиатора"})
+        daw.append({"id": "hydra_pick", "label": "Hydra: Picking Mode on keyswitches C7 / C#7",
+                    "hint": "Other Performance Keyswitches — pick direction is on"})
     if effects["palm_mute_motion"]:
-        daw.append({"id": "hydra_tightness", "label": "Hydra: Vel → Tightness включён",
-                    "hint": "без него velocity не меняет глубину глушения"})
+        daw.append({"id": "hydra_tightness", "label": "Hydra: Vel → Tightness on",
+                    "hint": "without it velocity does not change the mute depth"})
     if "BASS" in types:
         daw.append({"id": "darkwall_pb", "label": f"Darkwall: PITCH BEND RANGE = {DARKWALL_PITCH_BEND_RANGE}",
-                    "hint": "значение из карты Darkwall; с пресетом ещё не сверено"})
+                    "hint": "value from the Darkwall map; not yet checked against the preset"})
     return {"lines": lines, "short": short, "diff": diff, "daw": daw}
 
 
@@ -501,7 +504,7 @@ def ensure_job_renders(job: dict[str, Any]) -> list[dict[str, Any]]:
     legacy = {
         **_render_snapshot(job),
         "version": 1,
-        "label": "исходная сборка",
+        "label": "original build",
         "legacy": True,
         "relative_root": "",
         "status": job.get("status", "ok"),
@@ -1118,50 +1121,50 @@ def build_track_summary(song, out_dir: Path, job_dir: Path, job_id: str,
 
         fixes = []
         if stats["ks"]:
-            fixes.append(f"keyswitch-события: {stats['ks']}")
+            fixes.append(f"keyswitch events: {stats['ks']}")
         if stats["cc1"]:
             fixes.append(f"CC1 vibrato automation: {stats['cc1']}")
         if stats.get("auto_vibrato_notes"):
-            fixes.append(f"авто-вибрато на solo sustain: {stats['auto_vibrato_notes']}")
+            fixes.append(f"auto vibrato on solo sustains: {stats['auto_vibrato_notes']}")
         if stats.get("fret_noise_events"):
-            fixes.append(f"fret-noise при переносах руки: {stats['fret_noise_events']}")
+            fixes.append(f"fret noise on hand shifts: {stats['fret_noise_events']}")
         if stats.get("hidden_32nd_beats"):
             fixes.append(
-                f"скрытые GP 32-е: {stats['hidden_32nd_beats']} beat / "
-                f"{stats['hidden_32nd_notes']} нот")
+                f"hidden GP 32nds: {stats['hidden_32nd_beats']} beats / "
+                f"{stats['hidden_32nd_notes']} notes")
         if stats.get("played_offset_notes"):
-            fixes.append(f"GP8-сдвиги атак: {stats['played_offset_notes']} нот")
+            fixes.append(f"GP8 played offsets: {stats['played_offset_notes']} notes")
         if stats.get("drum_lock"):
             lock = stats["drum_lock"]
-            fixes.append(f"с барабанами: на бочке {lock['kick']}, на малом {lock['snare']}, "
-                         f"между {lock['between']}, свободно {lock['free']} битов")
+            fixes.append(f"locked to drums: kick {lock['kick']}, snare {lock['snare']}, "
+                         f"between {lock['between']}, free {lock['free']} beats")
         if double_path is not None:
-            fixes.append(f"второй дубль: {double_path.name}")
+            fixes.append(f"double track: {double_path.name}")
         if stats.get("config"):
-            fixes.append(f"конфиг артикуляций: {stats['config']}")
+            fixes.append(f"articulation config: {stats['config']}")
         if track_type != "OTHER":
-            fixes.append("артикуляции адаптированы под целевую библиотеку")
+            fixes.append("articulations adapted to the target library")
         else:
-            fixes.append("трек оставлен без маппинга, MIDI сохранён как есть")
+            fixes.append("track left unmapped, MIDI saved as is")
         for warn in stats.get("warnings", []):
-            fixes.append(f"внимание: {warn}")
+            fixes.append(f"warning: {warn}")
 
         processing_report = [
-            f"Маппинг: {TRACK_LABELS.get(track_type, track_type)}",
-            f"Артикуляции: KS {int(stats.get('ks', 0) or 0)}, "
+            f"Mapping: {TRACK_LABELS.get(track_type, track_type)}",
+            f"Articulations: KS {int(stats.get('ks', 0) or 0)}, "
             f"CC1 {int(stats.get('cc1', 0) or 0)}",
         ]
         enabled_effects = [name for name, enabled in effective_effects.items() if enabled]
         if enabled_effects:
-            processing_report.append("Эффекты: " + ", ".join(enabled_effects))
+            processing_report.append("Effects: " + ", ".join(EFFECT_LABELS.get(name, name) for name in enabled_effects))
         else:
-            processing_report.append("Эффекты: без дополнительного оживления")
+            processing_report.append("Effects: none")
         if stats.get("auto_vibrato_notes"):
-            processing_report.append(f"Авто-вибрато: {stats['auto_vibrato_notes']} нот")
+            processing_report.append(f"Auto vibrato: {stats['auto_vibrato_notes']} notes")
         if stats.get("fret_noise_events"):
-            processing_report.append(f"Fret-noise: {stats['fret_noise_events']} событий")
+            processing_report.append(f"Fret noise: {stats['fret_noise_events']} events")
         if stats.get("played_offset_notes"):
-            processing_report.append(f"GP played offsets: {stats['played_offset_notes']} нот")
+            processing_report.append(f"GP8 played offsets: {stats['played_offset_notes']} notes")
 
         tracks.append(
             {
@@ -1252,7 +1255,7 @@ def summarize_song(song) -> dict[str, Any]:
             seen.add(key)
             time_signatures.append(key)
     return {
-        "title": getattr(song, "title", "") or "Без названия",
+        "title": getattr(song, "title", "") or "Untitled",
         "artist": getattr(song, "artist", "") or "—",
         "album": getattr(song, "album", "") or "—",
         "tempo": tempo,
@@ -1590,11 +1593,11 @@ def create_job(uploaded_file=None, humanize: bool = False,
                     refingered_name = candidate.name
                 else:
                     playable_warnings.append(
-                        "re-fingering пропущен: ни один выбранный трек не подошёл "
-                        "(нестандартный строй или неоднозначное имя трека)"
+                        "re-fingering skipped: no selected track qualified "
+                        "(non-standard tuning or ambiguous track name)"
                     )
             except Exception as exc:
-                playable_warnings.append(f"re-fingering отменён: {str(exc)[:240]}")
+                playable_warnings.append(f"re-fingering cancelled: {str(exc)[:240]}")
 
     zip_path = make_zip(render_dir)
 
@@ -1699,7 +1702,7 @@ def sheetsage2_page():
         elif jobs:
             current = jobs[0]
     except (requests.RequestException, ValueError):
-        service_error = "Сервис SheetSage2 сейчас недоступен. Повторите позже."
+        service_error = "The SheetSage2 service is unavailable right now. Try again later."
     return render_template(
         "sheetsage2.html", jobs=jobs, current_job=current,
         service_error=service_error,
@@ -1712,22 +1715,22 @@ def sheetsage2_page():
 def sheetsage2_upload():
     uploaded = request.files.get("file")
     if uploaded is None or not uploaded.filename:
-        flash("Выберите WAV, FLAC или MP3.", "error")
+        flash("Choose a WAV, FLAC or MP3 file.", "error")
         return redirect(url_for("sheetsage2_page"))
     extension = Path(uploaded.filename).suffix.lower()
     if extension not in {".wav", ".flac", ".mp3"}:
-        flash("Поддерживаются WAV, FLAC и MP3.", "error")
+        flash("Supported formats: WAV, FLAC and MP3.", "error")
         return redirect(url_for("sheetsage2_page"))
     transcriber = request.form.get("transcriber", "sheetsage2")
     if transcriber not in {"sheetsage2", "muscriptor-large"}:
-        flash("Выберите поддерживаемую модель транскрипции.", "error")
+        flash("Choose a supported transcription model.", "error")
         return redirect(url_for("sheetsage2_page"))
     instruments = list(dict.fromkeys(request.form.getlist("instruments")))
     if any(item not in MUSCRIPTOR_INSTRUMENT_SET for item in instruments):
-        flash("Выбран неизвестный инструмент MuScriptor.", "error")
+        flash("Unknown MuScriptor instrument selected.", "error")
         return redirect(url_for("sheetsage2_page"))
     if instruments and transcriber != "muscriptor-large":
-        flash("Фильтр инструментов доступен только для MuScriptor.", "error")
+        flash("The instrument filter is available only for MuScriptor.", "error")
         return redirect(url_for("sheetsage2_page"))
     try:
         response = requests.put(
@@ -1749,12 +1752,12 @@ def sheetsage2_upload():
             message = exc.response.json().get("detail")
         except (AttributeError, ValueError):
             message = None
-        flash(message or "SheetSage2 отклонил аудиофайл.", "error")
+        flash(message or "SheetSage2 rejected the audio file.", "error")
         return redirect(url_for("sheetsage2_page"))
     except (requests.RequestException, ValueError):
-        flash("Не удалось поставить задачу SheetSage2 в очередь.", "error")
+        flash("Could not queue the SheetSage2 job.", "error")
         return redirect(url_for("sheetsage2_page"))
-    flash("Аудио принято. GPU-контейнер запустится, когда видеокарта освободится.", "success")
+    flash("Audio received. The GPU container starts as soon as the GPU is free.", "success")
     return redirect(url_for("sheetsage2_page", job=job["id"]))
 
 
@@ -1769,9 +1772,9 @@ def sheetsage2_status(job_id: str):
         response.raise_for_status()
         return jsonify(response.json())
     except requests.HTTPError as exc:
-        return jsonify({"status": "failed", "message": "Задача не найдена."}), exc.response.status_code
+        return jsonify({"status": "failed", "message": "Job not found."}), exc.response.status_code
     except (requests.RequestException, ValueError):
-        return jsonify({"status": "unavailable", "message": "Сервис SheetSage2 недоступен."}), 503
+        return jsonify({"status": "unavailable", "message": "The SheetSage2 service is unavailable."}), 503
 
 
 @app.get("/audio-to-midi/jobs/<job_id>/download/<kind>")
@@ -1787,9 +1790,9 @@ def sheetsage2_download(job_id: str, kind: str):
         )
         upstream.raise_for_status()
     except requests.HTTPError as exc:
-        _abort_upstream(exc.response.status_code, "Артефакт SheetSage2 недоступен.")
+        _abort_upstream(exc.response.status_code, "The SheetSage2 artifact is unavailable.")
     except requests.RequestException:
-        abort(503, description="Сервис SheetSage2 недоступен.")
+        abort(503, description="The SheetSage2 service is unavailable.")
 
     @stream_with_context
     def generate():
@@ -1846,36 +1849,36 @@ def new_session():
     manifest = load_manifest()
     manifest["current_job_id"] = None
     save_manifest(manifest)
-    flash("Новая сессия готова. Загрузите следующий Guitar Pro файл.", "success")
+    flash("New session ready. Upload the next Guitar Pro file.", "success")
     return redirect(url_for("index"))
 
 
 @app.post("/upload")
 def upload():
     if _gp_upload_too_large(request.content_length):
-        abort(413, description="Файл Guitar Pro слишком большой.")
+        abort(413, description="The Guitar Pro file is too large.")
     if "file" not in request.files:
-        flash("Файл не получен.", "error")
+        flash("No file received.", "error")
         return redirect(url_for("index"))
 
     file = request.files["file"]
     if not file or not file.filename:
-        flash("Выберите файл Guitar Pro.", "error")
+        flash("Choose a Guitar Pro file.", "error")
         return redirect(url_for("index"))
 
     if not allowed_file(file.filename):
-        flash("Поддерживаются только Guitar Pro файлы: .gp, .gp3, .gp4, .gp5, .gpx", "error")
+        flash("Only Guitar Pro files are supported: .gp, .gp3, .gp4, .gp5, .gpx", "error")
         return redirect(url_for("index"))
 
     try:
         job_id = create_parse_job(file)
     except Exception as exc:  # pragma: no cover
-        flash(f"Не удалось разобрать файл: {exc}", "error")
+        flash(f"Could not read the file: {exc}", "error")
         return redirect(url_for("index"))
 
     flash(
-        "Файл разобран. Проверьте найденные дорожки, отключите ненужные и "
-        "настройте эффекты перед обработкой.",
+        "File read. Check the tracks, untick the ones you do not need, "
+        "then choose the sound.",
         "success",
     )
     return redirect(url_for("job_details", job_id=job_id))
@@ -1927,8 +1930,33 @@ def _abort_upstream(status_code: int, message: str):
     abort(code, description=message)
 
 
+@contextmanager
+def _render_lock(job_id: str):
+    """One build per job at a time, across gunicorn worker processes.
+
+    A double click on "Build" sent two POSTs that read the same manifest, took
+    the same version number and raced on renders/<n>/. The second request now
+    waits, then re-reads the manifest and builds the next version.
+    """
+    job_dir = uploads_root() / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    with open(job_dir / ".render.lock", "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 @app.post("/jobs/<job_id>/process")
 def process_job(job_id: str):
+    if Path(job_id).name != job_id or _job_by_id(load_manifest(), job_id) is None:
+        abort(404)
+    with _render_lock(job_id):
+        return _process_job(job_id)
+
+
+def _process_job(job_id: str):
     manifest = load_manifest()
     job = _job_by_id(manifest, job_id)
     if job is None:
@@ -1990,13 +2018,13 @@ def process_job(job_id: str):
         renders.append(failed)
         job.update({"stage": "processed", "status": "error", "error": failed["error"]})
         save_manifest(manifest)
-        flash("Обработка не выполнена; настройки сохранены в версии с ошибкой.", "error")
+        flash("The build failed; its settings are kept in a version marked as failed.", "error")
         return redirect(url_for("job_details", job_id=job_id, step="result", v=version))
 
-    mode = "одна дорожка" if len(selected) == 1 else f"{len(selected)} дорожек"
+    mode = "1 track" if len(selected) == 1 else f"{len(selected)} tracks"
     flash(
-        f"Обработка завершена: {mode}. Не выбранные дорожки не рендерились и не "
-        "передавались в expression workflow.",
+        f"Build finished: {mode}. Unselected tracks were not rendered and were not "
+        "sent to the expression workflow.",
         "success",
     )
     return redirect(url_for("job_details", job_id=job_id, step="result"))
@@ -2024,24 +2052,24 @@ def apply_arrangement(job_id: str):
     owner = render or job
     arrangement = owner.get("arrangement") or {}
     if arrangement.get("status") == "applied":
-        flash("Enriched MIDI уже собран; повторное применение не выполнялось.", "warning")
+        flash("Enriched MIDI is already built; the plan was not applied again.", "warning")
         return redirect(url_for("job_details", job_id=job_id))
     if arrangement.get("status") != "draft_ready" or not arrangement.get("plan_name"):
-        abort(400, description="OpenAI draft не готов к применению")
+        abort(400, description="The OpenAI draft is not ready to apply")
     expected_token = str(owner.get("arrangement_apply_token") or "")
     submitted_token = str(request.form.get("apply_token") or "")
     if not expected_token or not secrets.compare_digest(expected_token, submitted_token):
-        abort(400, description="Недействительное подтверждение применения")
+        abort(400, description="Invalid apply confirmation")
 
     job_dir = uploads_root() / job_id
     owner_root = render_root(job_dir, owner) if render else job_dir
     source_path = job_dir / "input" / job["stored_name"]
     plan_name = str(arrangement["plan_name"])
     if Path(plan_name).name != plan_name:
-        abort(400, description="Недействительное имя плана")
+        abort(400, description="Invalid plan name")
     plan_path = owner_root / "output" / plan_name
     if not source_path.is_file() or not plan_path.is_file():
-        flash("Исходный GP или draft plan недоступен; baseline не изменён.", "error")
+        flash("The source GP or the draft plan is unavailable; the baseline is unchanged.", "error")
         return redirect(url_for("job_details", job_id=job_id))
     temp_dir = owner_root / "openai-apply"
     copied: list[str] = []
@@ -2088,7 +2116,7 @@ def apply_arrangement(job_id: str):
     except Exception:
         for name in copied:
             (owner_root / "output" / name).unlink(missing_ok=True)
-        flash("Enriched-сборка не выполнена; baseline сохранён без изменений.", "error")
+        flash("The enriched build failed; the baseline is unchanged.", "error")
         return redirect(url_for("job_details", job_id=job_id))
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -2111,7 +2139,7 @@ def apply_arrangement(job_id: str):
     owner["artifact_names"] = sorted(_artifact_names(owner))
     make_zip(owner_root)
     save_manifest(manifest)
-    flash("Enriched MIDI собран отдельно; baseline не перезаписан.", "success")
+    flash("Enriched MIDI built separately; the baseline was not overwritten.", "success")
     return redirect(url_for("job_details", job_id=job_id))
 
 
@@ -2213,17 +2241,17 @@ def regen_playable(job_id: str):
     render = _requested_render(job, prefer_legacy=True)
     owner = render or job
     if not owner.get("playable_tabs"):
-        abort(400, description="playable tabs выключены для этой версии")
+        abort(400, description="Playable tabs are off for this version")
     basename = request.form.get("track", "")
     summary = next((item for item in owner.get("tracks", []) if item.get("basename") == basename and item.get("playable")), None)
     if summary is None:
-        abort(400, description="трек отсутствует в манифесте playable tabs")
+        abort(400, description="The track is not in the playable tabs manifest")
     incoming = {key: value for key, value in request.form.items() if key != "track"}
     if "prefer_open" in request.form:
         incoming["prefer_open"] = request.form.getlist("prefer_open")[-1]
     unknown = set(incoming) - set(TUNABLE_PARAMS)
     if unknown:
-        abort(400, description=f"неизвестные параметры: {', '.join(sorted(unknown))}")
+        abort(400, description=f"Unknown parameters: {', '.join(sorted(unknown))}")
     old_playable = summary["playable"]
     merged = {key: value for key, value in old_playable.get("params", {}).items() if key in TUNABLE_PARAMS}
     merged.update(incoming)
@@ -2239,7 +2267,7 @@ def regen_playable(job_id: str):
     source_tracks = {track.name: track for track in song.tracks}
     source_track = source_tracks.get(summary["track_name"])
     if source_track is None:
-        abort(400, description="исходный трек не найден")
+        abort(400, description="Source track not found")
     preset = checked.pop("preset", old_playable.get("preset", "auto"))
     version = int(old_playable.get("version", 1)) + 1
     try:
@@ -2263,9 +2291,9 @@ def regen_playable(job_id: str):
         owner["artifact_names"] = sorted(_artifact_names(owner))
         make_zip(owner_root)
     except Exception as exc:
-        abort(500, description=f"перегенерация не удалась: {exc}")
+        abort(500, description=f"Regeneration failed: {exc}")
     save_manifest(manifest)
-    flash(f"Таб {summary['track_name']} перегенерирован: v{version}.", "success")
+    flash(f"Tab for {summary['track_name']} regenerated: v{version}.", "success")
     if render:
         return redirect(url_for(
             "job_details", job_id=job_id, step="result", v=int(render["version"]),
@@ -2283,18 +2311,18 @@ def print_artifact(job_id: str):
     owner = render or job
     artifact = request.form.get("artifact", "")
     if artifact not in _artifact_names(owner) or Path(artifact).name != artifact or not artifact.lower().endswith(".pdf"):
-        abort(400, description="PDF отсутствует в манифесте джоба")
+        abort(400, description="The PDF is not in this job's manifest")
     if not CUPS_PRINTER:
-        abort(400, description="серверная печать выключена")
+        abort(400, description="Server printing is off")
     owner_root = render_root(uploads_root() / job_id, owner) if render else uploads_root() / job_id
     result = print_pdf(
         owner_root / "output" / artifact,
         server=CUPS_SERVER, printer=CUPS_PRINTER,
     )
     if result.ok:
-        flash(f"PDF отправлен на печать: {result.request_id or 'задание принято'}", "success")
+        flash(f"PDF sent to the printer: {result.request_id or 'job accepted'}", "success")
     else:
-        flash(f"Печать не удалась: {result.error}", "error")
+        flash(f"Printing failed: {result.error}", "error")
     if render:
         return redirect(url_for(
             "job_details", job_id=job_id, step="result", v=int(render["version"]),
@@ -2311,7 +2339,7 @@ def delete_job(job_id: str):
         manifest["current_job_id"] = manifest["jobs"][0]["id"] if manifest["jobs"] else None
     save_manifest(manifest)
     shutil.rmtree(uploads_root() / job_id, ignore_errors=True)
-    flash("Сессия удалена.", "success")
+    flash("Session deleted.", "success")
     return redirect(url_for("index"))
 
 
@@ -2326,10 +2354,10 @@ def projects_list():
         client = get_client()
         projects = client.list_projects()
     except AssetAPIError as e:
-        flash(f"Ошибка AILab: {e.message}", "error")
+        flash(f"AILab error: {e.message}", "error")
         projects = []
     except Exception as e:
-        flash(f"AILab недоступен: {e}", "error")
+        flash(f"AILab is unavailable: {e}", "error")
         projects = []
     return render_template("projects.html", projects=projects)
 
@@ -2339,17 +2367,17 @@ def projects_create():
     name = request.form.get("name", "").strip()
     description = request.form.get("description", "").strip() or None
     if not name:
-        flash("Имя проекта обязательно.", "error")
+        flash("A project name is required.", "error")
         return redirect(url_for("projects_list"))
     try:
         client = get_client()
         result = client.create_project(name, description)
-        flash(f"Проект «{name}» создан.", "success")
+        flash(f"Project “{name}” created.", "success")
         return redirect(url_for("project_detail", project_id=result["id"]))
     except AssetAPIError as e:
-        flash(f"Ошибка создания: {e.message}", "error")
+        flash(f"Could not create the project: {e.message}", "error")
     except Exception as e:
-        flash(f"AILab недоступен: {e}", "error")
+        flash(f"AILab is unavailable: {e}", "error")
     return redirect(url_for("projects_list"))
 
 
@@ -2359,10 +2387,10 @@ def project_detail(project_id: str):
         client = get_client()
         data = client.get_project(project_id)
     except AssetAPIError as e:
-        flash(f"Ошибка: {e.message}", "error")
+        flash(f"Error: {e.message}", "error")
         return redirect(url_for("projects_list"))
     except Exception as e:
-        flash(f"AILab недоступен: {e}", "error")
+        flash(f"AILab is unavailable: {e}", "error")
         return redirect(url_for("projects_list"))
 
     analyses_data = {"analyses": [], "jobs": []}
@@ -2372,7 +2400,7 @@ def project_detail(project_id: str):
     except AssetAPIError as e:
         rt_error = e.message
     except Exception as e:
-        rt_error = f"Reference-time недоступен: {e}"
+        rt_error = f"Reference-time is unavailable: {e}"
 
     all_assets = data["assets"]
     # Only a GP asset registered as a GP revision is an eligible analysis input;
@@ -2414,11 +2442,11 @@ def project_detail(project_id: str):
 def project_upload(project_id: str):
     role = request.form.get("role", "")
     if "file" not in request.files:
-        flash("Файл не выбран.", "error")
+        flash("No file selected.", "error")
         return redirect(url_for("project_detail", project_id=project_id))
     f = request.files["file"]
     if not f.filename:
-        flash("Файл не выбран.", "error")
+        flash("No file selected.", "error")
         return redirect(url_for("project_detail", project_id=project_id))
     try:
         client = get_client()
@@ -2426,12 +2454,12 @@ def project_upload(project_id: str):
         ticket = ticket_data["ticket"]
         result = client.stream_proxy_upload(ticket, f.stream)
         sha_short = result.get("sha256", "")[:12]
-        dedup = " (дедупликация)" if result.get("deduplicated") else ""
-        flash(f"Загружено: {f.filename} → SHA {sha_short}{dedup}", "success")
+        dedup = " (deduplicated)" if result.get("deduplicated") else ""
+        flash(f"Uploaded: {f.filename} → SHA {sha_short}{dedup}", "success")
     except AssetAPIError as e:
-        flash(f"Ошибка загрузки: {e.message}", "error")
+        flash(f"Upload failed: {e.message}", "error")
     except Exception as e:
-        flash(f"AILab недоступен: {e}", "error")
+        flash(f"AILab is unavailable: {e}", "error")
     return redirect(url_for("project_detail", project_id=project_id))
 
 
@@ -2440,11 +2468,11 @@ def project_asset_delete(project_id: str, link_id: str):
     try:
         client = get_client()
         client.delete_asset_link(project_id, link_id)
-        flash("Ссылка удалена. Физический файл сохранён.", "success")
+        flash("Link removed. The stored file is kept.", "success")
     except AssetAPIError as e:
-        flash(f"Ошибка: {e.message}", "error")
+        flash(f"Error: {e.message}", "error")
     except Exception as e:
-        flash(f"AILab недоступен: {e}", "error")
+        flash(f"AILab is unavailable: {e}", "error")
     return redirect(url_for("project_detail", project_id=project_id))
 
 
@@ -2471,7 +2499,7 @@ def project_asset_download(project_id: str, link_id: str):
     except AssetAPIError as e:
         _abort_upstream(e.status_code, e.message)
     except Exception as e:
-        abort(502, description=f"AILab недоступен: {e}")
+        abort(502, description=f"AILab is unavailable: {e}")
 
 
 # --- Reference-Time Analysis ---
@@ -2485,7 +2513,7 @@ def project_analyze(project_id: str):
     structure_id = request.form.get("structure_link_id") or None
 
     if not gp_link_id or not midi_ids:
-        flash("Нужен GP файл и хотя бы один MIDI", "error")
+        flash("Needs a GP file and at least one MIDI file", "error")
         return redirect(url_for("project_detail", project_id=project_id))
 
     try:
@@ -2495,13 +2523,13 @@ def project_analyze(project_id: str):
             midi_ids, audio_ids, structure_id,
         )
         if result.get("cache_hit"):
-            flash(f"Анализ уже выполнен (cache hit): {result['analysis_id'][:8]}…", "success")
+            flash(f"Analysis already done (cache hit): {result['analysis_id'][:8]}…", "success")
         else:
-            flash(f"Анализ запущен: job {result['job_id'][:8]}…", "success")
+            flash(f"Analysis started: job {result['job_id'][:8]}…", "success")
     except AssetAPIError as e:
-        flash(f"Ошибка анализа: {e.message}", "error")
+        flash(f"Analysis failed: {e.message}", "error")
     except Exception as e:
-        flash(f"Reference-time недоступен: {e}", "error")
+        flash(f"Reference-time is unavailable: {e}", "error")
 
     return redirect(url_for("project_detail", project_id=project_id))
 
@@ -2522,7 +2550,7 @@ def project_analysis_report(project_id: str, analysis_id: str):
     except AssetAPIError as e:
         _abort_upstream(e.status_code, e.message)
     except Exception as e:
-        abort(502, description=f"Reference-time недоступен: {e}")
+        abort(502, description=f"Reference-time is unavailable: {e}")
 
 
 @app.get("/projects/<project_id>/analyses/<analysis_id>/report.json")
@@ -2534,7 +2562,7 @@ def project_analysis_report_json(project_id: str, analysis_id: str):
     except AssetAPIError as e:
         _abort_upstream(e.status_code, e.message)
     except Exception as e:
-        abort(502, description=f"Reference-time недоступен: {e}")
+        abort(502, description=f"Reference-time is unavailable: {e}")
 
 
 @app.get("/projects/<project_id>/analyses/<job_id>/status")

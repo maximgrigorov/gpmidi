@@ -307,7 +307,7 @@ class TestReferenceTimeUI:
         self._client(mock_get, project=self._project(gp_revisions=[]))
         body = flask_client.get("/projects/p1").data.decode()
         assert 'name="gp_link_id"' not in body
-        assert "зарегистрированная Guitar Pro ревизия" in body
+        assert "registered Guitar Pro revision" in body
 
     @patch("app.get_client")
     def test_reference_time_outage_is_reported_not_swallowed(

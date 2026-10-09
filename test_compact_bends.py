@@ -113,4 +113,4 @@ def test_index_shows_hydra_35_kontakt_8_pitch_bend_range(monkeypatch):
     assert "Hydra 3.5" in text
     assert "Kontakt Player 8" in text
     assert "PITCH BEND RANGE" in text
-    assert "7 полутонов" in text
+    assert "7 semitones" in text

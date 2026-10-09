@@ -57,7 +57,7 @@ def test_legacy_processed_job_is_exposed_as_original_render():
 
     assert len(renders) == 1
     assert renders[0]["version"] == 1
-    assert renders[0]["label"] == "исходная сборка"
+    assert renders[0]["label"] == "original build"
     assert renders[0]["legacy"] is True
     assert renders[0]["tracks"][0]["download_name"] == "solo.mid"
 
@@ -391,3 +391,35 @@ def test_version_page_offers_its_refingered_gp(monkeypatch, tmp_path: Path):
     gp_links = [href for href in _hrefs(page) if "song_refingered.gp" in href]
     assert gp_links == [f"/download/{job_id}/song_refingered.gp?v=1"]
     assert client.get(gp_links[0]).data == b"gp-v1"
+
+
+def test_concurrent_builds_get_distinct_versions(monkeypatch, tmp_path: Path):
+    """A double click used to send two POSTs that took the same version number."""
+    import threading
+
+    import app as web
+
+    monkeypatch.setattr(web, "SESSIONS_ROOT", tmp_path)
+    web.app.config.update(TESTING=True, SECRET_KEY="wizard-version-lock")
+    first = web.app.test_client()
+    job_path = first.post(
+        "/upload",
+        data={"file": (io.BytesIO(FIXTURE.read_bytes()), FIXTURE.name)},
+        content_type="multipart/form-data",
+    ).headers["Location"]
+    second = web.app.test_client()
+    second.set_cookie("session", first.get_cookie("session").value)
+    form = {"track_indices": ["1", "2", "3", "4", "5"], "seed": "7"}
+    statuses = []
+    threads = [threading.Thread(target=lambda c=c: statuses.append(c.post(f"{job_path}/process", data=form).status_code))
+               for c in (first, second)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    manifest = json.loads(next(tmp_path.glob("*/manifest.json")).read_text(encoding="utf-8"))
+    renders = manifest["jobs"][0]["renders"]
+    assert statuses == [302, 302]
+    assert sorted(render["version"] for render in renders) == [1, 2]
+    assert all(render["status"] == "ok" for render in renders)

@@ -285,4 +285,4 @@ def test_track_selection_template_exposes_hidden_32nds_checkbox():
 
     assert 'name="track_{{ track.index }}_{{ key }}"' in source
     assert "expand_gp_hidden_32nds" in source
-    assert "Скрытые 32-е" in source
+    assert "hidden GP 32nds" in source

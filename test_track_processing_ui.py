@@ -245,7 +245,7 @@ def test_template_exposes_default_all_track_selection_per_track_effects_and_repo
     assert "checked" in source.split('name="track_indices"', 1)[1].split(">", 1)[0]
     assert 'name="track_{{ track.index }}_{{ key }}"' in source
     assert "processing_report" in source
-    assert "Собрать MIDI" in source
+    assert "Build MIDI" in source
 
 
 def test_stored_upload_name_keeps_its_extension(tmp_path: Path):

@@ -32,7 +32,7 @@ sed '/^tuttut==/d' requirements.txt > /tmp/requirements-headless.txt
 Checks (the same gates Tekton runs first):
 
 ```bash
-.venv/bin/python -m pytest -q   # 344 passed / 27 skipped on 677eadb; sample-dependent tests skip
+.venv/bin/python -m pytest -q   # 365 passed / 27 skipped (2026-10-09); sample-dependent tests skip
 .venv/bin/ruff check .
 ```
 

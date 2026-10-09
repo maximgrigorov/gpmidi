@@ -1,15 +1,61 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GP → MIDI · GP MIDI Studio</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet"><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head><body class="wizard-page">
+<!doctype html>
+<html lang="en">
+<head>
+{% include '_head.html' %}
+<title>GP → MIDI · GP MIDI Studio</title>
+</head>
+<body class="wizard-page">
 {% include '_topnav.html' %}{% include '_history_drawer.html' %}
 <form id="newSessionForm" method="post" action="{{ url_for('new_session') }}" hidden></form>
 <main class="app-shell">
-  <ol class="stepper" aria-label="Шаги мастера">{% for key, n, title in [('file','1','Файл'),('tracks','2','Дорожки'),('sound','3','Звучание'),('extra','4','Дополнительно'),('result','5','Результат')] %}<li class="{{ 'active' if (current_job and current_job.wizard_step == key) or (not current_job and key == 'file') else '' }} {{ 'done' if current_job and ((key == 'file') or (current_job.stage == 'processed' and key != 'result')) else '' }}"><span>{{ n }}</span><b>{{ title }}</b></li>{% endfor %}</ol>
-  {% with messages = get_flashed_messages() %}{% if messages %}<div class="flash-stack">{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+  {% set step = current_job.wizard_step if current_job else 'file' %}
+  {% set in_form = current_job and (current_job.stage == 'parsed' or step in ('tracks', 'sound', 'extra')) %}
+  {% set has_result = current_job and current_job.renders %}
+  {% set order = ['file', 'tracks', 'sound', 'extra', 'result'] %}
+  <ol class="stepper" aria-label="Wizard steps">
+    {% for key, n, title in [('file','1','File'),('tracks','2','Tracks'),('sound','3','Sound'),('extra','4','Extras'),('result','5','Result')] %}
+      {% set current = key == step %}
+      {% set done = current_job and order.index(key) < order.index(step) %}
+      {% set reachable = current_job and not current and (
+           (key in ('tracks', 'sound', 'extra')) or (key == 'result' and has_result)) %}
+      <li class="{{ 'active' if current }} {{ 'done' if done }}">
+        {% if reachable and in_form and key != 'result' %}
+          <a href="{{ url_for('job_details', job_id=current_job.id, step=key) }}" data-goto="{{ key }}"><span>{{ '✓' if done else n }}</span><b>{{ title }}</b></a>
+        {% elif reachable and key == 'result' %}
+          <a href="{{ url_for('job_details', job_id=current_job.id, step='result') }}"><span>{{ n }}</span><b>{{ title }}</b></a>
+        {% elif reachable %}
+          <a href="{{ url_for('job_details', job_id=current_job.id, step=key, **{'from': current_job.active_version or 1}) }}"><span>{{ '✓' if done else n }}</span><b>{{ title }}</b></a>
+        {% else %}
+          <div class="st" {% if current %}aria-current="step"{% endif %}><span>{{ '✓' if done else n }}</span><b>{{ title }}{% if key == 'extra' %} <em class="opt-mark">· optional</em>{% endif %}</b></div>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
   {% if not current_job %}
-  <section class="wizard-panel upload-panel" data-step="file"><div class="section-heading"><div><span class="eyebrow">Шаг 1</span><h1>Загрузите Guitar Pro</h1><p>Разберём дорожки до сборки. Поддерживаются GP3–GP8, максимум {{ max_size_mb }} МБ.</p><p class="muted">Профиль гитары: Hydra 3.5 · Kontakt Player 8 · PITCH BEND RANGE — {{ hydra_pitch_bend_range }} полутонов.</p></div></div>
-    <form id="uploadForm" method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data"><label class="dropzone" id="dropzone"><input id="fileInput" type="file" name="file" accept=".gp,.gp3,.gp4,.gp5,.gpx" required data-max-bytes="{{ max_size_mb * 1024 * 1024 }}"><span class="upload-icon">↑</span><strong>Перетащите файл сюда</strong><span>или нажмите, чтобы выбрать</span><small id="fileName">Файл не выбран</small></label><p class="form-warning" id="fileError" hidden></p><div class="wizard-actions end"><button class="btn primary" id="uploadBtn" type="submit">Разобрать дорожки</button></div></form>
+  <section class="wizard-panel upload-panel" data-step="file">
+    <div class="section-heading"><div><span class="eyebrow">Step 1</span><h1>Upload a Guitar Pro score</h1><p>We only read the file first and show the tracks we found. Nothing is rendered until you choose the sound.</p></div></div>
+    <form id="uploadForm" method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+      <label class="dropzone" id="dropzone"><input id="fileInput" type="file" name="file" accept=".gp,.gp3,.gp4,.gp5,.gpx" required data-max-bytes="{{ max_size_mb * 1024 * 1024 }}"><span class="upload-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"></path><path d="M7 9l5-5 5 5"></path><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"></path></svg></span><strong>Drop your file here</strong><span>or click to browse</span><small><span class="mono">.gp · .gp5 · .gp4 · .gp3 · .gpx</span> — up to {{ max_size_mb }} MB</small><small id="fileName" class="file-name">No file selected</small></label>
+      <p class="form-warning" id="fileError" hidden></p>
+      <div class="wizard-actions end"><button class="btn primary" id="uploadBtn" type="submit">Read tracks</button></div>
+    </form>
+    <p class="hint">Hydra 3.5 · Kontakt Player 8: set PITCH BEND RANGE to {{ hydra_pitch_bend_range }} semitones in the preset.</p>
+    {% if jobs %}
+    <section class="recent-card">
+      <div class="recent-head"><h2>Recent</h2><button type="button" class="link-btn" data-history-open>All history</button></div>
+      <ul>
+        {% for job in jobs[:3] %}
+        <li><a class="recent-item" href="{{ url_for('job_details', job_id=job.id, step='result' if job.stage == 'processed' else 'tracks') }}"><span class="recent-main"><span class="mono">{{ job.original_name }}</span><small>{{ (job.created_at or '')[:16] }}{% if job.song %} · {{ job.song.tracks }} tracks{% endif %}</small></span><span class="count-badge">{% if job.renders %}{{ job.renders|length }} version{{ 's' if job.renders|length != 1 }}{% elif job.stage == 'processed' %}built{% else %}step 2{% endif %}</span></a></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
   </section>
-  {% elif current_job.stage == 'parsed' or current_job.wizard_step in ('tracks','sound','extra') %}
-    <div class="file-context"><strong>{{ current_job.original_name }}</strong><span>{{ current_job.song.tracks }} дорожек · {{ current_job.song.measures }} тактов · {{ current_job.song.tempo }} BPM</span></div>{% include '_wizard_form.html' %}
+  {% elif in_form %}
+    <div class="file-context"><strong>{{ current_job.original_name }}</strong><span>{{ current_job.song.title }} · {{ current_job.song.tempo }} BPM · {{ current_job.song.measures }} bars · {{ current_job.song.tracks }} tracks</span></div>{% include '_wizard_form.html' %}
   {% else %}{% include '_wizard_result.html' %}{% endif %}
 </main>
-<script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script><script src="{{ url_for('static', filename='wizard.js') }}"></script></body></html>
+<script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script><script src="{{ url_for('static', filename='wizard.js') }}"></script>
+</body>
+</html>

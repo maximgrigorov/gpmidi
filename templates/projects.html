@@ -1,36 +1,20 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Проекты — конвертер midi</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% include '_head.html' %}
+  <title>Projects · GP MIDI Studio</title>
 </head>
 <body>
   {% include '_topnav.html' %}
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="sidebar-brand">
-        <div class="mark">M</div>
-        <div>
-          <div class="name">конвертер midi</div>
-          <div class="sub">Guitar Pro → Logic / Shreddage</div>
-        </div>
-      </div>
       <div class="sidebar-scroll">
-        <nav class="sidebar-nav">
-          <a href="{{ url_for('index') }}" class="btn ghost">← Конвертер</a>
-          <a href="{{ url_for('projects_list') }}" class="btn primary">Проекты</a>
-        </nav>
         <div class="panel">
-          <h2>Новый проект</h2>
+          <h2>New project</h2>
           <form action="{{ url_for('projects_create') }}" method="post" class="form-stack">
-            <input type="text" name="name" placeholder="Название проекта" required maxlength="120" class="input">
-            <textarea name="description" placeholder="Описание (опционально)" rows="2" maxlength="4000" class="input"></textarea>
-            <button type="submit" class="btn primary">Создать</button>
+            <input type="text" name="name" placeholder="Project name" required maxlength="120" class="input">
+            <textarea name="description" placeholder="Description (optional)" rows="2" maxlength="4000" class="input"></textarea>
+            <button type="submit" class="btn primary">Create</button>
           </form>
         </div>
       </div>
@@ -43,7 +27,7 @@
         {% endfor %}
       {% endwith %}
 
-      <h1>Проекты</h1>
+      <h1>Projects</h1>
       {% if projects %}
       <div class="projects-grid">
         {% for p in projects %}
@@ -60,7 +44,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <p class="muted">Нет проектов. Создай первый в форме слева.</p>
+      <p class="muted">No projects yet. Create the first one with the “New project” form.</p>
       {% endif %}
     </main>
   </div>

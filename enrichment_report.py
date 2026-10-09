@@ -178,7 +178,7 @@ def _recommendation(track_name: str, track_type: str, totals: dict[str, int], ma
         return {
             "code": "baseline",
             "label": "Baseline",
-            "reason": "Фактических отличий нет: Enriched не даёт дополнительного результата.",
+            "reason": "No actual differences: Enriched adds nothing over Baseline.",
         }
     solo = track_type == "GUITAR" and any(word in track_name.casefold() for word in ("solo", "lead"))
     if solo and any(totals[key] for key in (
@@ -186,35 +186,35 @@ def _recommendation(track_name: str, track_type: str, totals: dict[str, int], ma
     )):
         return {
             "code": "baseline",
-            "label": "Baseline предпочтительнее",
-            "reason": "В Solo/Lead изменены тайминг, длительности или управляющие события; это наиболее слышимая зона риска.",
+            "label": "Baseline preferred",
+            "reason": "Timing, durations or control events changed on a Solo/Lead track; this is where changes are most audible.",
         }
     if totals["added_notes"] or totals["removed_notes"]:
         return {
             "code": "compare",
-            "label": "Обязательно сравнить",
-            "reason": "Изменилось количество нот/ударов; перед выбором нужна слуховая проверка.",
+            "label": "Compare before choosing",
+            "reason": "The number of notes or hits changed; listen before choosing.",
         }
     if any(totals[key] for key in (
         "onset_changed", "duration_changed", "controller_events_changed", "service_events_changed",
     )):
         return {
             "code": "compare",
-            "label": "Обязательно сравнить",
-            "reason": "Изменены тайминг, длительности или управляющие события — это может заметно повлиять на исполнение.",
+            "label": "Compare before choosing",
+            "reason": "Timing, durations or control events changed — this can noticeably affect the performance.",
         }
     ratio = totals["velocity_changed"] / max(1, totals["paired_notes"])
     if ratio <= 0.35 and max_velocity <= 8:
         return {
             "code": "enriched",
-            "label": "Enriched можно использовать",
-            "reason": "Только умеренные velocity-изменения на ограниченной части нот; структура и тайминг сохранены.",
+            "label": "Enriched is safe to use",
+            "reason": "Only moderate velocity changes on a limited share of notes; structure and timing are preserved.",
         }
-    drum_note = " Новых ударов не добавлено." if track_type == "DRUMS" else ""
+    drum_note = " No new hits were added." if track_type == "DRUMS" else ""
     return {
         "code": "compare",
-        "label": "Сравнить версии",
-        "reason": "Velocity изменена широко или заметно; структура сохранена, но баланс может отличаться." + drum_note,
+        "label": "Compare versions",
+        "reason": "Velocity changed broadly or noticeably; structure is preserved, but the balance may differ." + drum_note,
     }
 
 
@@ -396,58 +396,58 @@ def _metric(label: str, value: Any, note: str = "") -> str:
 
 
 def render_enrichment_html(report: dict[str, Any]) -> str:
-    """Render a self-contained, light, mobile-friendly Russian HTML report."""
+    """Render a self-contained, light, mobile-friendly English HTML report."""
     source = report["source"]
     summary = report["summary"]
     track_sections = []
     for track in report["tracks"]:
         totals = track["totals"]
-        processing = ", ".join(track["baseline_processing"]) or "без дополнительных опций"
+        processing = ", ".join(track["baseline_processing"]) or "no extra options"
         measure_cards = []
         for row in track["measures"]:
             details = []
             if row["velocity_changed"]:
                 details.append(
-                    f'Velocity: {row["velocity_changed"]} нот, Δ {row["velocity_delta_min"]:+d}…{row["velocity_delta_max"]:+d}, среднее {row["velocity_delta_mean"]:+.2f}'
+                    f'Velocity: {row["velocity_changed"]} notes, Δ {row["velocity_delta_min"]:+d}…{row["velocity_delta_max"]:+d}, mean {row["velocity_delta_mean"]:+.2f}'
                 )
                 transitions = ", ".join(
                     f'{item["before"]}→{item["after"]} ×{item["count"]}'
                     for item in row["velocity_transitions"][:8]
                 )
                 if transitions:
-                    details.append("Переходы: " + transitions)
+                    details.append("Transitions: " + transitions)
             if row["onset_changed"]:
                 details.append(
-                    f'Сдвинуты атаки: {row["onset_changed"]}, максимум {row["max_abs_onset_shift_ticks"]} тиков'
+                    f'Shifted attacks: {row["onset_changed"]}, max {row["max_abs_onset_shift_ticks"]} ticks'
                 )
             if row["duration_changed"]:
-                details.append(f'Изменены длительности: {row["duration_changed"]}')
+                details.append(f'Changed durations: {row["duration_changed"]}')
             if row["controller_events_changed"]:
-                details.append(f'Изменены CC/Pitch Bend события: {row["controller_events_changed"]}')
+                details.append(f'Changed CC/Pitch Bend events: {row["controller_events_changed"]}')
             if row["service_events_changed"]:
-                details.append(f'Изменены keyswitch-события: {row["service_events_changed"]}')
+                details.append(f'Changed keyswitch events: {row["service_events_changed"]}')
             if row["destinations"]:
-                details.append("Перешли через границу в такт(ы): " + ", ".join(map(str, row["destinations"])))
+                details.append("Moved across the barline into bar(s): " + ", ".join(map(str, row["destinations"])))
             if row["arrivals_from"]:
-                details.append("Пришли через границу из такта(ов): " + ", ".join(map(str, row["arrivals_from"])))
-            for kind, title in (("added_notes", "Добавлены"), ("removed_notes", "Удалены")):
+                details.append("Arrived across the barline from bar(s): " + ", ".join(map(str, row["arrivals_from"])))
+            for kind, title in (("added_notes", "Added"), ("removed_notes", "Removed")):
                 if row[kind]:
                     values = ", ".join(
                         f'{item["label"]} (MIDI {item["pitch"]}) ×{item["count"]}' for item in row[kind]
                     )
                     details.append(f"{title}: {values}")
             if not details:
-                details.append("Такт отмечен из-за связанного переноса через тактовую черту.")
+                details.append("Bar flagged because of a related shift across the barline.")
             measure_cards.append(
-                f'<article class="measure"><h4>Такт {row["measure"]}</h4><ul>'
+                f'<article class="measure"><h4>Bar {row["measure"]}</h4><ul>'
                 + "".join(f"<li>{escape(value)}</li>" for value in details)
                 + "</ul></article>"
             )
         if not measure_cards:
-            measure_cards.append('<p class="empty">Baseline и Enriched фактически совпадают.</p>')
+            measure_cards.append('<p class="empty">Baseline and Enriched MIDI are identical.</p>')
         drum_metric = ""
         if track["type"] == "DRUMS":
-            drum_metric = _metric("Новых ударов в Enriched", track["new_drum_hits"], "относительно Baseline")
+            drum_metric = _metric("New hits in Enriched", track["new_drum_hits"], "vs. Baseline")
         recommendation = track["recommendation"]
         track_sections.append(f'''
         <section class="track-card">
@@ -456,26 +456,26 @@ def render_enrichment_html(report: dict[str, Any]) -> str:
             <span class="decision {escape(recommendation["code"])}">{escape(recommendation["label"])}</span>
           </div>
           <p class="reason">{escape(recommendation["reason"])}</p>
-          <div class="baseline-note"><strong>Baseline уже включал:</strong> {escape(processing)}.</div>
+          <div class="baseline-note"><strong>Baseline already included:</strong> {escape(processing)}.</div>
           <div class="metrics compact">
-            {_metric("Velocity", totals["velocity_changed"], "изменённых нот")}
-            {_metric("Атаки", totals["onset_changed"], "сдвинутых")}
-            {_metric("Длительности", totals["duration_changed"], "изменённых")}
-            {_metric("Добавлено / удалено", f'{totals["added_notes"]} / {totals["removed_notes"]}', "музыкальных нот")}
+            {_metric("Velocity", totals["velocity_changed"], "notes changed")}
+            {_metric("Attacks", totals["onset_changed"], "shifted")}
+            {_metric("Durations", totals["duration_changed"], "changed")}
+            {_metric("Added / removed", f'{totals["added_notes"]} / {totals["removed_notes"]}', "musical notes")}
             {drum_metric}
           </div>
-          <details open><summary>Изменённые такты: {escape(", ".join(map(str, track["affected_measures"])) or "нет")}</summary>
+          <details open><summary>Changed bars: {escape(", ".join(map(str, track["affected_measures"])) or "none")}</summary>
             <div class="measure-grid">{"".join(measure_cards)}</div>
           </details>
         </section>''')
 
     plan = report["plan"]
     return f'''<!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Фактический отчёт Baseline → Enriched</title>
+<title>Enrichment report: Baseline → Enriched</title>
 <style>
 *,*::before,*::after{{box-sizing:border-box}}html{{background: #fbfaf8;color:#31302e}}
 body{{margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5;background: #fbfaf8}}
@@ -501,16 +501,16 @@ details{{border-top:1px solid rgba(49,48,46,.1);padding-top:15px}}summary{{curso
 </style>
 </head>
 <body><main>
-<header><span class="eyebrow">GPMIDI · ARTIFACT DIFF</span><h1>Фактические изменения Baseline → Enriched</h1>
-<p class="lead">Отчёт построен по реально выпущенным MIDI, а не по намерениям модели. Он показывает, какие дорожки и такты изменились и насколько рискованно выбирать Enriched без прослушивания.</p>
-<p class="source">Источник: {escape(source["name"])} · SHA-256 {escape(source["sha256"])}</p></header>
+<header><span class="eyebrow">GPMIDI · ARTIFACT DIFF</span><h1>Actual changes: Baseline → Enriched</h1>
+<p class="lead">This report is built from the MIDI files actually produced, not from the model’s intentions. It shows which tracks and bars changed and how risky it is to pick Enriched without listening.</p>
+<p class="source">Source: {escape(source["name"])} · SHA-256 {escape(source["sha256"])}</p></header>
 <div class="metrics">
-{_metric("Дорожек изменено", f'{summary["tracks_changed"]} / {summary["tracks"]}')}
-{_metric("Затронуто тактов", summary["affected_measures"])}
-{_metric("Velocity", summary["velocity_changed"], "изменённых нот")}
-{_metric("Новых ударов", summary["new_drum_hits"], "в Enriched")}
+{_metric("Tracks changed", f'{summary["tracks_changed"]} / {summary["tracks"]}')}
+{_metric("Bars affected", summary["affected_measures"])}
+{_metric("Velocity", summary["velocity_changed"], "notes changed")}
+{_metric("New hits", summary["new_drum_hits"], "in Enriched")}
 </div>
-<section class="context"><span class="eyebrow">ПЛАН МОДЕЛИ</span><h3>{escape(plan["model"])}</h3><p>{escape(plan["summary"] or "Резюме в плане отсутствует.")}</p><p><strong>Важно:</strong> выбранные Humanize/Ghost notes уже входят в Baseline. Ниже показана только фактическая разница между скачиваемыми версиями.</p></section>
+<section class="context"><span class="eyebrow">MODEL PLAN</span><h3>{escape(plan["model"])}</h3><p>{escape(plan["summary"] or "The plan has no summary.")}</p><p><strong>Note:</strong> the selected Humanize and Ghost notes options are already part of Baseline. Below is only the actual difference between the downloadable versions.</p></section>
 {"".join(track_sections)}
-<p class="footer">Рекомендация основана на структурном риске. Она не заменяет слуховое сравнение и не оценивает качество тембра Kontakt/Logic.</p>
+<p class="footer">The recommendation is based on structural risk. It does not replace listening and does not judge Kontakt/Logic sound quality.</p>
 </main></body></html>'''

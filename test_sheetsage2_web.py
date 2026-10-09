@@ -71,7 +71,7 @@ def test_audio_tool_page_and_streaming_upload(monkeypatch):
     assert captured["headers"]["X-Filename"] == "song.wav"
     assert captured["headers"]["X-Transcriber"] == "muscriptor-large"
     assert captured["headers"]["X-Instruments"] == "voice,distorted_electric_guitar,drums"
-    assert "Выбрать инструменты" in html
+    assert "Choose instruments" in html
     assert 'value="distorted_electric_guitar"' in html
     assert "const statusLabel=" in html
 
@@ -88,8 +88,8 @@ def test_audio_job_card_uses_the_persisted_transcriber_label(monkeypatch):
 
     html = web.app.test_client().get("/audio-to-midi").get_data(as_text=True)
 
-    assert "MuScriptor анализирует аудио" in html
-    assert "Инструменты: voice, drums" in html
+    assert "MuScriptor is analyzing the audio" in html
+    assert "Instruments: voice, drums" in html
 
 
 def test_audio_dropzone_prevents_browser_navigation_and_selects_dropped_file(monkeypatch):

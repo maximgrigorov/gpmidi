@@ -192,7 +192,7 @@ def test_apply_writes_factual_json_and_html_report_from_actual_midi(monkeypatch,
     assert report_json["tracks"][0]["new_drum_hits"] == 0
     assert report_json["tracks"][0]["totals"]["velocity_changed"] == 1
     assert report_json["tracks"][0]["baseline_processing"] == ["Humanize", "Ghost notes"]
-    assert "Новых ударов в Enriched" in report_html
+    assert "New hits in Enriched" in report_html
     assert {item["type"] for item in manifest["artifacts"]} >= {
         "ENRICHMENT_REPORT_JSON", "ENRICHMENT_REPORT_HTML",
     }
