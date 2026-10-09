@@ -1589,7 +1589,7 @@ def scenario_12_flask_ui(check: Check, shared: dict) -> None:
     check.equal(page.status_code, 200, "the Project page renders over HTTP")
     html = page.text
     check.require(
-        "недоступен" not in html,
+        "AILab is unavailable" not in html,
         "the Project page reports no upstream outage",
     )
     check.require("Reference-Time" in html, "the Project page shows the analysis section")
@@ -1630,7 +1630,7 @@ def scenario_12_flask_ui(check: Check, shared: dict) -> None:
     )
     check.equal(submit.status_code, 200, "the form submit is accepted and redirects")
     check.require(
-        "Анализ запущен" in submit.text or "cache hit" in submit.text,
+        "Analysis started:" in submit.text or "cache hit" in submit.text,
         "the page confirms the analysis was started",
         submit.text[:200] if submit.status_code != 200 else "",
     )
@@ -1670,7 +1670,7 @@ def scenario_12_flask_ui(check: Check, shared: dict) -> None:
     refreshed = api.flask_get(f"/projects/{pid}")
     check.equal(refreshed.status_code, 200, "the Project page renders after completion")
     check.require(
-        "Результаты" in refreshed.text, "prior analyses are listed"
+        "Results" in refreshed.text, "prior analyses are listed"
     )
     check.require(
         "/report.json" in refreshed.text, "report links are offered"
