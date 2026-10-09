@@ -5,119 +5,119 @@
 {# Group controls carry data-role + data-effect and no name: they only set the
    table cells below, which are the one source of the submitted fields. #}
 {% set groups = [
-  {'role': 'drums', 'title': 'Барабаны', 'switch': 'Оживить барабаны',
-   'hint': 'Живая velocity и микротайминг барабанщика',
-   'nested': [('ghost_notes', 'Тихие удары между основными — партия малого изменится', 'добавляет ноты в партию')],
+  {'role': 'drums', 'title': 'Drums', 'switch': 'Humanize drums',
+   'hint': 'A drummer’s velocity and micro-timing',
+   'nested': [('ghost_notes', 'Quiet hits between the main ones — the snare part changes', 'adds notes')],
    'free': []},
-  {'role': 'rhythm', 'title': 'Ритм-секция', 'switch': 'Оживить ритм-секцию',
-   'hint': 'Velocity и микротайминг; на гитаре — ещё штрих аккорда',
-   'nested': [('lock_to_drums', 'Бас и гитары берут тайминг бочки и малого — ритм-секция играет как одна', ''),
-              ('double_track', 'Те же ноты, своё исполнение — отдельный файл «(double)» для панорамы', ''),
-              ('palm_mute_motion', 'Глубина глушения плавно «гуляет»; в пресете Hydra нужен Vel → Tightness', '')],
-   'free': [('pick_direction', 'Вниз/вверх кейсвитчами Hydra C7/C#7; в пресете проверьте Picking Mode'),
-            ('fret_noise_on_hand_shift', 'Скольжение пальцев, когда рука меняет позицию')]},
-  {'role': 'solo', 'title': 'Соло', 'switch': 'Оживить соло',
-   'hint': 'Velocity; тайминг соло задают авторские сдвиги GP8',
-   'nested': [('fret_hand_cost', 'Атака чуть опаздывает, когда рука прыгает на 4 лада и дальше: 9–16 мс', '')],
-   'free': [('auto_sustain_vibrato', 'Глубина вибрато (CC1) на длинных одиночных нотах'),
-            ('fret_noise_on_hand_shift', 'Скольжение пальцев, когда рука меняет позицию'),
-            ('pick_direction', 'Строгий переменный штрих; ноты легато не перебираются')]},
+  {'role': 'rhythm', 'title': 'Rhythm section', 'switch': 'Humanize the rhythm section',
+   'hint': 'Velocity and micro-timing; chord strum on guitars',
+   'nested': [('lock_to_drums', 'Bass and guitars follow the kick and snare timing — the rhythm section plays as one', ''),
+              ('double_track', 'Same notes, its own performance — a separate “(double)” file for panning', ''),
+              ('palm_mute_motion', 'Mute depth drifts like a real hand; needs Vel → Tightness in the Hydra preset', '')],
+   'free': [('pick_direction', 'Down/up via Hydra keyswitches C7/C#7; check Picking Mode in the preset'),
+            ('fret_noise_on_hand_shift', 'Finger squeak when the hand moves to a new position')]},
+  {'role': 'solo', 'title': 'Solo', 'switch': 'Humanize the solo',
+   'hint': 'Velocity; solo timing comes from the GP8 played offsets',
+   'nested': [('fret_hand_cost', 'The attack lands slightly late when the hand jumps 4 frets or more: 9–16 ms', '')],
+   'free': [('auto_sustain_vibrato', 'Vibrato depth (CC1) on long single notes'),
+            ('fret_noise_on_hand_shift', 'Finger squeak when the hand moves to a new position'),
+            ('pick_direction', 'Strict alternate picking; legato notes are not picked')]},
 ] %}
 <form id="wizardForm" class="wizard-form" method="post" action="{{ url_for('process_job', job_id=current_job.id) }}">
   <section class="wizard-panel" data-step="tracks">
-    <div class="section-heading"><div><span class="eyebrow">Шаг 2</span><h1>Какие дорожки собрать?</h1><p>Роль решает, в какой группе дорожка окажется на шаге «Звучание»; сами ноты она не меняет.</p></div><span class="count-badge">{{ current_job.detected_tracks|length }} дорожек</span></div>
+    <div class="section-heading"><div><span class="eyebrow">Step 2</span><h1>Which tracks to build?</h1><p>The role decides which group a track joins on the Sound step; it never changes the notes.</p></div><span class="count-badge">{{ current_job.detected_tracks|length }} tracks</span></div>
     <div class="track-select-list">
       {% for track in current_job.detected_tracks %}
       {% set checked = (not selected) or (track.index in selected) or (track.index|string in selected) %}
-      {% set badge = type_badges.get(track.track_type, ('без маппинга', 'no')) %}
+      {% set badge = type_badges.get(track.track_type, ('no mapping', 'no')) %}
       <article class="track-select-card" data-track-card data-track="{{ track.index }}" data-role="{{ track.ui_role }}">
-        <label class="track-main"><input type="checkbox" name="track_indices" value="{{ track.index }}" {% if checked %}checked{% endif %}><span class="track-num">{{ track.index }}</span><span><strong>{{ track.track_name }}</strong><small>{{ track.track_type_label }}</small></span></label>
+        <label class="track-main"><input type="checkbox" name="track_indices" value="{{ track.index }}" {% if checked %}checked{% endif %}><span class="track-num">{{ track.index }}</span><span><strong>{{ track.track_name }}</strong></span></label>
         <span class="inst {{ badge[1] }}">{{ badge[0] }}</span>
-        {% if track.track_type in ('GUITAR','BASS') %}<label class="role-select">Роль<select data-role-select><option value="rhythm" {% if track.ui_role != 'solo' %}selected{% endif %}>Ритм-секция</option><option value="solo" {% if track.ui_role == 'solo' %}selected{% endif %}>Соло</option></select></label>{% else %}<span class="role-fixed">{{ ui_role_labels[track.ui_role] }}</span>{% endif %}
+        {% if track.track_type in ('GUITAR','BASS') %}<label class="role-select">Role<select data-role-select><option value="rhythm" {% if track.ui_role != 'solo' %}selected{% endif %}>Rhythm section</option><option value="solo" {% if track.ui_role == 'solo' %}selected{% endif %}>Solo</option></select></label>{% else %}<span class="role-fixed">{{ ui_role_labels[track.ui_role] }}</span>{% endif %}
       </article>
       {% endfor %}
     </div>
-    <p class="hint">Соло определяется по имени дорожки (solo, lead). Если имя другое — смените роль здесь; дефолты «Точности нот» от этого не меняются.</p>
-    <p class="form-warning" data-no-tracks hidden>Выберите хотя бы одну дорожку.</p>
-    <div class="wizard-actions"><button class="btn" type="submit" form="newSessionForm">← Другой файл</button><span class="hint" data-selected-count></span><button class="btn primary" type="button" data-next="sound">Далее: звучание →</button></div>
+    <p class="hint">Solo is detected from the track name (solo, lead). If the name differs, change the role here; the Note accuracy defaults stay the same.</p>
+    <p class="form-warning" data-no-tracks hidden>Select at least one track.</p>
+    <div class="wizard-actions"><button class="btn" type="submit" form="newSessionForm">← New file</button><span class="hint" data-selected-count></span><button class="btn primary" type="button" data-next="sound">Next: sound →</button></div>
   </section>
 
   <section class="wizard-panel" data-step="sound">
-    <div class="section-heading"><div><span class="eyebrow">Шаг 3</span><h1>Как должно звучать?</h1><p>Всё выключено — значит «как в нотах». Опции, которым нужно оживление, появляются внутри включённого «Оживить».</p></div>
-      <label class="seed-field" title="seed">Вариант исполнения (seed)<input type="number" name="seed" value="{{ source.seed if source.seed is defined and source.seed is not none else 7 }}" min="0" max="9999"><small>Тот же seed — тот же результат</small></label></div>
+    <div class="section-heading"><div><span class="eyebrow">Step 3</span><h1>How should it sound?</h1><p>Everything off means “as written”. Options that need humanize appear once you switch it on.</p></div>
+      <label class="seed-field" title="seed">Performance seed<input type="number" name="seed" value="{{ source.seed if source.seed is defined and source.seed is not none else 7 }}" min="0" max="9999"><small>Same seed, same result</small></label></div>
     <div class="role-groups">
       {% for g in groups %}
       <article class="role-card" data-role-group="{{ g.role }}">
         <header><h2>{{ g.title }}</h2><p class="role-tracks" data-role-tracks></p></header>
-        <p class="role-empty" data-role-empty hidden>Нет выбранных дорожек с этой ролью.</p>
+        <p class="role-empty" data-role-empty hidden>No selected tracks with this role.</p>
         <div class="role-body" data-role-body>
           <label class="switch-row" title="humanize"><input type="checkbox" class="sw" data-role="{{ g.role }}" data-effect="humanize"><span><strong>{{ g.switch }}</strong><small>{{ g.hint }}</small></span></label>
           <div class="nested" data-nested>
             {% for key, hint, badge in g.nested %}<label class="opt" data-group-option title="{{ key }}"><input type="checkbox" data-role="{{ g.role }}" data-effect="{{ key }}"><span><span class="opt-t">{{ effect_labels[key] }}{% if badge %} <em class="tag-warn">{{ badge }}</em>{% endif %}</span><small>{{ hint }}</small></span></label>{% endfor %}
-            {% if g.role == 'rhythm' %}<div class="inline-alert" data-drum-warning hidden><span><b>Барабаны не оживлены.</b> <span data-drum-warning-text>Ритм-секция привяжется к ровной сетке — разницы на слух не будет.</span></span><button type="button" class="btn btn-sm" data-humanize-drums>Оживить барабаны</button></div>{% endif %}
+            {% if g.role == 'rhythm' %}<div class="inline-alert" data-drum-warning hidden><span><b>Drums are not humanized.</b> <span data-drum-warning-text>The rhythm section will lock to a straight grid — you won’t hear a difference.</span></span><button type="button" class="btn btn-sm" data-humanize-drums>Humanize drums</button></div>{% endif %}
           </div>
           <p class="nested-hint" data-nested-hint></p>
-          {% if g.free %}<div class="free"><span class="free-h">Без оживления</span>
+          {% if g.free %}<div class="free"><span class="free-h">Without humanize</span>
             {% for key, hint in g.free %}<label class="opt" data-group-option title="{{ key }}"><input type="checkbox" data-role="{{ g.role }}" data-effect="{{ key }}"><span><span class="opt-t">{{ effect_labels[key] }}</span><small>{{ hint }}</small></span></label>{% endfor %}
           </div>{% endif %}
-          <button type="button" class="link-btn" data-clear-exceptions="{{ g.role }}" hidden>Убрать исключения</button>
+          <button type="button" class="link-btn" data-clear-exceptions="{{ g.role }}" hidden>Clear overrides</button>
         </div>
       </article>
       {% endfor %}
     </div>
-    <p class="other-line" data-other-line><b>Прочее:</b> <span data-role-tracks-other></span> — ноты копируются как есть; для них есть только скрытые 32-е в «Точности нот».</p>
+    <p class="other-line" data-other-line><b>Other:</b> <span data-role-tracks-other></span> — notes are copied as is; only hidden 32nds apply to them (Note accuracy).</p>
 
     <details class="precision-panel" data-precision>
-      <summary><span class="sum-t">Точность нот</span><span class="sum-d">Скрытые 32-е, авторские сдвиги GP8 и перекрытия</span><span class="change-count" data-precision-count>по умолчанию</span></summary>
+      <summary><span class="sum-t">Note accuracy</span><span class="sum-d">Hidden 32nds, GP8 played offsets and overlaps</span><span class="change-count" data-precision-count>default</span></summary>
       <div class="precision-body">
-        <label class="opt" title="expand_gp_hidden_32nds"><input type="checkbox" data-role="*" data-effect="expand_gp_hidden_32nds"><span><span class="opt-t">Разворачивать скрытые 32-е <em class="tag-ok">по умолчанию вкл</em></span><small>Ноты, сыгранные подряд внутри одного бита, разносятся на 32-е · все тональные дорожки</small></span></label>
+        <label class="opt" title="expand_gp_hidden_32nds"><input type="checkbox" data-role="*" data-effect="expand_gp_hidden_32nds"><span><span class="opt-t">Spread hidden GP 32nds <em class="tag-ok">on by default</em></span><small>Notes played one after another inside a beat are spread into 32nds · all pitched tracks</small></span></label>
         <div class="offsets" title="preserve_gp_played_offsets">
-          <span class="opt-t">Авторские сдвиги атак GP8</span>
-          <div class="segmented" role="group" aria-label="Авторские сдвиги атак GP8">
-            <button type="button" data-offsets-mode="solo" aria-pressed="false">Только соло</button><button type="button" data-offsets-mode="all" aria-pressed="false">Все гитары и бас</button><button type="button" data-offsets-mode="none" aria-pressed="false">Нигде</button>
+          <span class="opt-t">GP8 played offsets</span>
+          <div class="segmented" role="group" aria-label="GP8 played offsets">
+            <button type="button" data-offsets-mode="solo" aria-pressed="false">Solo only</button><button type="button" data-offsets-mode="all" aria-pressed="false">All guitars and bass</button><button type="button" data-offsets-mode="none" aria-pressed="false">None</button>
           </div>
-          <small>По умолчанию — на соло-дорожках. В GP3/4/5 авторских сдвигов нет, там опция ничего не меняет.</small>
+          <small>Default: solo tracks only. GP3/4/5 files have no played offsets, so the option changes nothing there.</small>
           <div class="nested">
-            <label class="opt" title="keep_gp_played_overlaps"><input type="checkbox" data-role="*" data-effect="keep_gp_played_overlaps"><span><span class="opt-t">{{ effect_labels['keep_gp_played_overlaps'] }}</span><small>Hydra сыграет их легато; иначе конец ноты обрезается по нотной сетке</small></span></label>
-            <label class="opt" title="humanize_timing_over_gp_offsets"><input type="checkbox" data-role="*" data-effect="humanize_timing_over_gp_offsets"><span><span class="opt-t">{{ effect_labels['humanize_timing_over_gp_offsets'] }}</span><small>Тайминг, штрих и задержка руки поверх авторского; нужно «Оживить» у роли. Иначе оживление меняет там только velocity</small></span></label>
+            <label class="opt" title="keep_gp_played_overlaps"><input type="checkbox" data-role="*" data-effect="keep_gp_played_overlaps"><span><span class="opt-t">{{ effect_labels['keep_gp_played_overlaps'] }}</span><small>Hydra plays them legato; otherwise note ends are trimmed to the written grid</small></span></label>
+            <label class="opt" title="humanize_timing_over_gp_offsets"><input type="checkbox" data-role="*" data-effect="humanize_timing_over_gp_offsets"><span><span class="opt-t">{{ effect_labels['humanize_timing_over_gp_offsets'] }}</span><small>Timing, strum and the shift delay on top of the authored timing; needs Humanize on the role. Otherwise humanize only changes velocity there</small></span></label>
           </div>
         </div>
-        <button class="btn btn-sm" type="button" data-reset-precision>Сбросить к умолчаниям</button>
+        <button class="btn btn-sm" type="button" data-reset-precision>Reset to defaults</button>
       </div>
     </details>
 
     <details class="precision-panel matrix-panel" open data-matrix>
-      <summary><span class="sum-t">По дорожкам</span><span class="sum-d">Все 13 опций — если одной дорожке нужно не так, как её роли</span><span class="change-count" data-change-count>как в группах</span></summary>
-      <div class="effect-table-wrap"><table class="effect-table"><thead><tr><th>Дорожка</th>{% for key in effect_labels %}<th data-effect-key="{{ key }}" title="{{ key }} — {{ effect_labels[key] }}">{{ effect_short_labels[key] }}</th>{% endfor %}</tr></thead><tbody>
-      {% for track in current_job.detected_tracks %}{% set opts = source.track_options.get(track.index|string, source.track_options.get(track.index, {})) if source.track_options else track.default_effects %}<tr data-effect-row data-role="{{ track.ui_role }}" data-track="{{ track.index }}" data-track-name="{{ track.track_name }}"><th><span>{{ track.track_name }}</span><small>{{ track.track_type_label }}</small></th>{% for key in effect_labels %}<td data-label="{{ effect_short_labels[key] }}">{% if key in track.available_effects %}<label class="cell-check" title="{{ key }} — {{ effect_labels[key] }}"><input type="checkbox" name="track_{{ track.index }}_{{ key }}" data-effect="{{ key }}" data-label="{{ effect_labels[key] }}" data-default="{{ '1' if track.default_effects.get(key, false) else '0' }}" {% if opts.get(key, track.default_effects.get(key, false)) %}checked{% endif %} {% if (deps.get(key) and not opts.get(deps.get(key), track.default_effects.get(deps.get(key), false))) or (key == 'humanize_timing_over_gp_offsets' and not opts.get('preserve_gp_played_offsets', track.default_effects.get('preserve_gp_played_offsets', false))) %}disabled{% endif %}><span class="sr-only">{{ effect_labels[key] }} — {{ track.track_name }}</span></label>{% else %}<span class="na" title="недоступно для этого типа дорожки">—</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+      <summary><span class="sum-t">Per track</span><span class="sum-d">All 13 options — when one track needs something different from its role</span><span class="change-count" data-change-count>same as groups</span></summary>
+      <div class="effect-table-wrap"><table class="effect-table"><thead><tr><th>Track</th>{% for key in effect_labels %}<th data-effect-key="{{ key }}" title="{{ key }} — {{ effect_labels[key] }}">{{ effect_short_labels[key] }}</th>{% endfor %}</tr></thead><tbody>
+      {% for track in current_job.detected_tracks %}{% set opts = source.track_options.get(track.index|string, source.track_options.get(track.index, {})) if source.track_options else track.default_effects %}<tr data-effect-row data-role="{{ track.ui_role }}" data-track="{{ track.index }}" data-track-name="{{ track.track_name }}"><th><span>{{ track.track_name }}</span><small>{{ track.track_type_label }}</small></th>{% for key in effect_labels %}<td data-label="{{ effect_short_labels[key] }}">{% if key in track.available_effects %}<label class="cell-check" title="{{ key }} — {{ effect_labels[key] }}"><input type="checkbox" name="track_{{ track.index }}_{{ key }}" data-effect="{{ key }}" data-label="{{ effect_labels[key] }}" data-default="{{ '1' if track.default_effects.get(key, false) else '0' }}" {% if opts.get(key, track.default_effects.get(key, false)) %}checked{% endif %} {% if (deps.get(key) and not opts.get(deps.get(key), track.default_effects.get(deps.get(key), false))) or (key == 'humanize_timing_over_gp_offsets' and not opts.get('preserve_gp_played_offsets', track.default_effects.get('preserve_gp_played_offsets', false))) %}disabled{% endif %}><span class="sr-only">{{ effect_labels[key] }} — {{ track.track_name }}</span></label>{% else %}<span class="na" title="not available for this track type">—</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
       </tbody></table></div>
-      <p class="hint matrix-legend">«—» — опции нет у этого инструмента · серая ячейка — выключена опция, от которой она зависит · рамка — исключение, не как у роли</p>
-      <button class="btn btn-sm" type="button" data-reset-defaults>Сбросить всё к умолчаниям</button>
+      <p class="hint matrix-legend">“—” — not available for this instrument · grey cell — the option it depends on is off · outline — override, differs from the role</p>
+      <button class="btn btn-sm" type="button" data-reset-defaults>Reset everything to defaults</button>
     </details>
 
-    <aside class="outcome-summary"><h2>Что получится</h2><ul data-outcome-list></ul></aside>
-    <div class="wizard-actions"><button class="btn" type="button" data-back="tracks">← Дорожки</button><span class="spacer"></span><button class="btn" type="submit">Собрать без дополнительного</button><button class="btn primary" type="button" data-next="extra">Далее: дополнительно →</button></div>
+    <aside class="outcome-summary"><h2>What you’ll get</h2><ul data-outcome-list></ul></aside>
+    <div class="wizard-actions"><button class="btn" type="button" data-back="tracks">← Tracks</button><span class="spacer"></span><button class="btn" type="submit">Build without extras</button><button class="btn primary" type="button" data-next="extra">Next: extras →</button></div>
   </section>
 
   <section class="wizard-panel" data-step="extra">
-    <div class="section-heading"><div><span class="eyebrow">Шаг 4 · можно пропустить</span><h1>Что-нибудь ещё?</h1><p>Отдельные конвейеры поверх MIDI. Сборка с ними идёт дольше. Если не нужно — просто соберите.</p></div></div>
+    <div class="section-heading"><div><span class="eyebrow">Step 4 · optional</span><h1>Anything else?</h1><p>Separate pipelines on top of the MIDI. They make the build slower. If you don’t need them, just build.</p></div></div>
     <div class="extra-grid">
-      <label class="option-card" title="playable_tabs"><input type="checkbox" class="sw" name="playable_tabs" {% if source.playable_tabs %}checked{% endif %}><span><strong>Играбельные табы</strong><small>ASCII- и PDF-табы и файл GP с новой аппликатурой для гитар и баса. Высота и ритм нот не меняются.</small></span></label>
+      <label class="option-card" title="playable_tabs"><input type="checkbox" class="sw" name="playable_tabs" {% if source.playable_tabs %}checked{% endif %}><span><strong>Playable tabs</strong><small>ASCII and PDF tabs plus a re-fingered GP file for guitars and bass. Pitches and rhythm stay the same.</small></span></label>
       <div class="option-card plan-card">
-        <div class="plan-head"><strong>План выразительности</strong><em class="tag-warn">эксперимент</em></div>
-        <small>Модель предлагает, где усилить динамику и артикуляцию. Вы проверяете план — и только после подтверждения собирается отдельный enriched-MIDI с HTML-отчётом.</small>
-        <label class="switch-row" title="prepare_arrangement_context"><input type="checkbox" class="sw" name="prepare_arrangement_context" {% if source.prepare_arrangement_context %}checked{% endif %}><span><strong>Подготовить контекст плана</strong><small>Собирается из готового MIDI; основные MIDI не меняются</small></span></label>
+        <div class="plan-head"><strong>Expression plan</strong><em class="tag-warn">experimental</em></div>
+        <small>A model suggests where to strengthen dynamics and articulation. You review the plan, and only after you confirm is a separate enriched MIDI built, with an HTML report.</small>
+        <label class="switch-row" title="prepare_arrangement_context"><input type="checkbox" class="sw" name="prepare_arrangement_context" {% if source.prepare_arrangement_context %}checked{% endif %}><span><strong>Prepare the plan context</strong><small>Built from the finished MIDI; the main MIDI files do not change</small></span></label>
         {% if openai_configured %}
         <div class="nested">
-          <label class="opt" title="openai_arrangement_draft"><input type="checkbox" name="openai_arrangement_draft" {% if source.openai_arrangement_draft %}checked{% endif %}><span><span class="opt-t">Черновик плана через OpenAI</span><small>Модель увидит только выбранные дорожки. Применение — отдельной кнопкой на шаге «Результат»</small></span></label>
-          <details class="prompt-editor"><summary>Промпт для модели</summary>
-            <label class="prompt-field">Промпт заменяет стандартный целиком<textarea name="arrangement_prompt" rows="10" maxlength="{{ openai_prompt_max_chars }}">{{ openai_arrangement_prompt }}</textarea></label>
+          <label class="opt" title="openai_arrangement_draft"><input type="checkbox" name="openai_arrangement_draft" {% if source.openai_arrangement_draft %}checked{% endif %}><span><span class="opt-t">Draft the plan with OpenAI</span><small>The model sees only the selected tracks. You apply the plan with a separate button on the Result step</small></span></label>
+          <details class="prompt-editor"><summary>Model prompt</summary>
+            <label class="prompt-field">This prompt replaces the default one entirely<textarea name="arrangement_prompt" rows="10" maxlength="{{ openai_prompt_max_chars }}">{{ openai_arrangement_prompt }}</textarea></label>
           </details>
         </div>
         {% endif %}
       </div>
     </div>
-    <div class="wizard-actions"><button class="btn" type="button" data-back="sound">← Звучание</button><span class="hint">С табами и планом сборка займёт дольше</span><button class="btn primary build-button" type="submit">Собрать MIDI</button></div>
+    <div class="wizard-actions"><button class="btn" type="button" data-back="sound">← Sound</button><span class="hint">Tabs and a plan make the build slower</span><button class="btn primary build-button" type="submit">Build MIDI</button></div>
   </section>
-  <div class="building-overlay" data-building hidden><div class="spinner"></div><strong>Собираем MIDI…</strong><span>Обычно это несколько секунд. С табами и планом OpenAI — дольше.</span></div>
+  <div class="building-overlay" data-building hidden><div class="spinner"></div><strong>Building MIDI…</strong><span>Usually a few seconds. Longer with tabs and an OpenAI plan.</span></div>
 </form>

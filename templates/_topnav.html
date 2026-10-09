@@ -1,9 +1,9 @@
 <header class="topbar">
-  <a class="brand" href="{{ url_for('index') }}" aria-label="GP MIDI Studio">GP MIDI Studio</a>
-  <nav class="topnav" aria-label="Основная навигация">
+  <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark" aria-hidden="true">G</span><span>GP MIDI Studio</span></a>
+  <nav class="topnav" aria-label="Main">
     <a class="{{ 'active' if request.endpoint in ('index', 'job_details') else '' }}" href="{{ url_for('index') }}">GP → MIDI</a>
     <a class="{{ 'active' if request.endpoint == 'sheetsage2_page' else '' }}" href="{{ url_for('sheetsage2_page') }}">Audio → MIDI</a>
-    <a class="{{ 'active' if request.endpoint in ('projects_list', 'project_detail') else '' }}" href="{{ url_for('projects_list') }}">Проекты</a>
+    <a class="{{ 'active' if request.endpoint in ('projects_list', 'project_detail') else '' }}" href="{{ url_for('projects_list') }}">Projects</a>
   </nav>
-  {% if request.endpoint in ('index', 'job_details') %}<button class="btn history-toggle" type="button" data-history-open>История</button>{% endif %}
+  {% if request.endpoint in ('index', 'job_details') %}<button class="btn history-toggle" type="button" data-history-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 7v5l3 2"></path></svg>History{% if jobs %}<span class="cnt">{{ jobs|length }}</span>{% endif %}</button>{% endif %}
 </header>

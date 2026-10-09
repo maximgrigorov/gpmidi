@@ -59,7 +59,7 @@ def test_template_hides_openai_without_token_and_shows_with_token_for_parsed_job
     page = web.app.test_client().get("/").data
     assert b'openai_arrangement_draft' in page
     assert b'name="arrangement_prompt"' in page
-    assert "только выбранные дорожки" in page.decode()
+    assert "only the selected tracks" in page.decode()
 
 
 def test_applied_job_shows_explicit_baseline_enriched_and_zip_downloads(monkeypatch):
@@ -104,17 +104,20 @@ def test_applied_job_shows_explicit_baseline_enriched_and_zip_downloads(monkeypa
     for endpoint in ("/jobs/job", "/"):
         page = web.app.test_client().get(endpoint).data.decode()
 
-        assert "Скачать всё для Logic" in page
-        assert "Enriched · всё для Logic" in page
+        assert "Download all for Logic" in page
+        assert "Enriched · all for Logic" in page
         assert 'href="/download/job/song_ALL.mid"' in page
         assert 'href="/download/job/song_expression_ALL.mid"' in page
         assert ">MIDI</a>" in page
         assert "Enriched MIDI" in page
         assert 'href="/download/job/Solo.mid"' in page
         assert 'href="/download/job/Solo_expression.mid"' in page
-        assert "ZIP — все файлы" in page
+        assert "ZIP — all files" in page
         assert "Context JSON" not in page
-        assert "Expression plan" not in page
+        # "Expression plan" is now the product name of the feature (What was applied);
+        # what must stay hidden is the old raw-plan panel and its token usage.
+        assert "OpenAI expression plan" not in page
+        assert "Tokens:" not in page
         assert "Usage" not in page
 
 
@@ -347,7 +350,7 @@ def test_applied_job_exposes_session_scoped_inline_enrichment_report(monkeypatch
     page = client.get(f"/jobs/{job_id}").data.decode()
     expected_url = f"/reports/{job_id}/{report_name}"
     assert expected_url in page
-    assert "Открыть фактический HTML-отчёт" in page
+    assert "Open the enrichment report" in page
 
     response = client.get(expected_url)
     assert response.status_code == 200

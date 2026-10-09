@@ -1,11 +1,13 @@
-<aside class="history-drawer" data-history-drawer aria-hidden="true" aria-label="История сессии">
-  <div class="drawer-head"><strong>История</strong><button class="icon-btn" type="button" data-history-close aria-label="Закрыть">×</button></div>
-  <button class="btn primary drawer-new" type="submit" form="newSessionForm">Новый файл</button>
+<aside class="history-drawer" data-history-drawer aria-hidden="true" aria-label="Session history">
+  <div class="drawer-head"><strong>History</strong><button class="icon-btn" type="button" data-history-close aria-label="Close">×</button></div>
+  <button class="btn primary drawer-new" type="submit" form="newSessionForm">New file</button>
+  <p class="hint">Recent files in this browser. Sessions are cleared when the app is redeployed.</p>
   <div class="history-list">
     {% for job in jobs %}
+      {% set count = (job.renders or [])|length %}
       <a href="{{ url_for('job_details', job_id=job.id, step='result' if job.stage == 'processed' else 'tracks') }}" class="history-item {{ 'active' if current_job and current_job.id == job.id else '' }}">
-        <span>{{ job.original_name }}</span><small>{{ job.created_at }} · {{ (job.renders or [])|length or 1 }} вер.</small>
+        <span class="mono">{{ job.original_name }}</span><small>{{ (job.created_at or '')[:16] }} · {% if count %}{{ count }} version{{ 's' if count != 1 }}{% elif job.stage == 'processed' %}original build{% else %}read, not built{% endif %}</small>
       </a>
-    {% else %}<p class="muted">Здесь появятся обработанные файлы.</p>{% endfor %}
+    {% else %}<p class="muted">Files you process will appear here.</p>{% endfor %}
   </div>
 </aside><div class="drawer-backdrop" data-history-close></div>

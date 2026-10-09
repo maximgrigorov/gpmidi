@@ -62,7 +62,7 @@ def test_drum_report_proves_velocity_only_enrichment_added_no_hits():
         {"before": 95, "after": 101, "count": 1},
     ]
     assert facts["recommendation"]["code"] == "compare"
-    assert "новых ударов" in facts["recommendation"]["reason"].casefold()
+    assert "no new hits" in facts["recommendation"]["reason"].casefold()
 
 
 def test_report_attributes_cross_bar_timing_change_to_source_and_destination():
@@ -159,9 +159,9 @@ def test_self_contained_light_html_escapes_names_and_contains_track_measure_fact
     assert "background: #fbfaf8" in html
     assert "Drums &lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<script>alert(1)</script>" not in html
-    assert "Фактические изменения Baseline → Enriched" in html
-    assert "Такт 1" in html
-    assert "Новых ударов в Enriched" in html
+    assert "Actual changes: Baseline → Enriched" in html
+    assert "Bar 1" in html
+    assert "New hits in Enriched" in html
     assert "gpt-test" in html
     assert "@media (max-width: 720px)" in html
     assert "https://" not in html

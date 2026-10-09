@@ -289,6 +289,13 @@
   `refingered_url` belong to whichever build ran last; using them made v1's page
   hand out v2's `_ALL.mid` and ZIP (live NO-GO 2026-10-08). Per-track links live
   inside each render and were never affected.
+- **UI copy is English** (2026-10-09): templates, `wizard.js`, `app.py` flashes and
+  labels, the enrichment report and PDF tab footers. Terms are fixed in
+  `docs/UI_GLOSSARY.md`; converter/CLI messages and code comments stay as they were.
+  Every page includes `_head.html` (variable Inter) and `_topnav.html`.
+- One build per job at a time: `process_job` holds `_render_lock` (an `flock` on
+  `uploads/<job>/.render.lock`), so a double click gets the next version number
+  instead of racing on the same `renders/<n>/`.
 - The server stores *effective* options (`effective_track_options`): a dependent
   flag whose parent is off is recorded as off, because the converter ignores it.
 - `EFFECT_LABELS` in `app.py` is the one place for the human names of the 13

@@ -25,7 +25,7 @@
     if (filename) filename.textContent = file.name;
     if (fileError) {
       fileError.hidden = !tooLarge;
-      fileError.textContent = tooLarge ? `Файл больше ${Math.round(max / 1024 / 1024)} МБ.` : '';
+      fileError.textContent = tooLarge ? `The file is larger than ${Math.round(max / 1024 / 1024)} MB.` : '';
     }
     return !tooLarge;
   };
@@ -74,12 +74,6 @@
     humanize_timing_over_gp_offsets: 'humanize', keep_gp_played_overlaps: 'preserve_gp_played_offsets',
   };
   const precisionKeys = ['expand_gp_hidden_32nds', 'preserve_gp_played_offsets', 'keep_gp_played_overlaps', 'humanize_timing_over_gp_offsets'];
-  const plural = (n, one, few, many) => {
-    const m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return one;
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-    return many;
-  };
   const rows = () => $$('[data-effect-row]', wizard);
   const rowSelected = row => row.dataset.selected !== '0';
   const rowsOfRole = role => rows().filter(row => role === '*' || row.dataset.role === role);
@@ -102,7 +96,7 @@
     const selected = new Set(selectedTracks().map(input => input.value));
     rows().forEach(row => { row.dataset.selected = selected.has(row.dataset.track) ? '1' : '0'; });
     const noTracks = $('[data-no-tracks]', wizard); if (noTracks) noTracks.hidden = selected.size > 0;
-    const count = $('[data-selected-count]', wizard); if (count) count.textContent = `Выбрано ${selected.size} из ${rows().length}`;
+    const count = $('[data-selected-count]', wizard); if (count) count.textContent = `${selected.size} of ${rows().length} selected`;
     rows().forEach(row => $$('input[data-effect]', row).forEach(cell => {
       const on = cellEnabled(cell);
       cell.disabled = !on;
@@ -135,7 +129,7 @@
       nested.hidden = !humanizeOn || nestedCount === 0;
       const hint = $('[data-nested-hint]', card);
       hint.hidden = humanizeOn || nestedCount === 0;
-      hint.textContent = `Ещё ${nestedCount} ${plural(nestedCount, 'опция', 'опции', 'опций')} — после включения оживления`;
+      hint.textContent = `${nestedCount} more option${nestedCount === 1 ? '' : 's'} once humanize is on`;
       const exceptions = rowsOfRole(role).some(row => $$('input[data-exception]', row).length > 0);
       $('[data-clear-exceptions]', card).hidden = !exceptions;
     });
@@ -156,13 +150,13 @@
       .filter(cell => cell.checked !== (cell.dataset.default === '1')).length;
     const precisionCount = $('[data-precision-count]', wizard);
     if (precisionCount) {
-      precisionCount.textContent = precisionChanges ? `изменено · ${precisionChanges}` : 'по умолчанию';
+      precisionCount.textContent = precisionChanges ? `changed · ${precisionChanges}` : 'default';
       precisionCount.classList.toggle('changed', precisionChanges > 0);
     }
     const exceptionCount = rows().filter(rowSelected).flatMap(row => $$('input[data-exception]', row)).length;
     const changeCount = $('[data-change-count]', wizard);
     if (changeCount) {
-      changeCount.textContent = exceptionCount ? `исключений: ${exceptionCount}` : 'как в группах';
+      changeCount.textContent = exceptionCount ? `overrides: ${exceptionCount}` : 'same as groups';
       changeCount.classList.toggle('changed', exceptionCount > 0);
     }
 
@@ -172,7 +166,7 @@
       // Column order of the table = the order of EFFECT_LABELS on the server.
       const keys = $$('.effect-table thead th[data-effect-key]', wizard).map(th => th.dataset.effectKey);
       const lines = [];
-      if (!active.some(row => cellOf(row, 'humanize')?.checked)) lines.push('Без оживления — MIDI как в нотах');
+      if (!active.some(row => cellOf(row, 'humanize')?.checked)) lines.push('Without humanize — MIDI as written');
       keys.forEach(key => {
         const on = active.filter(row => { const cell = cellOf(row, key); return cell && cell.checked && !cell.disabled; });
         if (on.length) lines.push(`${cellOf(on[0], key).dataset.label}: ${on.map(row => row.dataset.trackName).join(', ')}`);
@@ -187,8 +181,8 @@
     if (warning) {
       warning.hidden = !(lockOn && !drumOn);
       $('[data-drum-warning-text]', warning).textContent = drumRows.length
-        ? 'Ритм-секция привяжется к ровной сетке — разницы на слух не будет.'
-        : 'Дорожка барабанов не выбрана — привязываться не к чему.';
+        ? 'The rhythm section will lock to a straight grid — you won’t hear a difference.'
+        : 'No drum track is selected — there is nothing to lock to.';
       $('[data-humanize-drums]', warning).hidden = drumRows.length === 0;
     }
   }
@@ -529,21 +523,21 @@
           <div class="player-bar sticky-player-bar">
             <div class="player-controls">
               <button type="button" class="btn btn-sm primary" data-play-btn>Play</button>
-              <button type="button" class="btn btn-sm" data-restart-btn>С начала</button>
+              <button type="button" class="btn btn-sm" data-restart-btn>Restart</button>
             </div>
             <input type="range" min="0" max="${Math.max(1, data.duration_ms)}" value="0" step="10" data-seek>
             <div class="time-label mono" data-time-label>0:00 / ${formatMs(data.duration_ms)}</div>
           </div>
           <div class="preview-summary">
-            <span class="badge accent plain">${data.note_count} нот</span>
+            <span class="badge accent plain">${data.note_count} notes</span>
             <label class="preset-select-wrap">
               <span class="muted">Preset</span>
               <select data-preset-select>
                 ${presetOptions}
               </select>
             </label>
-            <span class="badge plain">диапазон ${data.pitch_min}–${data.pitch_max}</span>
-            <span class="badge plain">длина ${formatMs(data.duration_ms)}</span>
+            <span class="badge plain">range ${data.pitch_min}–${data.pitch_max}</span>
+            <span class="badge plain">length ${formatMs(data.duration_ms)}</span>
           </div>
           <div class="roll-frame" data-roll-frame>
             <div class="roll-grid"></div>
@@ -691,7 +685,7 @@
         await ensurePreview(url, row);
       } catch (error) {
         const cell = row.querySelector('td') || row;
-        cell.innerHTML = `<div class="preview-error">Не удалось загрузить preview: ${error.message}</div>`;
+        cell.innerHTML = `<div class="preview-error">Could not load the preview: ${error.message}</div>`;
       }
     }
 
