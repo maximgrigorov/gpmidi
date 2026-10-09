@@ -13,6 +13,16 @@ def test_cuda_oom_has_actionable_user_message():
     assert failure.code == "gpu_vram_exhausted"
     assert failure.user_message == GPU_BUSY_MESSAGE
     assert "CUDA" not in failure.user_message
+    assert failure.user_message == (
+        "Not enough free GPU memory to start transcription. "
+        "Stop the other GPU workload, free VRAM and try again."
+    )
+
+
+def test_cuda_accelerator_error_wording_is_classified_as_vram_exhaustion():
+    failure = classify_exception(RuntimeError("CUDA error: out of memory"))
+    assert failure.code == "gpu_vram_exhausted"
+    assert failure.user_message == GPU_BUSY_MESSAGE
 
 
 def test_oomkilled_container_has_same_actionable_message():
@@ -32,4 +42,4 @@ def test_unschedulable_gpu_is_reported_as_busy_not_generic_failure():
 def test_unrelated_failure_does_not_claim_vram_problem():
     failure = classify_exception(ValueError("invalid audio"))
     assert failure.code == "transcription_failed"
-    assert failure.user_message != GPU_BUSY_MESSAGE
+    assert failure.user_message == "Could not transcribe the audio. Check the file and try again."

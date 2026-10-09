@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 GPU_BUSY_MESSAGE = (
-    "Недостаточно свободной видеопамяти для запуска SheetSage2. "
-    "Остановите нагрузку, очистите VRAM и повторите запрос."
+    "Not enough free GPU memory to start transcription. "
+    "Stop the other GPU workload, free VRAM and try again."
 )
 
 
@@ -20,6 +20,7 @@ def _looks_like_gpu_oom(text: str) -> bool:
         marker in value
         for marker in (
             "cuda out of memory",
+            "cuda error: out of memory",
             "cublas_status_alloc_failed",
             "outofmemoryerror",
             "gpu memory",
@@ -32,7 +33,7 @@ def classify_exception(exc: Exception) -> UserFailure:
         return UserFailure("gpu_vram_exhausted", GPU_BUSY_MESSAGE)
     return UserFailure(
         "transcription_failed",
-        "Не удалось разобрать аудио. Проверьте файл и повторите запрос.",
+        "Could not transcribe the audio. Check the file and try again.",
     )
 
 
@@ -41,7 +42,7 @@ def classify_container_failure(*, reason: str, exit_code: int | None, message: s
         return UserFailure("gpu_vram_exhausted", GPU_BUSY_MESSAGE)
     return UserFailure(
         "worker_failed",
-        "Контейнер SheetSage2 завершился с ошибкой. Повторите запрос.",
+        "The transcription worker exited with an error. Try again.",
     )
 
 
@@ -51,5 +52,5 @@ def classify_pending_reason(message: str) -> UserFailure:
         return UserFailure("gpu_busy", GPU_BUSY_MESSAGE)
     return UserFailure(
         "worker_pending",
-        "Задача ожидает запуска на AILab. Обновите страницу через несколько секунд.",
+        "The job is waiting to start on AILab. Refresh the page in a few seconds.",
     )

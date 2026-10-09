@@ -111,7 +111,7 @@ def test_audio_dropzone_prevents_browser_navigation_and_selects_dropped_file(mon
 
 
 def test_audio_status_preserves_actionable_vram_message(monkeypatch):
-    message = "Недостаточно свободной видеопамяти. Остановите нагрузку, очистите VRAM и повторите запрос."
+    message = "Not enough free GPU memory. Stop the other workload, free VRAM and try again."
     monkeypatch.setattr(
         web.requests,
         "get",
@@ -120,6 +120,28 @@ def test_audio_status_preserves_actionable_vram_message(monkeypatch):
     response = web.app.test_client().get("/audio-to-midi/jobs/abc123def456/status")
     assert response.status_code == 200
     assert response.get_json()["message"] == message
+
+
+def test_failed_audio_job_keeps_download_actions_hidden(monkeypatch):
+    job = {
+        "id": "abc123def456",
+        "status": "failed",
+        "original_filename": "song.wav",
+        "transcriber": "muscriptor-large",
+        "message": "Not enough free GPU memory.",
+    }
+    monkeypatch.setattr(
+        web.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse({"jobs": [job]}),
+    )
+
+    html = web.app.test_client().get(
+        "/audio-to-midi?job=abc123def456"
+    ).get_data(as_text=True)
+
+    assert 'id="downloads" hidden' in html
+    assert ".download-grid[hidden]{display:none!important}" in html
 
 
 def test_audio_download_is_streamed(monkeypatch):
