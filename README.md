@@ -11,6 +11,8 @@ delivered to AILab through an exact-SHA Tekton pipeline.
 - **Project invariants:** [`AGENTS.md`](AGENTS.md)
 - **Agent power-metal enrichment workflow:**
   [`docs/AGENT_POWER_METAL_ENRICHMENT.md`](docs/AGENT_POWER_METAL_ENRICHMENT.md)
+- **Lead guitar (slides, finger vibrato, articulation manifest):**
+  [`docs/LEAD_GUITAR_ARTICULATIONS.md`](docs/LEAD_GUITAR_ARTICULATIONS.md)
 - **Measured lessons:** [`LESSONS.md`](LESSONS.md)
 - **Current accepted state:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)
 - **Open issues from code review:** [`ROADMAP.md`](ROADMAP.md)

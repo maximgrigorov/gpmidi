@@ -98,10 +98,10 @@
   semitones; at the old range of 2 anything deeper pinned at 8191 (14 events),
   rendering as rise + PLATEAU + jump — the "staircase" the user hand-fixed in
   Logic. Darkwall's range is still the unverified default of 2.
-- Still broken, not yet approved to fix: `SLIDE_BEND_ST = 2.0` bends a fixed
-  2 semitones toward the next note instead of gliding to its pitch, and the whole
-  `fx_keyswitches` block (incl. `legato_slide_to_next`, the proper tool for
-  slides up to 12 semitones) is dead config, referenced nowhere in the code.
+- By default `SLIDE_BEND_ST = 2.0` still bends a fixed 2 semitones toward the
+  next note. `--slide-to-target` (opt-in, see "Lead guitar" below) glides to the
+  real pitch. `fx_keyswitches.legato_slide_to_next` is used only behind
+  `slide_to_target.native.verified`, which is `false` until checked in Kontakt.
 
 ## Smoke verification
 - `verify_midi.py` runs automatically after each track (`--no-verify` disables).
@@ -171,6 +171,35 @@
   when note/rhythm edits were explicitly requested and report them.
 - Generated per-song MIDI, audio, GP files and helper scripts are listening
   artifacts and must not be committed.
+
+## Lead guitar: slides and articulation context — opt-in, requested 2026-10-14
+- Reference: `docs/LEAD_GUITAR_ARTICULATIONS.md` (CC1 vs finger vibrato,
+  fallbacks, manifest fields, workflow, Hydra/Kontakt limits).
+- `--slide-to-target` (CLI only, not in the web UI): shift/legato slides step
+  the PB to the real interval of the next note on the same string, one event
+  per fret, reset before the target attack; slide-in scoops on the attack,
+  slide-out falls by type. `plan_slides_to_target` runs after tail clipping and
+  before vibrato (the native slide extends the source note). Timing numbers in
+  the `slide_to_target` section of the Hydra map are unmeasured starting values.
+- No slide PB when another note sounds under the glide (PB is channel-wide;
+  parallel slides of the same interval share one curve), with an authored bend
+  on the source or a pre-bent target, on harmonics/tapping, without a target or
+  with the target after more than a quarter rest. Intervals >= the PB range keep
+  the old 2-semitone depth, in the true direction.
+- Native Hydra Legato Slide (C0): only `legatoSlideTo`, monophonic, 1-12
+  semitones, and only when the map says `verified: true` (it says false). It is
+  held through the target attack and the source overlaps the target like a hammer.
+- `--articulation-manifest` writes `<base>_articulations.json` (Guitar/Bass):
+  per note articulation, keyswitch, string/fret, bend/slide/legato/vibrato,
+  polyphony and `finger_vibrato.skip_reasons`. It never changes MIDI.
+- `solo_expression_humanize.py`: `--articulation-manifest` (only eligible notes,
+  fails closed on PPQ/track mismatch), `--skip-cc1-vibrato-notes`,
+  `--finger-vibrato-placement phrase`. All filter before the random draw: the
+  default pass is byte-identical. Measured (seed 23): the uniform pass put PB
+  vibrato on 7/14/7 notes of Spring Melody / Through the Night / pnd, mostly
+  GP CC1-vibrato notes and harmonics; with the manifest 1/3/2 remain.
+- Without the flags, 228 MIDI files (3 songs x 6 flag combinations) are
+  byte-identical to `main`.
 
 ## Fret-hand cost (guitar) — opt-in, approved 2026-09-24
 - `--fret-hand-cost` (CLI, only together with `--humanize`; the parser rejects it
@@ -319,9 +348,11 @@
   playbacks, so a track whose first section is plain sustain used to inherit
   whatever was selected last (Solo Guitar had notes from bar 8 but its first
   keyswitch at bar 58, so Hydra played the whole first solo on Harmonics).
-- `SLIDE_BEND_ST = 2.0` bends a fixed 2 semitones toward the next note instead of
-  gliding to its pitch; `fx_keyswitches.legato_slide_to_next` (the proper tool,
-  up to 12 semitones) is dead config referenced nowhere.
+- Slides: the default is still the fixed `SLIDE_BEND_ST = 2.0`. Whether
+  `--slide-to-target` should become the default is to be judged by ear; the
+  native Legato Slide keyswitch is unverified in the preset.
+- Authored GP bends inside double-stops/chords still bend every sounding note
+  (channel-wide PB); the manifest marks them `polyphony`. No MIDI-only fix.
 - Darkwall `pitch_bend_range: 2` is still the unverified manual default.
 - `<Note>` carries `RelativeVelocity` (191 notes) and `Accent` (18) as child
   elements, not Properties. Unverified whether ApolloTab surfaces them — if not,

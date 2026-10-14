@@ -16,6 +16,8 @@ belong in a separate candidate and must never overwrite the accepted baseline.
 |---|---|---|
 | Preserve notes; vary pick velocity or existing CC1/PB | `solo_expression_humanize.py` | Notes, timing, durations, service notes and authored PB anchors immutable |
 | Add left-hand string motion to long Lead notes | `--finger-vibrato` | Long monophonic notes only; authored bends excluded |
+| Same, only where the score allows it | `--finger-vibrato --articulation-manifest` | Converter sidecar excludes harmonics, pinch, tapping, bends, slides, chords, CC1 vibrato |
+| Real slide pitch instead of a fixed 2 semitones | `gp_to_shreddage.py --slide-to-target` | Converter flag; no PB under polyphony or authored bends |
 | Add/remove notes, fix drums, rewrite a rhythm figure | Agent-authored full candidate | Explicit musical edit; report every changed track and bar |
 | Import the result into Logic | `midi_patch_export.py` | Conductor plus only semantically changed tracks |
 
@@ -93,6 +95,12 @@ for spec in subtle:17 natural:23 natural:31 expressive:29; do
     --changed-tracks-only --manifest "lead-${style}-${seed}.json"
 done
 ```
+
+For lead guitar, export with `--slide-to-target --articulation-manifest` and
+pass the sidecar to the post-pass, optionally with
+`--finger-vibrato-placement phrase`. See
+[`LEAD_GUITAR_ARTICULATIONS.md`](LEAD_GUITAR_ARTICULATIONS.md) for the full
+workflow and the Hydra/Kontakt limits.
 
 Never solve a bad harmonic or a missing final bend by adding automatic vibrato.
 First repair the articulation/note/range error, then enrich the surviving long
@@ -182,7 +190,8 @@ measured lessons in Git.
 Minimum local gate for these utilities:
 
 ```bash
-python -m pytest -q test_solo_expression_humanize.py test_midi_patch_export.py
+python -m pytest -q test_solo_expression_humanize.py test_midi_patch_export.py \
+  test_lead_finger_vibrato.py test_slide_to_target.py test_articulation_manifest.py
 python -m ruff check solo_expression_humanize.py midi_patch_export.py \
   test_solo_expression_humanize.py test_midi_patch_export.py
 git diff --check
