@@ -40,6 +40,6 @@ Web app: `PORT=8765 SECRET_KEY=dev GPMIDI_DATA_ROOT=/tmp/gpmidi-data .venv/bin/p
 
 ## Current work
 
-- Web UI as a step-by-step wizard: plan `docs/UI_WIZARD_PLAN.md`, design brief
-  `docs/CLAUDE_DESIGN_PROMPT.md`, approved mockup `docs/design/wizard-v2/`,
-  implementation task `docs/codex-ui-wizard-task.md`. Conversion semantics must not change.
+- The web UI is a five-step wizard with build versions, in English (terms in
+  `docs/UI_GLOSSARY.md`); see the "Web UI" section of AGENTS.md. Conversion
+  semantics must not change: `test_ui_form_golden.py` guards the MIDI bytes.
