@@ -13,7 +13,7 @@
 
 instrument: "Shreddage 3.5 Hydra"
 library_version: "3.5"
-config_version: 3
+config_version: 4
 
 # Дефолт мануала: +/- 2 полутона (НЕ 6). Если пользователь менял ручку
 # PITCH BEND RANGE в Kontakt (MAIN tab) — обновить здесь и только здесь.
@@ -87,6 +87,31 @@ fx_keyswitches:
   # keyswitches), как и всё в этом файле (LESSONS.md п.10).
   picking_mode_up:   108      # C7
   picking_mode_down: 109      # C#7
+
+# Слайд к следующей ноте (--slide-to-target, opt-in; без флага не читается).
+# GP shiftSlideTo / legatoSlideTo: высота ведётся к РЕАЛЬНОЙ следующей ноте на
+# той же струне, а не на фиксированные 2 полутона (SLIDE_BEND_ST). Глайд
+# ступенчатый — одно PB-событие на пройденный лад, как палец по ладам.
+# Тайминг — стартовые значения, НЕ замер: решать на слух (LESSONS.md, п.10).
+slide_to_target:
+  glide_ms_per_semitone: 20   # длительность глайда = интервал x это, в пределах:
+  glide_min_ms: 50            # (50 мс — прежний SLIDE_LEAD_MS)
+  glide_max_ms: 200
+  max_note_fraction: 0.5      # глайд не длиннее половины ноты-источника
+  slide_in_semitones: 2       # intoFromBelow/Above: заход снизу/сверху на атаке
+  slide_out_semitones: 2      # outDownwards/Upwards: срыв в конце ноты
+  max_rest_frac16: 4          # цель дальше паузы в четверть — семантика сомнительна, пропуск
+  # Нативный Hydra Legato Slide (fx_keyswitches.legato_slide_to_next, C0):
+  # non-latching, до 12 полутонов, срабатывает на ЛЕГАТО-переходе (перекрытие
+  # источника и цели). Код держит KS нажатым через атаку цели и продлевает
+  # источник внахлёст, как hammer. НЕ ПРОВЕРЕНО в пресете (нота C0, hold vs
+  # press, что Legato включено) — поэтому verified: false, и вместо KS идёт
+  # pitch bend. Включать только после проверки в Kontakt (вкладка TACT).
+  # Только legatoSlideTo: shiftSlideTo по определению бьёт цель заново.
+  native:
+    keyswitch: legato_slide_to_next
+    max_semitones: 12
+    verified: false
 
 # Опциональное «оживление» сустейнов. Само наличие профиля MIDI не меняет:
 # каждый механизм включается отдельным CLI/UI-флагом и детерминирован seed.

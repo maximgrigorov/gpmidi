@@ -17,6 +17,7 @@ gp_to_shreddage.py
                                        [--no-expand-gp-hidden-32nds]
                                        [--preserve-gp-played-offsets |
                                         --no-preserve-gp-played-offsets]
+                                       [--slide-to-target] [--articulation-manifest]
 
 Результат: рядом с исходным файлом создаётся папка "<имя_файла>_midi/"
 с одним MIDI-файлом (Type 0) на каждый трек (имя файла = название трека)
@@ -55,6 +56,16 @@ gp_to_shreddage.py
                    строгое чередование по взятым нотам.
     --palm-mute-motion  (только с --humanize) velocity P.M.-ударов дрейфует
                    плавно, как давление ладони; в Hydra нужен Vel -> Tightness.
+    --slide-to-target  shift/legato slide ведёт высоту к РЕАЛЬНОЙ следующей ноте
+                   на струне (PB по ладам; нативный Hydra Legato Slide — только
+                   если он помечен verified в карте артикуляций), slide in — заход
+                   на атаке, slide out — срыв по типу. Глайд под чужой нотой
+                   пропускается: PB действует на весь канал. Без флага — прежние
+                   фиксированные SLIDE_BEND_ST полутонов.
+    --articulation-manifest  рядом с MIDI "<имя>_articulations.json": по каждой
+                   ноте Guitar/Bass артикуляция, keyswitch, струна/лад, бенд/слайд/
+                   легато, полифония и почему нельзя автоматический finger vibrato.
+                   Вход для solo_expression_humanize.py --articulation-manifest.
     --no-verify    не гонять смок-проверку выхлопа (verify_midi.py)
 
 ВАЖНО: оживление обязано применяться ПОСЛЕ Guitar Pro и ДО сэмплера. Нотация не
@@ -221,7 +232,8 @@ PITCH_BEND_MIN = -8192
 SEMITONES_PER_BEND_UNIT = 0.5
 BEND_STEP_MS = 10               # шаг кривой бенда
 SLIDE_LEAD_MS = 50              # за сколько до конца ноты начинать слайд
-SLIDE_BEND_ST = 2.0             # глубина слайда в полутонах
+SLIDE_BEND_ST = 2.0             # глубина слайда в полутонах (прежний режим;
+                                # реальная цель — --slide-to-target)
 
 # --- Вибрато (для обоих инструментов) ---
 # CC1 у Shreddage — это ручка VIBRATO AMOUNT, то есть ГЛУБИНА собственного
@@ -841,6 +853,369 @@ def hidden_32nd_note_timing(beat, enabled=False):
 LEGATO_SLIDE_TYPES = (SlideType.shiftSlideTo, SlideType.legatoSlideTo)
 
 
+# --------------------------------------------------------------------------- #
+#  Слайд к реальной цели (--slide-to-target, opt-in)
+# --------------------------------------------------------------------------- #
+# Без флага работает прежний emit_slide: фиксированные SLIDE_BEND_ST полутонов
+# в сторону следующей ноты, на любой полифонии. С флагом:
+#   shift/legato slide-to -> PB до РЕАЛЬНОЙ высоты следующей ноты на струне
+#     (или нативный Hydra Legato Slide, если он проверен в конфиге);
+#   slide in (intoFromBelow/Above) -> заход на АТАКЕ ноты, а не в её конце;
+#   slide out (outDownwards/Upwards) -> срыв в сторону, заданную ТИПОМ.
+# Pitch Bend действует на весь канал, поэтому любой глайд, под который звучит
+# другая нота (кроме параллельного слайда на тот же интервал), пропускается.
+SLIDE_IN_SIGN = {SlideType.intoFromBelow: -1, SlideType.intoFromAbove: 1}
+SLIDE_OUT_SIGN = {SlideType.outDownwards: -1, SlideType.outUpwards: 1}
+SLIDE_TO_TARGET_DEFAULTS = {
+    "glide_ms_per_semitone": 20.0,
+    "glide_min_ms": float(SLIDE_LEAD_MS),
+    "glide_max_ms": 200.0,
+    "max_note_fraction": 0.5,
+    "slide_in_semitones": SLIDE_BEND_ST,
+    "slide_out_semitones": SLIDE_BEND_ST,
+    "max_rest_frac16": 4.0,
+}
+
+
+def slide_to_target_settings(cfg):
+    """Настройки слайда из конфига инструмента поверх дефолтов модуля."""
+    section = (cfg or {}).get("slide_to_target") or {}
+    settings = dict(SLIDE_TO_TARGET_DEFAULTS)
+    settings.update({key: float(section[key]) for key in SLIDE_TO_TARGET_DEFAULTS
+                     if key in section})
+    native = section.get("native") or {}
+    fx = (cfg or {}).get("fx_keyswitches") or {}
+    ks_name = native.get("keyswitch")
+    settings["native_note"] = (int(fx[ks_name]) if native.get("verified") is True
+                               and ks_name in fx else None)
+    settings["native_max_semitones"] = int(native.get("max_semitones", 12))
+    return settings
+
+
+def _slide_name(slide):
+    return getattr(slide, "name", str(slide))
+
+
+def _note_harmonic(note):
+    harmonic = note.effect.harmonic
+    return type(harmonic).__name__ if harmonic is not None else None
+
+
+def _note_tapping(note, beat=None):
+    return _canonical_articulation(note, beat) in ("tapping", "tapped_harmonics")
+
+
+def _has_prebend(note):
+    bend = note.effect.bend
+    if not bend or not bend.points:
+        return False
+    first = min(bend.points, key=lambda point: point.position)
+    return float(first.value) != 0.0
+
+
+def _glide_ticks(start_tick, end_tick, semitones, bpm, settings):
+    """Длина глайда: по интервалу, в пределах [min, max] мс и доли ноты."""
+    ms = max(settings["glide_min_ms"],
+             min(settings["glide_max_ms"],
+                 settings["glide_ms_per_semitone"] * abs(semitones)))
+    room = int((end_tick - start_tick) * settings["max_note_fraction"])
+    return max(0, min(ms_to_ticks(ms, bpm), room))
+
+
+def emit_held_keyswitch(ev, tick, note, bpm):
+    """Non-latching keyswitch: нажат за KS_LEAD_MS до атаки и держится столько же после."""
+    lead = ms_to_ticks(KS_LEAD_MS, bpm)
+    ev.add(max(0, tick - lead), ORDER_KS,
+           Message("note_on", channel=CHANNEL, note=note, velocity=KS_VELOCITY))
+    ev.add(tick + lead, ORDER_KS, Message("note_off", channel=CHANNEL, note=note, velocity=0))
+
+
+def _glide_points(begin_tick, end_tick, from_st, to_st, pb_range):
+    """Ступенчатая кривая по ладам: begin=from_st ... end=to_st, одно событие на лад."""
+    steps = max(1, int(math.ceil(abs(to_st - from_st) - 1e-9)))
+    points = {begin_tick: semitones_to_pitchwheel(from_st, pb_range)}
+    for k in range(1, steps + 1):
+        tick = begin_tick + int(round((end_tick - begin_tick) * k / steps))
+        points[tick] = semitones_to_pitchwheel(from_st + (to_st - from_st) * k / steps, pb_range)
+    return sorted(points.items())
+
+
+def _overlapping(spans, begin, end, exclude):
+    return [span for span in spans
+            if id(span) not in exclude and span["start"] < end and begin < span["off"]["tick"]]
+
+
+def plan_slides_to_target(ev, spans, pb_range, settings, stats):
+    """Разрешить слайды всех нот трека. Вызывается ПОСЛЕ обрезки хвостов.
+
+    Каждая нота-источник получает span["slide"] = {type, resolution, interval,
+    reason}. Нативный слайд продлевает источник внахлёст в цель (легато Hydra),
+    поэтому его надо разрешать до вибрато: их кривые берут конец из off_rec.
+    """
+    summary = stats.setdefault("slide_to_target", {})
+
+    def count(key):
+        summary[key] = summary.get(key, 0) + 1
+
+    def skip(span, slide_type, reason, interval=None):
+        span["slide"] = {"type": _slide_name(slide_type), "resolution": "skipped",
+                         "interval": interval, "reason": reason}
+        count("skipped:" + reason)
+
+    by_string = {}
+    for span in spans:
+        by_string.setdefault(span["string"], []).append(span)
+    for line in by_string.values():
+        line.sort(key=lambda item: (item["grid_start"], item["start"]))
+    max_rest = settings["max_rest_frac16"] * TICKS_PER_BEAT / 4
+
+    # --- 1. slide-to: цель, интервал, окно ---
+    candidates = []
+    for span in spans:
+        note = span["note"]
+        slide = next((s for s in note.effect.slides or [] if s in LEGATO_SLIDE_TYPES), None)
+        if slide is None:
+            continue
+        line = by_string[span["string"]]
+        index = line.index(span)
+        target = line[index + 1] if index + 1 < len(line) else None
+        if target is None:
+            skip(span, slide, "no_target")
+            continue
+        interval = target["pitch"] - span["pitch"]
+        if target["grid_start"] - span["grid_end"] > max_rest:
+            skip(span, slide, "target_after_rest", interval)
+        elif span["harmonic"] or target["harmonic"]:
+            skip(span, slide, "harmonic", interval)
+        elif span["tapping"]:
+            skip(span, slide, "tapping", interval)
+        elif span["bend_segments"]:
+            skip(span, slide, "authored_bend", interval)
+        elif _has_prebend(target["note"]):
+            skip(span, slide, "target_prebend", interval)
+        elif interval == 0:
+            skip(span, slide, "same_pitch", 0)
+        else:
+            end = min(span["off"]["tick"], target["start"])
+            if end <= span["start"]:
+                skip(span, slide, "no_room", interval)
+                continue
+            begin = end - _glide_ticks(span["start"], end, interval, span["bpm"], settings)
+            candidates.append({"span": span, "target": target, "slide": slide,
+                               "interval": interval, "begin": begin, "end": end})
+
+    # --- 2. полифония: глайд только если под ним звучат лишь параллельные слайды ---
+    by_id = {id(c["span"]): c for c in candidates}
+    emitted = set()
+    for cand in candidates:
+        span, target = cand["span"], cand["target"]
+        others = _overlapping(spans, cand["begin"], cand["end"], {id(span), id(target)})
+        parallel = all(
+            id(other) in by_id
+            and (by_id[id(other)]["interval"], by_id[id(other)]["begin"], by_id[id(other)]["end"])
+            == (cand["interval"], cand["begin"], cand["end"])
+            for other in others)
+        if others and not parallel:
+            skip(span, cand["slide"], "polyphony", cand["interval"])
+            continue
+        target["slide_target"] = True
+        size = abs(cand["interval"])
+        native_ok = (settings["native_note"] is not None and not others
+                     and cand["slide"] == SlideType.legatoSlideTo
+                     and size <= settings["native_max_semitones"])
+        if native_ok:
+            # Легато-переход Hydra = перекрытие источника и цели, как у hammer.
+            emit_held_keyswitch(ev, target["start"], settings["native_note"], span["bpm"])
+            span["off"]["tick"] = max(span["off"]["tick"],
+                                      target["start"] + ms_to_ticks(LEGATO_OVERLAP_MS, span["bpm"]))
+            stats["ks"] += 1
+            resolution, reason, depth = "native_keyswitch", None, None
+        elif size < pb_range:
+            resolution, reason, depth = "pitch_bend_to_target", None, float(cand["interval"])
+        else:
+            # Реальная цель глубже шкалы PB: прежний частичный глайд, но в
+            # ВЕРНУЮ сторону и без утечки на чужие ноты.
+            depth = math.copysign(min(SLIDE_BEND_ST, pb_range - 1), cand["interval"])
+            resolution, reason = "fixed_depth_fallback", "interval_exceeds_pitch_bend_range"
+        span["slide"] = {"type": _slide_name(cand["slide"]), "resolution": resolution,
+                         "interval": cand["interval"], "reason": reason}
+        count(resolution)
+        key = (cand["begin"], cand["end"], depth)
+        if depth is not None and key not in emitted:
+            emitted.add(key)
+            points = _glide_points(cand["begin"], cand["end"] - 1, 0.0, depth, pb_range)
+            for tick, value in points:
+                ev.add(tick, ORDER_CTRL, Message("pitchwheel", channel=CHANNEL, pitch=value))
+            ev.add(cand["end"], ORDER_RESET, Message("pitchwheel", channel=CHANNEL, pitch=0))
+
+    # --- 3. slide in / slide out: глубина по типу, тот же запрет полифонии ---
+    for span in spans:
+        if span.get("slide") is not None:
+            continue
+        note = span["note"]
+        slides = note.effect.slides or []
+        slide_in = next((s for s in slides if s in SLIDE_IN_SIGN), None)
+        slide_out = next((s for s in slides if s in SLIDE_OUT_SIGN), None)
+        slide = slide_in or slide_out
+        if slide is None:
+            continue
+        if span["harmonic"]:
+            skip(span, slide, "harmonic")
+            continue
+        if span["tapping"]:
+            skip(span, slide, "tapping")
+            continue
+        if span["bend_segments"]:
+            skip(span, slide, "authored_bend")
+            continue
+        start, off = span["start"], span["off"]["tick"]
+        if slide_in is not None:
+            if span.get("slide_target"):
+                skip(span, slide, "approached_by_slide")
+                continue
+            depth = min(settings["slide_in_semitones"], pb_range - 1)
+            begin = start
+            end = start + _glide_ticks(start, off, depth, span["bpm"], settings)
+            values = (SLIDE_IN_SIGN[slide] * depth, 0.0)
+            resolution = "slide_in"
+        else:
+            depth = min(settings["slide_out_semitones"], pb_range - 1)
+            begin = off - _glide_ticks(start, off, depth, span["bpm"], settings)
+            end, values = off, (0.0, SLIDE_OUT_SIGN[slide] * depth)
+            resolution = "slide_out"
+        if end - begin < 2 or _overlapping(spans, begin, end, {id(span)}):
+            skip(span, slide, "polyphony" if end - begin >= 2 else "no_room")
+            continue
+        span["slide"] = {"type": _slide_name(slide), "resolution": resolution,
+                         "interval": None, "reason": None}
+        count(resolution)
+        falls = resolution == "slide_out"
+        for tick, value in _glide_points(begin, end - 1 if falls else end,
+                                         values[0], values[1], pb_range):
+            ev.add(tick, ORDER_CTRL, Message("pitchwheel", channel=CHANNEL, pitch=value))
+        if falls:
+            ev.add(off, ORDER_RESET, Message("pitchwheel", channel=CHANNEL, pitch=0))
+
+
+# --------------------------------------------------------------------------- #
+#  Отчёт об артикуляциях (sidecar JSON для post-processing)
+# --------------------------------------------------------------------------- #
+ARTICULATION_MANIFEST_SCHEMA = 1
+
+
+def _overlap_flags(spans):
+    """id(span) -> звучит ли одновременно с другой нотой (по окончательным концам)."""
+    flags = dict.fromkeys(map(id, spans), False)
+    active = []
+    for span in sorted(spans, key=lambda item: item["start"]):
+        active = [other for other in active if other["off"]["tick"] > span["start"]]
+        if active:
+            flags[id(span)] = True
+            for other in active:
+                flags[id(other)] = True
+        active.append(span)
+    return flags
+
+
+def _finger_vibrato_skip_reasons(span, polyphony):
+    """Почему на ноту нельзя автоматически класть finger vibrato (pitch bend).
+
+    Pitch Bend — на весь канал, а у Hydra своя логика гармоник/тэппинга: любая
+    из этих причин делает автоматическую экспрессию конфликтной.
+    """
+    eff = span["note"].effect
+    reasons = []
+    if polyphony != "mono":
+        reasons.append("polyphony")
+    if span["harmonic"]:
+        reasons.append("harmonic")
+    if span["is_pinch"]:
+        reasons.append("pinch_harmonic")
+    if span["tapping"]:
+        reasons.append("tapping")
+    if span["art"] not in ("sustain", "harmonics", "pinch_harmonics", "tapping"):
+        reasons.append("articulation:" + span["art"])
+    if span["bend_segments"]:
+        reasons.append("authored_bend")
+    if eff.slides:
+        reasons.append("slide_source")
+    if eff.hammer:
+        reasons.append("legato_source")
+    if eff.vibrato:
+        reasons.append("gp_vibrato_cc1")
+    if span.get("auto_vibrato"):
+        reasons.append("auto_cc1_vibrato")
+    return reasons
+
+
+def articulation_manifest_track(track, track_type, cfg, pb_range, spans,
+                                slide_to_target=False):
+    """Отчёт по нотам одной дорожки: что сыграно, какой артикуляцией и почему
+    на ноту нельзя класть автоматическую экспрессию. Тики — те же, что в MIDI
+    (TICKS_PER_BEAT), так что post-pass сопоставляет ноты по (тик атаки, высота).
+    """
+    flags = _overlap_flags(spans)
+    notes = []
+    reasons_total = {}
+    for span in sorted(spans, key=lambda item: (item["start"], item["pitch"])):
+        note = span["note"]
+        eff = note.effect
+        if not flags[id(span)]:
+            polyphony = "mono"
+        elif span["beat_notes"] > 2:
+            polyphony = "chord"
+        elif span["beat_notes"] == 2:
+            polyphony = "double_stop"
+        else:
+            polyphony = "overlap"
+        reasons = _finger_vibrato_skip_reasons(span, polyphony)
+        for reason in reasons:
+            reasons_total[reason] = reasons_total.get(reason, 0) + 1
+        slide = span.get("slide")
+        if slide is None and eff.slides and not slide_to_target:
+            slide = {"type": _slide_name(eff.slides[0]), "resolution": "legacy_fixed_depth",
+                     "interval": None, "reason": None}
+        notes.append({
+            "source": "gp",
+            "bar": span["bar"],
+            "voice": span["string"][0],
+            "string": span["string"][1],
+            "fret": int(note.value),
+            "pitch": span["pitch"],
+            "on_tick": span["start"],
+            "off_tick": span["off"]["tick"],
+            "grid_tick": span["grid_start"],
+            "velocity": span["velocity"],
+            "articulation": span["art"],
+            "keyswitch": span["ks_note"],
+            "harmonic": span["harmonic"],
+            "pinch_harmonic": span["is_pinch"],
+            "tapping": span["tapping"],
+            "bend": bool(span["bend_segments"]),
+            "slides": [_slide_name(item) for item in eff.slides or []],
+            "slide": slide,
+            "slide_target": bool(span.get("slide_target")),
+            "legato_source": bool(eff.hammer),
+            "vibrato": (getattr(eff, "vibratoType", None) or "unknown") if eff.vibrato else None,
+            "auto_cc1_vibrato": bool(span.get("auto_vibrato")),
+            "polyphony": polyphony,
+            "finger_vibrato": {"eligible": not reasons, "skip_reasons": reasons},
+        })
+    return {
+        "name": track.name or "",
+        "track_type": track_type,
+        "config": config_label(cfg),
+        "pitch_bend_range": pb_range,
+        "slide_mode": "target" if slide_to_target else "legacy_fixed_depth",
+        "summary": {
+            "notes": len(notes),
+            "finger_vibrato_eligible": sum(1 for item in notes if item["finger_vibrato"]["eligible"]),
+            "skip_reasons": dict(sorted(reasons_total.items())),
+        },
+        "notes": notes,
+    }
+
+
 def beat_hand_position(beat):
     """Позиция левой руки на бите: медиана прижатых ладов, иначе None.
 
@@ -950,11 +1325,17 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                           fret_hand_cost=False, keep_gp_played_overlaps=False,
                           humanize_timing_over_gp_offsets=False,
                           lock_to_drums=False, drum_timeline=None,
-                          pick_direction=False, palm_mute_motion=False):
+                          pick_direction=False, palm_mute_motion=False,
+                          slide_to_target=False, articulation_report=None):
     """Собрать MidiTrack для гитарного/басового трека. Вернуть (track, stats).
 
     Маппинг keyswitch-ей и Pitch Bend Range берутся из версионируемого
-    конфига инструмента (config/articulation_maps/*.yaml)."""
+    конфига инструмента (config/articulation_maps/*.yaml).
+
+    slide_to_target — слайды к реальной высоте следующей ноты (см.
+    plan_slides_to_target); без флага прежний фиксированный emit_slide.
+    articulation_report — dict, который заполняется отчётом по нотам
+    (articulation_manifest_track) для post-processing; MIDI он не меняет."""
     cfg = cfg or config_for_track_type(track_type)
     stats = {"notes": 0, "ks": 0, "cc1": 0, "auto_vibrato_notes": 0,
              "fret_noise_events": 0, "hidden_32nd_beats": 0,
@@ -1103,6 +1484,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                       if "min_fret_shift" in fret_cfg else None)
 
     items = list(iter_voice_beats_with_canonical_ticks(track))
+    bar_of = {id(m): number for number, m in enumerate(track.measures, start=1)}
     for item_index, (measure, voice, vi, bi, beat, measure_start_tick, start_tick, dur) in enumerate(items):
         # last_off keyed by voice INDEX (not id(voice)): GP8/GPIF import creates a
         # fresh voice object per measure, so id(voice) breaks tie linking across
@@ -1431,6 +1813,16 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 "ref_end": ref_end,
                 "grid_start": grid_tick,
                 "grid_end": grid_tick + dur,
+                # контекст артикуляции: слайды и отчёт для post-processing
+                "note": note,
+                "bar": bar_of.get(id(measure)),
+                "velocity": velocity,
+                "art": art_name,
+                "is_pinch": is_pinch,
+                "ks_note": ks_note,
+                "harmonic": _note_harmonic(note),
+                "tapping": _note_tapping(note, beat),
+                "beat_notes": len(fresh_notes),
             }
             all_note_spans.append(note_span)
             last_off[note.string] = off_rec
@@ -1468,10 +1860,11 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 pending_auto_vibrato.append(note_span)
 
             if eff.slides:
-                next_pitch = _next_note_pitch(items, item_index, vi,
-                                              note.string, string_pitch)
-                pending_slides.append((on_tick, off_rec, eff.slides, pitch,
-                                       next_pitch, cur_bpm))
+                if not slide_to_target:     # с флагом слайды разрешаются после цикла
+                    next_pitch = _next_note_pitch(items, item_index, vi,
+                                                  note.string, string_pitch)
+                    pending_slides.append((on_tick, off_rec, eff.slides, pitch,
+                                           next_pitch, cur_bpm))
                 pb_dirty = True
 
         # --- состояние рук для следующего бита (только при fret_hand_cost / pick_direction) ---
@@ -1508,6 +1901,13 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                                                                   legato_bridged)
     else:
         stats["same_pitch_clipped_notes"] = clip_same_pitch_overlaps(all_note_spans)
+
+    # Слайды к реальной цели — после обрезки хвостов (окно глайда и проверка
+    # полифонии берут окончательные концы нот) и ДО вибрато: нативный слайд
+    # продлевает источник внахлёст, а кривая CC1 берёт конец из off_rec.
+    if slide_to_target:
+        plan_slides_to_target(ev, all_note_spans, pb_range,
+                              slide_to_target_settings(cfg), stats)
 
     # Бенды, слайды и вибрато рисуем ЗДЕСЬ, когда все лиги отработали и
     # off_rec["tick"] у каждой ноты содержит её настоящий конец.
@@ -1572,6 +1972,7 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
                 ramp_ms=float(auto_cfg.get("ramp_ms", 180)),
                 release_ms=float(auto_cfg.get("release_ms", 120)),
             )
+            item["auto_vibrato"] = True
             stats["auto_vibrato_notes"] += 1
 
     # сброс артикуляции в sustain в конце трека
@@ -1579,6 +1980,11 @@ def build_instrument_midi(song, track, track_type, cfg=None, humanize=False,
         reset_tick = max(last_end_tick, last_palm_tick + 1)
         emit_keyswitch(ev, reset_tick, sustain_ks, cur_bpm)
         stats["ks"] += 1
+
+    if articulation_report is not None:
+        articulation_report.update(articulation_manifest_track(
+            track, track_type, cfg, pb_range, all_note_spans,
+            slide_to_target=slide_to_target))
 
     return ev.to_miditrack(), stats
 
@@ -1939,6 +2345,30 @@ def build_combined_midi(midi_tracks, ticks_per_beat=TICKS_PER_BEAT):
     return mf
 
 
+def write_articulation_manifest(path, source, options, tracks, combined_file=None):
+    """Sidecar JSON: артикуляции по нотам для solo_expression_humanize.py.
+
+    Только GUITAR/BASS: у барабанов и OTHER нет ни keyswitch-ей, ни PB.
+    Генерируемый артефакт — в репозиторий не коммитится.
+    """
+    import json
+    payload = {
+        "schema_version": ARTICULATION_MANIFEST_SCHEMA,
+        "kind": "gpmidi_articulation_manifest",
+        "source": os.path.basename(source),
+        "ticks_per_beat": TICKS_PER_BEAT,
+        "combined_file": combined_file,
+        "options": {key: options[key] for key in (
+            "slide_to_target", "humanize", "seed", "auto_sustain_vibrato",
+            "preserve_gp_played_offsets", "expand_gp_hidden_32nds")},
+        "tracks": tracks,
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=1)
+        handle.write("\n")
+    return payload
+
+
 def _next_note_pitch(items, item_index, vi, string, string_pitch):
     """Питч следующей РЕАЛЬНОЙ ноты на той же струне (направление слайда).
 
@@ -1975,6 +2405,7 @@ def parse_cli_options(argv):
         "--keep-gp-played-overlaps", "--humanize-timing-over-gp-offsets",
         "--lock-to-drums", "--double-rhythm-guitars",
         "--pick-direction", "--palm-mute-motion",
+        "--slide-to-target", "--articulation-manifest",
     }
     # A typo like --humanise used to be silently ignored, so the export ran in a
     # different mode than the caller asked for and nothing said so.
@@ -2023,6 +2454,8 @@ def parse_cli_options(argv):
         "double_rhythm_guitars": "--double-rhythm-guitars" in flags,
         "pick_direction": "--pick-direction" in flags,
         "palm_mute_motion": "--palm-mute-motion" in flags,
+        "slide_to_target": "--slide-to-target" in flags,
+        "articulation_manifest": "--articulation-manifest" in flags,
     }
 
 
@@ -2047,7 +2480,7 @@ def main(argv):
                  "[--fret-hand-cost] [--keep-gp-played-overlaps] "
                  "[--humanize-timing-over-gp-offsets] [--lock-to-drums] "
                  "[--double-rhythm-guitars] [--pick-direction] [--palm-mute-motion] "
-                 "[--seed=N]\n"
+                 "[--slide-to-target] [--articulation-manifest] [--seed=N]\n"
                  "  --humanize    velocity + микро-тайминг; без флага выхлоп прежний\n"
                  "  --ghost-notes добавить гост-ноты по рабочему (МЕНЯЕТ партию)\n"
                  "  --auto-sustain-vibrato мягкий CC1 на длинных монодических solo sustain\n"
@@ -2062,6 +2495,8 @@ def main(argv):
                  "  --pick-direction направление медиатора keyswitch-ами Hydra (Picking Mode)\n"
                  "  --palm-mute-motion глушение как движение руки: дрейф velocity P.M. (с --humanize)\n"
                  "  --fret-hand-cost задержка атаки при переносе руки (только с --humanize)\n"
+                 "  --slide-to-target слайд к реальной высоте следующей ноты (а не +-2 полутона)\n"
+                 "  --articulation-manifest <имя>_articulations.json: артикуляции по нотам\n"
                  "  --no-verify   не гонять смок-проверку выхлопа")
 
     src = options["source"]
@@ -2083,6 +2518,7 @@ def main(argv):
     warnings = []
     smoke_errors = []
     all_tracks = []
+    manifest_tracks = []
 
     # Ритм-секция вместе: барабаны строятся ПЕРВЫМИ, их тайминг получают бас и
     # гитары (--lock-to-drums). Барабанная дорожка может стоять в песне после
@@ -2151,8 +2587,10 @@ def main(argv):
             lock_to_drums=options["lock_to_drums"], drum_timeline=drum_timeline,
             pick_direction=options["pick_direction"],
             palm_mute_motion=options["palm_mute_motion"],
+            slide_to_target=options["slide_to_target"],
             **render,
         )
+        report = {} if options["articulation_manifest"] else None
         if track_type == TRACK_DRUMS:
             midi_track, stats = prebuilt_drums.get(idx) or build_drum_midi(
                 song, track, humanize=humanize, humanize_seed=seed,
@@ -2162,7 +2600,7 @@ def main(argv):
         else:
             midi_track, stats = build_instrument_midi(
                 song, track, track_type, humanize_seed=seed, performance_seed=seed,
-                **instrument_kwargs)
+                articulation_report=report, **instrument_kwargs)
             if render["preserve_gp_played_offsets"]:
                 print("  [%s]: сохранены авторские сдвиги атак GP (%d нот)"
                       % (track.name, stats["played_offset_notes"]))
@@ -2178,6 +2616,10 @@ def main(argv):
         name = safe_filename(track.name) or ("Track_%d" % idx)
         display = track.name or "(без имени)"
         write_track(name, display, track_type, midi_track, stats)
+        if report:
+            manifest_tracks.append({"index": idx, "midi_file": summary[-1][3], **report})
+        if stats.get("slide_to_target"):
+            print("  слайды [%s]: %s" % (track.name, stats["slide_to_target"]))
 
         # Второй дубль ритм-гитары: свой seed — своё микро-время, velocity и
         # штрих; с --lock-to-drums оба дубля держатся за одну бочку.
@@ -2219,6 +2661,12 @@ def main(argv):
         combined_path = os.path.join(out_dir, "%s_ALL.mid" % safe_filename(base))
         build_combined_midi(all_tracks).save(combined_path)
         print("\nСборный файл (все дорожки): %s" % os.path.basename(combined_path))
+
+    if options["articulation_manifest"]:
+        manifest_path = os.path.join(out_dir, "%s_articulations.json" % safe_filename(base))
+        write_articulation_manifest(manifest_path, src, options, manifest_tracks,
+                                    os.path.basename(combined_path) if combined_path else None)
+        print("Отчёт об артикуляциях: %s" % os.path.basename(manifest_path))
 
     print("\nГотово. Файлы: %s" % out_dir)
 
