@@ -42,11 +42,16 @@ from typing import Any, Iterable
 
 from mido import Message, MidiFile, MidiTrack
 
+# Picking Mode Up/Down (C7/C#7, gp_to_shreddage.py --pick-direction) were
+# missing: on a picked Lead every long note "overlapped" a keyswitch, so finger
+# vibrato skipped nearly all of them (Through the Night: 477 polyphony skips)
+# and --velocity rewrote keyswitch velocities.
 HYDRA_SERVICE_NOTES = frozenset(
     set(range(0, 7))
     | {10, 11}
     | set(range(12, 22))
     | set(range(23, 28))
+    | {108, 109}
     | {114, 115}
 )
 VELOCITY_FLOOR = 20

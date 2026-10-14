@@ -192,3 +192,27 @@ def test_converter_manifest_drives_the_post_pass_end_to_end(tmp_path: Path):
     assert context["articulation_manifest"]["slide_mode"] == "target"
     assert "not_in_articulation_manifest" not in manifest["stats"]["finger_vibrato_skipped"]
     assert manifest["safety"]["note_timing_preserved"] is True
+
+
+def test_every_hydra_keyswitch_is_a_service_note():
+    """The post-pass must never treat a Hydra keyswitch as a musical note."""
+    from articulation_config import config_for_track_type
+    cfg = config_for_track_type("GUITAR")
+    notes = {int(spec["note"]) for spec in cfg["keyswitches"].values()}
+    notes |= {int(value) for value in cfg["fx_keyswitches"].values()}
+    assert notes <= solo.HYDRA_SERVICE_NOTES, sorted(notes - solo.HYDRA_SERVICE_NOTES)
+
+
+def test_pick_direction_keyswitches_do_not_block_vibrato_or_change():
+    # --pick-direction: C7/C#7 pulses inside a long Lead note (gp_to_shreddage.py)
+    track = _track([(0, LONG, 64), (900, 5, 108), (1500, 5, 109)])
+    bent = 0
+    for seed in range(1, 11):
+        enriched, stats = solo.humanize_solo_track(
+            track, ticks_per_beat=960, seed=seed, velocity=True,
+            finger_vibrato=True, finger_vibrato_style="expressive")
+        bent += 0 in _bent_spans(enriched)
+        assert "polyphony" not in stats["finger_vibrato_skipped"]
+        assert [m.velocity for m in enriched if m.type == "note_on" and m.note in (108, 109)] \
+            == [95, 95]
+    assert bent
