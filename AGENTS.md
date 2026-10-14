@@ -267,8 +267,9 @@
   attacks, pitches, velocities and all drum/OTHER files are identical.
 
 ## Web UI: five-step wizard with versions (2026-10-08)
-- Plan `docs/UI_WIZARD_PLAN.md`, approved mockup `docs/design/wizard-v2/`, task
-  `docs/codex-ui-wizard-task.md`. Steps: file → tracks → sound → extra → result,
+- The design phase is over: the plan, the Claude Design brief, the mockup export and
+  the Codex task were removed on 2026-10-14 (they live in git history before that
+  date); the templates are now the reference. Steps: file → tracks → sound → extra → result,
   `?step=` in the URL; one `<form>` for steps 2-4.
 - **Form contract is unchanged** (`track_indices`, `track_<N>_<effect>`, `seed`,
   `playable_tabs`, arrangement fields). In step 3 the per-track table cells are the
