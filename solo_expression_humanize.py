@@ -11,12 +11,27 @@ The four dimensions are independent:
 * finger vibrato: deterministic, irregular micro-bends on eligible long,
   monophonic notes that do not already carry an authored pitch-bend curve.
 
+Finger vibrato is pitch-wheel motion of the fretting hand. It is not CC1: on
+Shreddage CC1 is the depth knob of the instrument's own vibrato. Two optional
+lead-guitar safeguards build on the default ("uniform") pass:
+
+* ``--articulation-manifest`` reads the converter sidecar
+  (``gp_to_shreddage.py --articulation-manifest``) and allows finger vibrato
+  only on notes the converter marked eligible (no harmonics, pinch, tapping,
+  bends, slides, chords, GP or auto CC1 vibrato);
+* ``--finger-vibrato-placement phrase`` favours long notes that end a phrase
+  (followed by a rest or nothing) over notes inside a run.
+
+Both, and ``--skip-cc1-vibrato-notes``, skip notes that already carry CC1
+vibrato. Without them the output is unchanged for the same seed.
+
 Hydra service notes are never edited. With no dimension flag the command fails
 instead of silently producing a misleading "humanized" copy.
 """
 from __future__ import annotations
 
 import argparse
+import bisect
 import copy
 import hashlib
 import json
@@ -38,6 +53,24 @@ VELOCITY_FLOOR = 20
 VELOCITY_CEILING = 119
 PITCH_STEPS_PER_BEAT = 40
 DEFAULT_TEMPO_US_PER_BEAT = 500_000
+FINGER_VIBRATO_PLACEMENTS = ("uniform", "phrase")
+ARTICULATION_MANIFEST_KIND = "gpmidi_articulation_manifest"
+
+# Phrase placement: a long note "ends a phrase" when nothing follows it, the
+# next attack comes after at least rest_ms of silence, or it is an arrival note:
+# at least arrival_ratio times longer than the median of the next notes (a new,
+# faster run starts). Measured on the Spring Melody / Through the Night / pnd
+# solos: long notes almost never precede a rest (gap 0-12 ms), so a rest-only
+# rule left nothing to prioritise. Those notes get vibrato almost always; long
+# notes inside a run of equally long notes only occasionally. The thresholds
+# are starting values: judge by ear.
+PHRASE_PLACEMENT = {
+    "rest_ms": 150.0,
+    "arrival_ratio": 2.0,
+    "arrival_lookahead": 3,
+    "phrase_end_probability": 0.95,
+    "interior_probability_scale": 0.35,
+}
 
 FINGER_VIBRATO_STYLES: dict[str, dict[str, float | tuple[float, float]]] = {
     "subtle": {
@@ -256,6 +289,10 @@ def _finger_vibrato_events(
     ticks_per_beat: int,
     pitch_bend_range: float,
     style: str,
+    placement: str = "uniform",
+    articulation_notes: dict[tuple[int, int], list[dict[str, Any]]] | None = None,
+    skip_cc1_vibrato_notes: bool = False,
+    skipped: Counter | None = None,
 ) -> tuple[list[tuple[int, int, Any]], int]:
     """Create small irregular PB motion without overwriting authored bends.
 
@@ -263,6 +300,11 @@ def _finger_vibrato_events(
     reject any span with an existing non-zero PB state/event, and reset to zero
     before note-off.  This is intentionally a post-mapped experiment path; it
     never changes notes, timings, service events, or existing bend anchors.
+
+    ``articulation_notes`` maps (attack tick, note) to converter manifest
+    records; a note without an eligible record is skipped. Every deterministic
+    filter runs before the random draw, so the default path keeps its sequence.
+    ``skipped`` (if given) counts the reason each long-enough span was left out.
     """
     if pitch_bend_range <= 0:
         raise ValueError("pitch_bend_range must be positive")
@@ -270,9 +312,20 @@ def _finger_vibrato_events(
         profile = FINGER_VIBRATO_STYLES[style]
     except KeyError as exc:
         raise ValueError(f"unknown finger vibrato style: {style}") from exc
+    if placement not in FINGER_VIBRATO_PLACEMENTS:
+        raise ValueError(f"unknown finger vibrato placement: {placement}")
+    skipped = Counter() if skipped is None else skipped
 
     spans = _musical_note_spans(events)
     pitch_events = [event for event in events if event[2].type == "pitchwheel"]
+    cc1_events = [
+        (tick, int(message.value)) for tick, _index, message in events
+        if message.type == "control_change" and int(message.control) == 1
+    ]
+    phrase_ends = (
+        _phrase_ends(spans, tempo_events or events, ticks_per_beat)
+        if placement == "phrase" else set()
+    )
     occupied_pitch_ticks = {tick for tick, _index, _message in pitch_events}
     rng = random.Random(f"solo-finger-vibrato:{style}:{seed}")
     extras: list[tuple[int, int, Any]] = []
@@ -315,11 +368,13 @@ def _finger_vibrato_events(
             other is not span and other["start"] < end and start < other["end"]
             for other in spans
         ):
+            skipped["polyphony"] += 1
             continue
 
         tempo = _tempo_at_tick(tempo_events or events, start)
         duration_ms = (end - start) * tempo / (ticks_per_beat * 1000.0)
         if duration_ms < float(profile["min_note_ms"]):
+            skipped["short"] += 1
             continue
 
         pitch_state = 0
@@ -331,8 +386,31 @@ def _finger_vibrato_events(
                 expressive_bend = True
                 break
         if pitch_state != 0 or expressive_bend:
+            skipped["authored_pitch_bend"] += 1
             continue
-        if rng.random() >= float(profile["probability"]):
+        if articulation_notes is not None:
+            records = articulation_notes.get((start, span["note"]))
+            if not records:
+                skipped["not_in_articulation_manifest"] += 1
+                continue
+            reasons = sorted({
+                reason for record in records
+                for reason in record["finger_vibrato"]["skip_reasons"]
+            })
+            if reasons:
+                skipped["manifest:" + "+".join(reasons)] += 1
+                continue
+        if skip_cc1_vibrato_notes and _cc1_active(cc1_events, start, end):
+            skipped["cc1_vibrato"] += 1
+            continue
+        probability = float(profile["probability"])
+        if placement == "phrase":
+            probability = (
+                PHRASE_PLACEMENT["phrase_end_probability"] if id(span) in phrase_ends
+                else probability * PHRASE_PLACEMENT["interior_probability_scale"]
+            )
+        if rng.random() >= probability:
+            skipped["probability"] += 1
             continue
 
         delay_low, delay_high = profile["delay_ms"]
@@ -382,6 +460,69 @@ def _finger_vibrato_events(
     return extras, changed_notes
 
 
+def _cc1_active(cc1_events: list[tuple[int, int]], start: int, end: int) -> bool:
+    """True when CC1 vibrato depth is non-zero at the attack or inside the note."""
+    state = 0
+    for tick, value in cc1_events:
+        if tick <= start:
+            state = value
+        elif tick < end and value > 0:
+            return True
+    return state > 0
+
+
+def _phrase_ends(
+    spans: list[dict[str, int]],
+    tempo_events: list[tuple[int, int, Any]],
+    ticks_per_beat: int,
+) -> set[int]:
+    """ids of spans that end a phrase (see PHRASE_PLACEMENT)."""
+    ordered = sorted(spans, key=lambda span: (span["start"], span["note"]))
+    attacks = [span["start"] for span in ordered]
+    lookahead = int(PHRASE_PLACEMENT["arrival_lookahead"])
+    ends = set()
+    for span in ordered:
+        index = bisect.bisect_left(attacks, span["end"])
+        if index >= len(attacks):
+            ends.add(id(span))
+            continue
+        tempo = _tempo_at_tick(tempo_events, span["end"])
+        gap_ms = (attacks[index] - span["end"]) * tempo / (ticks_per_beat * 1000.0)
+        following = sorted(
+            other["end"] - other["start"] for other in ordered[index:index + lookahead]
+        )
+        median = following[len(following) // 2]
+        if (gap_ms >= PHRASE_PLACEMENT["rest_ms"]
+                or span["end"] - span["start"] >= PHRASE_PLACEMENT["arrival_ratio"] * median):
+            ends.add(id(span))
+    return ends
+
+
+def load_articulation_manifest(
+    path: Path, track_name: str, ticks_per_beat: int,
+) -> tuple[dict[tuple[int, int], list[dict[str, Any]]], dict[str, Any]]:
+    """Read the converter sidecar and index one track's notes by (tick, note).
+
+    Fails closed: a manifest of another kind, another PPQ or without the
+    target track is an error, not an empty allow-list.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("kind") != ARTICULATION_MANIFEST_KIND:
+        raise ValueError(f"{path}: not a gpmidi articulation manifest")
+    if int(payload.get("ticks_per_beat", 0)) != int(ticks_per_beat):
+        raise ValueError(
+            f"{path}: manifest PPQ {payload.get('ticks_per_beat')} does not match "
+            f"MIDI PPQ {ticks_per_beat}"
+        )
+    matches = [track for track in payload.get("tracks", []) if track.get("name") == track_name]
+    if len(matches) != 1:
+        raise ValueError(f"{path}: expected one track named {track_name!r}, found {len(matches)}")
+    index: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for record in matches[0]["notes"]:
+        index.setdefault((int(record["on_tick"]), int(record["pitch"])), []).append(record)
+    return index, matches[0]
+
+
 def _humanize_modulation(events: list[tuple[int, int, Any]], seed: int) -> int:
     cc1 = [event for event in events if event[2].type == "control_change" and int(event[2].control) == 1]
     positive_runs: list[list[tuple[int, int, Any]]] = []
@@ -424,6 +565,9 @@ def humanize_solo_track(
     finger_vibrato_style: str = "natural",
     pitch_bend_range: float = 7.0,
     tempo_track: Iterable[Any] | None = None,
+    finger_vibrato_placement: str = "uniform",
+    articulation_notes: dict[tuple[int, int], list[dict[str, Any]]] | None = None,
+    skip_cc1_vibrato_notes: bool = False,
 ) -> tuple[MidiTrack, dict[str, Any]]:
     """Return an enriched copy and fail closed if any immutable changed."""
     if not any((velocity, pitch_bend, modulation, finger_vibrato)):
@@ -440,6 +584,7 @@ def humanize_solo_track(
     velocity_changed = _humanize_velocity(events, seed, ticks_per_beat) if velocity else 0
     modulation_changed = _humanize_modulation(events, seed) if modulation else 0
     pitch_extras = _pitch_interpolations(events, seed, ticks_per_beat) if pitch_bend else []
+    finger_skipped: Counter = Counter()
     finger_extras, finger_notes = (
         _finger_vibrato_events(
             events,
@@ -448,6 +593,14 @@ def humanize_solo_track(
             ticks_per_beat=ticks_per_beat,
             pitch_bend_range=pitch_bend_range,
             style=finger_vibrato_style,
+            placement=finger_vibrato_placement,
+            articulation_notes=articulation_notes,
+            skip_cc1_vibrato_notes=(
+                skip_cc1_vibrato_notes
+                or finger_vibrato_placement == "phrase"
+                or articulation_notes is not None
+            ),
+            skipped=finger_skipped,
         )
         if finger_vibrato else ([], 0)
     )
@@ -468,6 +621,7 @@ def humanize_solo_track(
         "pitch_interpolation_events_added": len(pitch_extras),
         "finger_vibrato_events_added": len(finger_extras),
         "finger_vibrato_notes": finger_notes,
+        "finger_vibrato_skipped": dict(sorted(finger_skipped.items())),
         "modulation_events_changed": modulation_changed,
         "note_timing_preserved": True,
         "note_pitches_preserved": True,
@@ -505,11 +659,20 @@ def process_file(
     pitch_bend_range: float = 7.0,
     changed_tracks_only: bool = False,
     track_name: str | None = None,
+    finger_vibrato_placement: str = "uniform",
+    articulation_manifest: Path | None = None,
+    skip_cc1_vibrato_notes: bool = False,
 ) -> dict[str, Any]:
     if source.resolve() == output.resolve():
         raise ValueError("source and output paths must be distinct")
     if not any((velocity, pitch_bend, modulation, finger_vibrato)):
         raise ValueError("at least one Solo humanization dimension must be enabled")
+    lead_options = (finger_vibrato_placement != "uniform" or articulation_manifest is not None
+                    or skip_cc1_vibrato_notes)
+    if lead_options and not finger_vibrato:
+        # These only steer finger vibrato; silently ignoring them would produce
+        # a run in another mode than the one asked for.
+        raise ValueError("finger vibrato placement/manifest/CC1 options need --finger-vibrato")
     baseline = MidiFile(source)
     candidate = copy.deepcopy(baseline)
     candidates = [
@@ -520,6 +683,13 @@ def process_file(
     if len(candidates) != 1:
         raise ValueError(f"expected exactly one Solo track, found {len(candidates)}")
     target_index = candidates[0]
+    articulation_notes = None
+    manifest_track: dict[str, Any] | None = None
+    if articulation_manifest is not None:
+        articulation_notes, manifest_track = load_articulation_manifest(
+            articulation_manifest, _track_name(baseline.tracks[target_index]),
+            baseline.ticks_per_beat,
+        )
     before_other = {
         index: _semantic_signature(track)
         for index, track in enumerate(baseline.tracks)
@@ -540,6 +710,9 @@ def process_file(
             if baseline.type == 1 and target_index != 0
             else None
         ),
+        finger_vibrato_placement=finger_vibrato_placement,
+        articulation_notes=articulation_notes,
+        skip_cc1_vibrato_notes=skip_cc1_vibrato_notes,
     )
     candidate.tracks[target_index] = enriched
     for index, signature in before_other.items():
@@ -576,6 +749,22 @@ def process_file(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output_midi.save(output)
+    report: dict[str, Any] = {}
+    if finger_vibrato:
+        report["finger_vibrato_context"] = {
+            "placement": finger_vibrato_placement,
+            "skip_cc1_vibrato_notes": bool(
+                skip_cc1_vibrato_notes or finger_vibrato_placement == "phrase"
+                or articulation_manifest is not None
+            ),
+            "articulation_manifest": None if articulation_manifest is None else {
+                "path": str(articulation_manifest),
+                "sha256": _sha256(articulation_manifest),
+                "track": manifest_track["name"],
+                "slide_mode": manifest_track.get("slide_mode"),
+                "eligible_notes": manifest_track["summary"]["finger_vibrato_eligible"],
+            },
+        }
     return {
         "schema_version": 1,
         "mode": "solo_expression_humanization",
@@ -606,6 +795,7 @@ def process_file(
             "non_solo_tracks_preserved": True,
             "pitch_anchors_preserved": True,
         },
+        **report,
     }
 
 
@@ -623,6 +813,20 @@ def _parser() -> argparse.ArgumentParser:
         "--finger-vibrato-style",
         choices=sorted(FINGER_VIBRATO_STYLES),
         default="natural",
+    )
+    parser.add_argument(
+        "--finger-vibrato-placement",
+        choices=FINGER_VIBRATO_PLACEMENTS,
+        default="uniform",
+        help="phrase: favour long notes that end a phrase or precede a rest",
+    )
+    parser.add_argument(
+        "--articulation-manifest", type=Path,
+        help="gp_to_shreddage.py sidecar; only notes it marks eligible get finger vibrato",
+    )
+    parser.add_argument(
+        "--skip-cc1-vibrato-notes", action="store_true",
+        help="skip notes that carry CC1 vibrato (implied by phrase placement and a manifest)",
     )
     parser.add_argument("--pitch-bend-range", type=float, default=7.0)
     parser.add_argument("--changed-tracks-only", action="store_true")
@@ -643,6 +847,11 @@ def main(argv: list[str] | None = None) -> int:
         pitch_bend_range=args.pitch_bend_range,
         changed_tracks_only=args.changed_tracks_only,
         track_name=args.track_name,
+        finger_vibrato_placement=args.finger_vibrato_placement,
+        articulation_manifest=(
+            args.articulation_manifest.resolve() if args.articulation_manifest else None
+        ),
+        skip_cc1_vibrato_notes=args.skip_cc1_vibrato_notes,
     )
     payload = json.dumps(manifest, ensure_ascii=False, indent=2)
     if args.manifest:
